@@ -22,11 +22,13 @@ use tauri::{
     Emitter, Manager,
 };
 
+mod sessions;
+
 // ---------------------------------------------------------------------
 // Locating GeneralStaff (the private working repo)
 // ---------------------------------------------------------------------
 
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
@@ -486,11 +488,17 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(sessions::SessionManager::default())
         .invoke_handler(tauri::generate_handler![
             read_fleet,
             project_files,
             read_project_file,
-            project_tasks
+            project_tasks,
+            sessions::spawn_session,
+            sessions::write_session,
+            sessions::resize_session,
+            sessions::kill_session,
+            sessions::list_sessions
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

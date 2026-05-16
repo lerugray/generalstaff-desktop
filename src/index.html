@@ -5,6 +5,7 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeneralStaff</title>
+    <link rel="stylesheet" href="vendor/xterm/xterm.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -26,13 +27,14 @@
         </footer>
       </aside>
       <main id="main">
-        <header id="topbar">
-          <h1 id="context-title">Fleet briefing</h1>
-          <span id="context-sub"></span>
-        </header>
-        <section id="content"></section>
+        <div id="tabbar"></div>
+        <section id="content">
+          <div id="fleet-view" class="view view-fleet" data-view="fleet"></div>
+        </section>
       </main>
     </div>
+    <script src="vendor/xterm/xterm.js"></script>
+    <script src="vendor/xterm/addon-fit.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

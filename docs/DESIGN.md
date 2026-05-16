@@ -55,8 +55,8 @@ One persistent window with a tray / menu-bar status icon.
     renders only when non-empty.
   - **Workbench** (a project selected): a file tree + read-only file
     viewer + that project's cycle history.
-  - **Session** (a child session): a compose-and-fire Claude Code
-    session — v0.1+.
+  - **Session** (a child session): a real `claude` / `cursor-agent`
+    process in an `xterm.js` terminal tab — see SESSION-COCKPIT-PLAN.md.
 
 ## Locked decisions
 
@@ -82,13 +82,15 @@ One persistent window with a tray / menu-bar status icon.
    CLI-driven actions — no process management, no PTY — which keeps the
    first release low-risk.
 
-4. **Child sessions: compose-and-fire first, interactive later.** v0.1
-   ships the compose-and-fire model — write a prompt, fire `claude -p`,
-   watch streamed output read-only, `--resume` to continue (devforge's
-   proven model). An interactive type-in terminal is a later addition,
-   once the foundation is solid. Rationale: a cross-platform interactive
-   PTY is a real reliability/friction risk (zombie processes, silent
-   hangs); the simpler model ships first.
+4. **Child sessions: a thin terminal wrapper (reversed 2026-05-16).**
+   The original decision here — compose-and-fire `claude -p` first,
+   interactive PTY later — was reversed. Compose-and-fire is a custom
+   chat UI on headless mode; it cannot function identically to Claude
+   Code and drifts behind every Claude Code release. Sessions instead
+   run the real `claude` / `cursor-agent` CLI under a PTY, rendered in
+   `xterm.js` terminal tabs — the desktop wraps Claude Code rather than
+   reimplementing it. See `docs/SESSION-COCKPIT-PLAN.md` for the full
+   architecture, the Hammerstein-audit constraints, and the phases.
 
 5. **Design register: Prussian Kriegspiel lithograph.** Warm paper / ink
    / a single rust accent; period serif display, monospace for data; a

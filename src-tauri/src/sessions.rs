@@ -156,9 +156,12 @@ fn build_command(
     cmd.env("PATH", agent_path());
     cmd.env("TERM", "xterm-256color");
 
-    // A claude session gets the gs-mcp tool, so it can act as a
-    // dispatcher — opening child session tabs straight from chat.
+    // A claude session runs at max effort (Ray's standing preference —
+    // he trusts the reasoning) and gets the gs-mcp tool, so it can act
+    // as a dispatcher — opening child session tabs straight from chat.
     if agent == "claude" {
+        cmd.arg("--effort");
+        cmd.arg("max");
         if let Some(mcp) = gs_mcp_path() {
             let cfg = serde_json::json!({
                 "mcpServers": { "gs": { "command": mcp.display().to_string() } }

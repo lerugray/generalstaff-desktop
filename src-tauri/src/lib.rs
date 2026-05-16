@@ -434,6 +434,100 @@ fn project_tasks(id: String) -> TaskList {
 }
 
 // ---------------------------------------------------------------------
+// Pings — the GS inbox (state/pings/inbox.md), open items only.
+// ---------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct Ping {
+    /// Heading timestamp, e.g. "2026-05-16 15:38".
+    when: String,
+    actor: String,
+    body: String,
+}
+
+#[derive(Serialize)]
+struct PingList {
+    ok: bool,
+    /// Open (unresolved) pings, newest first.
+    pings: Vec<Ping>,
+}
+
+/// Parse state/pings/inbox.md and return the open pings. The inbox is a
+/// sequence of `## ` blocks; a block headed `<date> <time> <actor>` is a
+/// ping, and one headed `resolved …` resolves the ping just before it.
+#[tauri::command]
+fn read_pings() -> PingList {
+    let path = generalstaff_root()
+        .join("state")
+        .join("pings")
+        .join("inbox.md");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return PingList {
+            ok: false,
+            pings: vec![],
+        };
+    };
+
+    // Split into (heading, body) blocks on `## ` lines.
+    let mut blocks: Vec<(String, String)> = vec![];
+    let mut heading: Option<String> = None;
+    let mut body = String::new();
+    for line in text.lines() {
+        if let Some(h) = line.strip_prefix("## ") {
+            if let Some(prev) = heading.take() {
+                blocks.push((prev, body.trim().to_string()));
+            }
+            heading = Some(h.trim().to_string());
+            body.clear();
+        } else if heading.is_some() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    if let Some(prev) = heading.take() {
+        blocks.push((prev, body.trim().to_string()));
+    }
+
+    // A ping heading starts with a YYYY-MM-DD date; it is open unless
+    // the very next block is a `resolved` block.
+    let is_date = |h: &str| {
+        let b = h.as_bytes();
+        b.len() >= 10
+            && b[0..4].iter().all(u8::is_ascii_digit)
+            && b[4] == b'-'
+            && b[7] == b'-'
+    };
+    let mut pings = vec![];
+    for i in 0..blocks.len() {
+        let (h, body) = &blocks[i];
+        if !is_date(h) {
+            continue;
+        }
+        let resolved = blocks
+            .get(i + 1)
+            .map(|(next, _)| next.starts_with("resolved"))
+            .unwrap_or(false);
+        if resolved {
+            continue;
+        }
+        let parts: Vec<&str> = h.splitn(3, ' ').collect();
+        let when = if parts.len() >= 2 {
+            format!("{} {}", parts[0], parts[1])
+        } else {
+            h.clone()
+        };
+        let actor = parts.get(2).unwrap_or(&"").to_string();
+        pings.push(Ping {
+            when,
+            actor,
+            body: body.clone(),
+        });
+    }
+    pings.reverse(); // newest first
+    PingList { ok: true, pings }
+}
+
+// ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
 
@@ -494,6 +588,7 @@ pub fn run() {
             project_files,
             read_project_file,
             project_tasks,
+            read_pings,
             sessions::spawn_session,
             sessions::write_session,
             sessions::resize_session,

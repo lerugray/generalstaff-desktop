@@ -479,8 +479,22 @@ function showBriefing() {
     '<button id="dispatch-go">Open dispatcher session</button></div>' +
     '<div id="dispatch-msg" class="spawn-msg"></div></div>';
 
+  const pings =
+    '<div class="panel"><h2>Open pings</h2>' +
+    '<p class="panel-note">Inbound from the GS inbox. &ldquo;Scaffold&rdquo; ' +
+    "opens a dispatcher session seeded with the idea and a Hammerstein " +
+    "scope-it prompt.</p>" +
+    '<div id="pings-list" class="ping-list muted">Loading pings&hellip;</div>' +
+    '<div id="pings-msg" class="spawn-msg"></div></div>';
+
   fleetView.innerHTML =
-    headHtml("Fleet briefing", sub) + dispatcher + situation + attention;
+    headHtml("Fleet briefing", sub) +
+    dispatcher +
+    pings +
+    situation +
+    attention;
+
+  loadPings();
 
   const dgo = document.getElementById("dispatch-go");
   if (dgo) {
@@ -719,6 +733,88 @@ async function loadTaskLedger(id) {
         ")</div>" +
         list.map(rowHtml).join("");
   el.innerHTML = section("Pending", pending) + section("Done", done);
+}
+
+// ---------------------------------------------------------------------
+// Fleet view — open pings (the GS inbox)
+// ---------------------------------------------------------------------
+
+// First non-empty line of a ping body, truncated for the row display.
+function pingSnippet(body) {
+  const line =
+    String(body)
+      .split("\n")
+      .map((s) => s.trim())
+      .find((s) => s) || "";
+  return line.length > 140 ? line.slice(0, 139) + "…" : line;
+}
+
+// The seed prompt a "Scaffold" click hands the dispatcher session.
+function scaffoldPrompt(ping) {
+  return (
+    "A new idea came in via the GeneralStaff pings inbox (" +
+    ping.when +
+    ", " +
+    ping.actor +
+    "):\n\n" +
+    ping.body +
+    "\n\nScaffold this idea: research what it would take, Hammerstein-" +
+    "scope it with /audit, and either propose how it becomes a registered " +
+    "GS project — or tell me honestly if it should not be one."
+  );
+}
+
+// Load the open pings into the briefing's pings panel.
+async function loadPings() {
+  let pl;
+  try {
+    pl = await invoke("read_pings");
+  } catch (e) {
+    pl = { ok: false, pings: [] };
+  }
+  const el = document.getElementById("pings-list");
+  if (!el) return;
+  el.className = "ping-list";
+  if (!pl.ok || !pl.pings.length) {
+    el.innerHTML = '<p class="muted">No open pings.</p>';
+    return;
+  }
+  const shown = pl.pings.slice(0, 10);
+  el.innerHTML = shown
+    .map((p, i) => {
+      const snip = escapeHtml(pingSnippet(p.body));
+      return (
+        '<div class="ping-row">' +
+        '<div class="ping-meta">' +
+        '<span class="ping-when">' +
+        escapeHtml(p.when) +
+        "</span>" +
+        '<span class="ping-actor">' +
+        escapeHtml(p.actor) +
+        "</span></div>" +
+        '<div class="ping-body" title="' +
+        snip +
+        '">' +
+        snip +
+        "</div>" +
+        '<button class="ping-scaffold" data-i="' +
+        i +
+        '">Scaffold</button>' +
+        "</div>"
+      );
+    })
+    .join("");
+  for (const btn of el.querySelectorAll(".ping-scaffold")) {
+    const ping = shown[Number(btn.dataset.i)];
+    btn.addEventListener("click", () => {
+      startSession(
+        "claude",
+        snapshot.generalstaff_path,
+        scaffoldPrompt(ping),
+        document.getElementById("pings-msg")
+      );
+    });
+  }
 }
 
 // ---------------------------------------------------------------------

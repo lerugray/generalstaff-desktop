@@ -598,10 +598,13 @@ function showBriefing() {
     '<div id="dispatch-msg" class="spawn-msg"></div></div>';
 
   const pings =
-    '<div class="panel"><h2>Open pings</h2>' +
+    '<div class="panel"><div class="panel-head"><h2>Open pings</h2>' +
+    '<button id="pings-refresh" class="panel-action">Refresh</button>' +
+    "</div>" +
     '<p class="panel-note">Inbound from the GS inbox. &ldquo;Scaffold&rdquo; ' +
     "opens a dispatcher session seeded with the idea and a Hammerstein " +
-    "scope-it prompt.</p>" +
+    "scope-it prompt; &ldquo;Resolve&rdquo; closes a ping in the inbox " +
+    "itself. The list refreshes on its own when the inbox changes.</p>" +
     '<div id="pings-list" class="ping-list muted">Loading pings&hellip;</div>' +
     '<div id="pings-msg" class="spawn-msg"></div></div>';
 
@@ -625,6 +628,9 @@ function showBriefing() {
       );
     });
   }
+
+  const prefresh = document.getElementById("pings-refresh");
+  if (prefresh) prefresh.addEventListener("click", () => loadPings());
 
   for (const row of fleetView.querySelectorAll(".attn-row")) {
     const id = row.dataset.id;
@@ -939,7 +945,7 @@ async function loadPings() {
     el.innerHTML = '<p class="muted">No open pings.</p>';
     return;
   }
-  const shown = pl.pings.slice(0, 12);
+  const shown = pl.pings;
   el.innerHTML = shown
     .map((p, i) => {
       const snip = escapeHtml(pingSnippet(p.body));

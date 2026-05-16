@@ -323,6 +323,34 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
   margin-bottom: 14px;
   max-width: 64ch;
 }
+
+/* Panel header row — a title with an action button (pings Refresh). */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.panel-head h2 { margin-bottom: 0; }
+.panel-action {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border: 1px solid var(--rule-soft);
+  background: transparent;
+  color: var(--ink-faint);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.panel-action:hover {
+  background: var(--ink-faint);
+  color: var(--paper);
+  border-color: var(--ink-faint);
+}
 .muted { color: var(--ink-faint); font-size: 13px; }
 
 .stat-row { display: flex; gap: 34px; flex-wrap: wrap; }
@@ -523,7 +551,12 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
 
 /* ---- Briefing (open pings) ---- */
 
-.ping-list { display: flex; flex-direction: column; }
+.ping-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
 .ping-row {
   display: flex;
   align-items: center;

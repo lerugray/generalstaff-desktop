@@ -8,11 +8,13 @@
 //! log any actor may add to; resolving a ping appends a `## resolved`
 //! block, the same kind of write the inbox is built for.
 //!
-//! The "fleet" is the project portfolio in `generalstaff-private/state/`
-//! — each project's `tasks.json` / `MISSION.md` / `project-meta.yaml`.
-//! That is where the real work happens; the public GeneralStaff repo is
-//! the sanitized mirror and is not what the desktop reads.
+//! The "fleet" is the project portfolio across two repos: most projects
+//! keep their `tasks.json` / `MISSION.md` / `project-meta.yaml` in
+//! `generalstaff-private/state/`, but a few public-state projects keep
+//! theirs in the public GeneralStaff repo's `state/`. The desktop reads
+//! both and merges them by project id.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -57,6 +59,36 @@ fn generalstaff_root() -> PathBuf {
             .join("generalstaff-private");
     }
     PathBuf::from("generalstaff-private")
+}
+
+/// The public GeneralStaff repo — a sibling of generalstaff-private
+/// named `generalstaff` (case-insensitive). Public-state projects keep
+/// their state there rather than in the private repo.
+fn public_gs_root() -> Option<PathBuf> {
+    let parent = generalstaff_root().parent()?.to_path_buf();
+    for entry in std::fs::read_dir(&parent).ok()?.flatten() {
+        if entry.path().is_dir()
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("generalstaff")
+        {
+            return Some(entry.path());
+        }
+    }
+    None
+}
+
+/// Resolve a project's state directory: `generalstaff-private/state/<id>/`
+/// for the usual private-state projects, falling back to the public
+/// GeneralStaff repo's `state/<id>/` for public-state projects.
+fn project_state_dir(id: &str) -> Option<PathBuf> {
+    let private = generalstaff_root().join("state").join(id);
+    if private.is_dir() {
+        return Some(private);
+    }
+    let public = public_gs_root()?.join("state").join(id);
+    public.is_dir().then_some(public)
 }
 
 // ---------------------------------------------------------------------
@@ -127,37 +159,17 @@ fn task_counts(tasks_path: &Path) -> (u64, u64, u64) {
     (total, pending, interactive)
 }
 
-/// Read the whole project portfolio from generalstaff-private's state dir.
-#[tauri::command]
-fn read_fleet() -> FleetSnapshot {
-    let root = generalstaff_root();
-    let state_dir = root.join("state");
-
-    if !state_dir.is_dir() {
-        return FleetSnapshot {
-            ok: false,
-            message: Some(format!(
-                "generalstaff-private state not found at {}",
-                state_dir.display()
-            )),
-            generalstaff_path: root.display().to_string(),
-            projects: vec![],
-        };
-    }
-
-    let entries = match std::fs::read_dir(&state_dir) {
-        Ok(e) => e,
-        Err(_) => {
-            return FleetSnapshot {
-                ok: false,
-                message: Some(format!("Cannot read {}", state_dir.display())),
-                generalstaff_path: root.display().to_string(),
-                projects: vec![],
-            }
-        }
+/// Scan one `state/` directory, appending each project to `projects`.
+/// Ids already in `seen` are skipped — so a second scan (the public
+/// repo) only adds projects the first scan did not already cover.
+fn collect_projects(
+    state_dir: &Path,
+    projects: &mut Vec<ProjectState>,
+    seen: &mut HashSet<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(state_dir) else {
+        return;
     };
-
-    let mut projects: Vec<ProjectState> = vec![];
     for entry in entries.flatten() {
         let dir = entry.path();
         if !dir.is_dir() {
@@ -167,6 +179,9 @@ fn read_fleet() -> FleetSnapshot {
         if id.starts_with('_') || id.starts_with('.') || id == "pings" {
             continue;
         }
+        if seen.contains(&id) {
+            continue;
+        }
         // A real project dir carries a ledger file; this skips stray dirs.
         let is_project = dir.join("tasks.json").exists()
             || dir.join("project-meta.yaml").exists()
@@ -174,6 +189,7 @@ fn read_fleet() -> FleetSnapshot {
         if !is_project {
             continue;
         }
+        seen.insert(id.clone());
 
         let (total, pending, interactive_pending) = task_counts(&dir.join("tasks.json"));
         let status = if pending > 0 { "active" } else { "clear" };
@@ -221,6 +237,36 @@ fn read_fleet() -> FleetSnapshot {
             archived,
             category,
         });
+    }
+}
+
+/// Read the whole project portfolio — private-state projects from
+/// generalstaff-private/state/, then public-state projects from the
+/// public GeneralStaff repo's state/ (merged by id; private wins).
+#[tauri::command]
+fn read_fleet() -> FleetSnapshot {
+    let root = generalstaff_root();
+    let state_dir = root.join("state");
+
+    if !state_dir.is_dir() {
+        return FleetSnapshot {
+            ok: false,
+            message: Some(format!(
+                "generalstaff-private state not found at {}",
+                state_dir.display()
+            )),
+            generalstaff_path: root.display().to_string(),
+            projects: vec![],
+        };
+    }
+
+    let mut projects: Vec<ProjectState> = vec![];
+    let mut seen: HashSet<String> = HashSet::new();
+    collect_projects(&state_dir, &mut projects, &mut seen);
+    // Public-state projects (generalstaff, bookfinder-general,
+    // wargame-design-book, devforge-website) live only in the public repo.
+    if let Some(public) = public_gs_root() {
+        collect_projects(&public.join("state"), &mut projects, &mut seen);
     }
 
     // Projects with open work first, alphabetical within each group.
@@ -394,10 +440,16 @@ fn project_tasks(id: String) -> TaskList {
             tasks: vec![],
         };
     }
-    let path = generalstaff_root()
-        .join("state")
-        .join(&id)
-        .join("tasks.json");
+    let path = match project_state_dir(&id) {
+        Some(d) => d.join("tasks.json"),
+        None => {
+            return TaskList {
+                ok: false,
+                message: Some(format!("No state directory for '{id}'")),
+                tasks: vec![],
+            }
+        }
+    };
     let arr = match read_json(&path).and_then(|v| v.as_array().cloned()) {
         Some(a) => a,
         None => {
@@ -665,6 +717,13 @@ fn start_fleet_watcher(app: &tauri::AppHandle) {
 
     if state_dir.is_dir() {
         let _ = watcher.watch(&state_dir, RecursiveMode::Recursive);
+    }
+    // Public-state projects live in the public repo — watch its state/ too.
+    if let Some(public) = public_gs_root() {
+        let pub_state = public.join("state");
+        if pub_state.is_dir() {
+            let _ = watcher.watch(&pub_state, RecursiveMode::Recursive);
+        }
     }
 
     // Keep the watcher (and its background thread) alive for the app's life.

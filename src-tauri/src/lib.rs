@@ -70,6 +70,9 @@ struct ProjectState {
     /// lifestyle_value) from project-meta.yaml. None if no meta file.
     viability_sum: Option<i64>,
     required_attention: Option<String>,
+    /// `archived: true` in project-meta.yaml — the project is off the
+    /// active board (set by the 2026-05-16 portfolio triage).
+    archived: bool,
     category: Option<String>,
 }
 
@@ -183,6 +186,12 @@ fn read_fleet() -> FleetSnapshot {
             .and_then(|v| v.get("required_attention"))
             .and_then(|x| x.as_str())
             .map(String::from);
+        // `archived: true` is a top-level key in project-meta.yaml.
+        let archived = meta
+            .as_ref()
+            .and_then(|m| m.get("archived"))
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
         let category = meta
             .as_ref()
             .and_then(|m| m.get("classification"))
@@ -204,6 +213,7 @@ fn read_fleet() -> FleetSnapshot {
             interactive_pending,
             viability_sum,
             required_attention,
+            archived,
             category,
         });
     }

@@ -37,9 +37,52 @@ function escapeHtml(s) {
 }
 
 function markSelected() {
-  for (const row of fleetList.children) {
+  for (const row of fleetList.querySelectorAll(".fleet-row")) {
     row.classList.toggle("selected", row.dataset.id === selectedId);
   }
+}
+
+// A project is "parked" if the 2026-05-16 portfolio triage archived it
+// or set its required_attention to dormant. Parked projects drop into a
+// collapsed rail group and are left out of the briefing's counts and
+// Attention ranking — they have already been triaged.
+function isParked(p) {
+  return Boolean(p.archived) || p.required_attention === "dormant";
+}
+
+function buildFleetRow(proj) {
+  const row = document.createElement("div");
+  row.className = "fleet-row";
+  if (isParked(proj)) row.classList.add("parked");
+  row.dataset.id = proj.id;
+  row.setAttribute("role", "button");
+  row.setAttribute("tabindex", "0");
+  row.title =
+    (STATUS_LABEL[proj.status] || proj.status) +
+    (proj.pending ? " - " + proj.pending + " pending" : "");
+
+  const dot = document.createElement("span");
+  dot.className = "dot dot-" + proj.status;
+  const name = document.createElement("span");
+  name.className = "row-name";
+  name.textContent = proj.id;
+
+  row.append(dot, name);
+  if (proj.pending) {
+    const count = document.createElement("span");
+    count.className = "row-count";
+    count.textContent = proj.pending;
+    row.appendChild(count);
+  }
+
+  row.addEventListener("click", () => selectProject(proj.id));
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selectProject(proj.id);
+    }
+  });
+  return row;
 }
 
 function renderRail() {
@@ -51,47 +94,35 @@ function renderRail() {
     return;
   }
 
-  for (const proj of snapshot.projects) {
-    const row = document.createElement("div");
-    row.className = "fleet-row";
-    row.dataset.id = proj.id;
-    row.setAttribute("role", "button");
-    row.setAttribute("tabindex", "0");
-    row.title =
-      (STATUS_LABEL[proj.status] || proj.status) +
-      (proj.pending ? " - " + proj.pending + " pending" : "");
+  // The 2026-05-16 triage split: active projects render inline; parked
+  // ones (archived or dormant) drop into a collapsed group at the foot.
+  const activeProjs = snapshot.projects.filter((p) => !isParked(p));
+  const parkedProjs = snapshot.projects.filter((p) => isParked(p));
 
-    const dot = document.createElement("span");
-    dot.className = "dot dot-" + proj.status;
-    const name = document.createElement("span");
-    name.className = "row-name";
-    name.textContent = proj.id;
+  for (const proj of activeProjs) {
+    fleetList.appendChild(buildFleetRow(proj));
+  }
 
-    row.append(dot, name);
-    if (proj.pending) {
-      const count = document.createElement("span");
-      count.className = "row-count";
-      count.textContent = proj.pending;
-      row.appendChild(count);
+  if (parkedProjs.length) {
+    const group = document.createElement("details");
+    group.className = "parked-group";
+    const summary = document.createElement("summary");
+    summary.textContent = "Parked (" + parkedProjs.length + ")";
+    group.appendChild(summary);
+    for (const proj of parkedProjs) {
+      group.appendChild(buildFleetRow(proj));
     }
-
-    row.addEventListener("click", () => selectProject(proj.id));
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        selectProject(proj.id);
-      }
-    });
-    fleetList.appendChild(row);
+    fleetList.appendChild(group);
   }
   markSelected();
 
-  const active = snapshot.projects.filter((p) => p.status === "active").length;
+  const withWork = activeProjs.filter((p) => p.status === "active").length;
   footDot.className = "dot dot-idle";
   footText.textContent =
-    snapshot.projects.length +
-    " projects" +
-    (active ? " / " + active + " with open work" : "");
+    activeProjs.length +
+    " active" +
+    (withWork ? " / " + withWork + " with open work" : "") +
+    (parkedProjs.length ? " / " + parkedProjs.length + " parked" : "");
 }
 
 function showBriefing() {
@@ -112,11 +143,18 @@ function showBriefing() {
     return;
   }
 
-  const projs = snapshot.projects;
-  const active = projs.filter((p) => p.status === "active").length;
-  const pending = projs.reduce((n, p) => n + p.pending, 0);
-  const waiting = projs.reduce((n, p) => n + p.interactive_pending, 0);
-  contextSub.textContent = projs.length + " projects in the portfolio";
+  // Briefing counts the active set only — parked projects (archived or
+  // dormant, per the 2026-05-16 triage) are excluded from the figures
+  // and the Attention ranking; they have already been triaged.
+  const activeProjs = snapshot.projects.filter((p) => !isParked(p));
+  const parkedCount = snapshot.projects.length - activeProjs.length;
+  const active = activeProjs.filter((p) => p.status === "active").length;
+  const pending = activeProjs.reduce((n, p) => n + p.pending, 0);
+  const waiting = activeProjs.reduce((n, p) => n + p.interactive_pending, 0);
+  contextSub.textContent =
+    activeProjs.length +
+    " active projects" +
+    (parkedCount ? " / " + parkedCount + " parked" : "");
 
   // Situation - the portfolio at a glance.
   const stat = (num, label) =>
@@ -124,14 +162,14 @@ function showBriefing() {
     '<span class="stat-label">' + label + "</span></div>";
   const situation =
     '<div class="panel"><h2>Situation</h2><div class="stat-row">' +
-    stat(projs.length, "projects") +
+    stat(activeProjs.length, "projects") +
     stat(active, "with open work") +
     stat(pending, "pending tasks") +
     stat(waiting, "waiting on you") +
     "</div></div>";
 
   // Attention - where review time goes, against what each project is worth.
-  const ranked = projs
+  const ranked = activeProjs
     .filter((p) => p.interactive_pending > 0)
     .sort((a, b) => b.interactive_pending - a.interactive_pending)
     .slice(0, 10);
@@ -183,6 +221,7 @@ async function selectProject(id) {
   contextTitle.textContent = id;
   if (proj) {
     const bits = [STATUS_LABEL[proj.status] || proj.status];
+    if (isParked(proj)) bits.push(proj.archived ? "archived" : "dormant");
     bits.push(proj.pending + " of " + proj.total + " tasks open");
     if (proj.interactive_pending) {
       bits.push(proj.interactive_pending + " waiting on you");

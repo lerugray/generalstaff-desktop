@@ -161,6 +161,32 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
   color: var(--ink-faint);
 }
 
+/* ---- Parked group: archived + dormant projects (2026-05-16 triage) ---- */
+
+.parked-group {
+  border-top: 1px solid var(--rule-soft);
+  margin-top: 6px;
+}
+.parked-group > summary {
+  padding: 12px 18px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.parked-group > summary::-webkit-details-marker { display: none; }
+.parked-group > summary::before { content: "\25b8  "; }
+.parked-group[open] > summary::before { content: "\25be  "; }
+.parked-group > summary:hover { color: var(--ink-soft); }
+
+.fleet-row.parked { opacity: 0.55; }
+.fleet-row.parked:hover,
+.fleet-row.parked.selected { opacity: 1; }
+
 /* ---- Main area ---- */
 
 #main {

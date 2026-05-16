@@ -66,6 +66,11 @@ struct ProjectState {
     total: u64,
     pending: u64,
     interactive_pending: u64,
+    /// Viability rubric sum (financial_return + reputation_signal +
+    /// lifestyle_value) from project-meta.yaml. None if no meta file.
+    viability_sum: Option<i64>,
+    required_attention: Option<String>,
+    category: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -82,6 +87,12 @@ struct FleetSnapshot {
 fn read_json(path: &Path) -> Option<serde_json::Value> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// Read a YAML file (project-meta.yaml) into a Value; None on any failure.
+fn read_yaml(path: &Path) -> Option<serde_yaml_ng::Value> {
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_yaml_ng::from_str(&text).ok()
 }
 
 /// (total, pending, interactive-only-pending) task counts for a
@@ -159,12 +170,41 @@ fn read_fleet() -> FleetSnapshot {
         let (total, pending, interactive_pending) = task_counts(&dir.join("tasks.json"));
         let status = if pending > 0 { "active" } else { "clear" };
 
+        // Viability rubric from project-meta.yaml (F + R + L), if present.
+        let meta = read_yaml(&dir.join("project-meta.yaml"));
+        let viability = meta.as_ref().and_then(|m| m.get("viability"));
+        let viability_sum = viability.map(|v| {
+            let f = v.get("financial_return").and_then(|x| x.as_i64()).unwrap_or(0);
+            let r = v.get("reputation_signal").and_then(|x| x.as_i64()).unwrap_or(0);
+            let l = v.get("lifestyle_value").and_then(|x| x.as_i64()).unwrap_or(0);
+            f + r + l
+        });
+        let required_attention = viability
+            .and_then(|v| v.get("required_attention"))
+            .and_then(|x| x.as_str())
+            .map(String::from);
+        let category = meta
+            .as_ref()
+            .and_then(|m| m.get("classification"))
+            .and_then(|c| c.get("primary"))
+            .and_then(|p| {
+                p.as_str().map(String::from).or_else(|| {
+                    p.as_sequence()
+                        .and_then(|s| s.first())
+                        .and_then(|x| x.as_str())
+                        .map(String::from)
+                })
+            });
+
         projects.push(ProjectState {
             id,
             status: status.to_string(),
             total,
             pending,
             interactive_pending,
+            viability_sum,
+            required_attention,
+            category,
         });
     }
 

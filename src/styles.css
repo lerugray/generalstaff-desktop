@@ -211,3 +211,56 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
   border-radius: 2px;
   padding: 2px 7px;
 }
+
+/* ---- Briefing (Situation + Attention) ---- */
+
+.panel .panel-note {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+  max-width: 64ch;
+}
+.muted { color: var(--ink-faint); font-size: 13px; }
+
+.stat-row { display: flex; gap: 34px; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; gap: 3px; }
+.stat-num {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.attn-list { display: flex; flex-direction: column; }
+.attn-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 2px;
+  border-top: 1px solid var(--rule-soft);
+  cursor: pointer;
+}
+.attn-row:first-child { border-top: none; }
+.attn-row:hover { background: var(--paper-edge); }
+.attn-row:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.attn-name { flex: 1; font-size: 13px; color: var(--ink); }
+.attn-wait {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.attn-score {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  min-width: 92px;
+  text-align: right;
+}
+.attn-score.low { color: var(--rust); }

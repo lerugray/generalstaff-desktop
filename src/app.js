@@ -102,19 +102,60 @@ function showBriefing() {
   const waiting = projs.reduce((n, p) => n + p.interactive_pending, 0);
   contextSub.textContent = projs.length + " projects in the portfolio";
 
-  content.innerHTML = `
-    <div class="panel">
-      <h2>Portfolio</h2>
-      <p>${projs.length} projects · ${active} with open work ·
-      ${pending} pending tasks, ${waiting} of them waiting on you.
-      The rail at left lists every project — pick one to drill in.</p>
-    </div>
-    <div class="panel">
-      <h2>Fleet briefing</h2>
-      <p>The command-center briefing — Situation, Attention, Actions,
-      Usage — renders here.</p>
-      <span class="tag">gsd-003</span>
-    </div>`;
+  // Situation — the portfolio at a glance.
+  const stat = (num, label) =>
+    '<div class="stat"><span class="stat-num">' + num + "</span>" +
+    '<span class="stat-label">' + label + "</span></div>";
+  const situation =
+    '<div class="panel"><h2>Situation</h2><div class="stat-row">' +
+    stat(projs.length, "projects") +
+    stat(active, "with open work") +
+    stat(pending, "pending tasks") +
+    stat(waiting, "waiting on you") +
+    "</div></div>";
+
+  // Attention — where review time goes, against what each project is worth.
+  const ranked = projs
+    .filter((p) => p.interactive_pending > 0)
+    .sort((a, b) => b.interactive_pending - a.interactive_pending)
+    .slice(0, 10);
+  let rows = ranked
+    .map((p) => {
+      const score =
+        p.viability_sum === null || p.viability_sum === undefined
+          ? '<span class="attn-score none">unscored</span>'
+          : '<span class="attn-score' +
+            (p.viability_sum <= 3 ? " low" : "") +
+            '">viability ' + p.viability_sum + "</span>";
+      return (
+        '<div class="attn-row" data-id="' + p.id +
+        '" role="button" tabindex="0">' +
+        '<span class="attn-name">' + p.id + "</span>" +
+        '<span class="attn-wait">' + p.interactive_pending + " waiting</span>" +
+        score + "</div>"
+      );
+    })
+    .join("");
+  if (!rows) rows = '<p class="muted">Nothing waiting on you.</p>';
+  const attention =
+    '<div class="panel"><h2>Attention — where your review time goes</h2>' +
+    '<p class="panel-note">Ranked by tasks waiting on you, against each ' +
+    "project's viability score (financial + reputation + lifestyle, 0–11). " +
+    "A high wait count next to a low score is a triage candidate.</p>" +
+    '<div class="attn-list">' + rows + "</div></div>";
+
+  content.innerHTML = situation + attention;
+
+  for (const row of content.querySelectorAll(".attn-row")) {
+    const id = row.dataset.id;
+    row.addEventListener("click", () => selectProject(id));
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectProject(id);
+      }
+    });
+  }
 }
 
 function selectProject(id) {
@@ -128,6 +169,10 @@ function selectProject(id) {
     bits.push(proj.pending + " of " + proj.total + " tasks open");
     if (proj.interactive_pending) {
       bits.push(proj.interactive_pending + " waiting on you");
+    }
+    if (proj.category) bits.push(proj.category);
+    if (proj.viability_sum !== null && proj.viability_sum !== undefined) {
+      bits.push("viability " + proj.viability_sum);
     }
     contextSub.textContent = bits.join(" · ");
   } else {

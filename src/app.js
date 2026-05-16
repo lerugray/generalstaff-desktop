@@ -190,10 +190,11 @@ async function selectProject(id) {
     </div>
     <div class="panel">
       <h2>Task ledger</h2>
-      <p>The full task list for <strong>${id}</strong> — pending and
-      done — from its <code>tasks.json</code>.</p>
-      <span class="tag">gsd-005</span>
+      <div id="task-ledger" class="task-ledger muted">Loading task ledger…</div>
     </div>`;
+
+  // Load the task ledger (state/<id>/tasks.json) alongside the file tree.
+  loadTaskLedger(id);
 
   // Load the project's code-repo file tree (git ls-files).
   let fl;
@@ -293,6 +294,46 @@ async function openFile(id, rel) {
   bodyEl.textContent = fc.ok
     ? fc.content
     : "— " + (fc.message || "could not read file");
+}
+
+// Load the project's task ledger into the workbench panel.
+async function loadTaskLedger(id) {
+  let tl;
+  try {
+    tl = await invoke("project_tasks", { id });
+  } catch (e) {
+    tl = { ok: false, message: String(e), tasks: [] };
+  }
+  const el = document.getElementById("task-ledger");
+  if (!el || selectedId !== id) return; // selection moved on while loading
+  el.className = "task-ledger";
+  if (!tl.ok) {
+    el.innerHTML = '<p class="muted">' + (tl.message || "No tasks.") + "</p>";
+    return;
+  }
+  // Pending first, then done; by priority within each.
+  const rank = (t) => (t.status === "pending" ? 0 : 1);
+  const sorted = tl.tasks
+    .slice()
+    .sort((a, b) => rank(a) - rank(b) || (a.priority || 9) - (b.priority || 9));
+  if (!sorted.length) {
+    el.innerHTML = '<p class="muted">No tasks.</p>';
+    return;
+  }
+  el.innerHTML = sorted
+    .map(
+      (t) =>
+        '<div class="task-row" title="' + escapeHtml(t.title) + '">' +
+        '<span class="task-status task-' + escapeHtml(t.status) + '">' +
+        escapeHtml(t.status) + "</span>" +
+        '<span class="task-id">' + escapeHtml(t.id) + "</span>" +
+        '<span class="task-title">' + escapeHtml(t.title) + "</span>" +
+        (t.interactive_only
+          ? '<span class="task-flag" title="waiting on you">●</span>'
+          : "") +
+        "</div>"
+    )
+    .join("");
 }
 
 async function reload() {

@@ -350,6 +350,78 @@ fn read_project_file(id: String, rel: String) -> FileContent {
 }
 
 // ---------------------------------------------------------------------
+// Project tasks — the workbench task ledger.
+// ---------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct TaskItem {
+    id: String,
+    title: String,
+    status: String,
+    priority: Option<i64>,
+    interactive_only: bool,
+}
+
+#[derive(Serialize)]
+struct TaskList {
+    ok: bool,
+    message: Option<String>,
+    tasks: Vec<TaskItem>,
+}
+
+/// A project's task ledger from generalstaff-private/state/<id>/tasks.json.
+#[tauri::command]
+fn project_tasks(id: String) -> TaskList {
+    if id.contains('/') || id.contains("..") {
+        return TaskList {
+            ok: false,
+            message: Some("invalid project id".into()),
+            tasks: vec![],
+        };
+    }
+    let path = generalstaff_root()
+        .join("state")
+        .join(&id)
+        .join("tasks.json");
+    let arr = match read_json(&path).and_then(|v| v.as_array().cloned()) {
+        Some(a) => a,
+        None => {
+            return TaskList {
+                ok: false,
+                message: Some(format!("No tasks.json for '{id}'")),
+                tasks: vec![],
+            }
+        }
+    };
+    let tasks = arr
+        .iter()
+        .map(|t| TaskItem {
+            id: t.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            title: t
+                .get("title")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            status: t
+                .get("status")
+                .and_then(|x| x.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            priority: t.get("priority").and_then(|x| x.as_i64()),
+            interactive_only: t
+                .get("interactive_only")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
+        })
+        .collect();
+    TaskList {
+        ok: true,
+        message: None,
+        tasks,
+    }
+}
+
+// ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
 
@@ -407,7 +479,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_fleet,
             project_files,
-            read_project_file
+            read_project_file,
+            project_tasks
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

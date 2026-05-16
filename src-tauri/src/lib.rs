@@ -225,6 +225,131 @@ fn read_fleet() -> FleetSnapshot {
 }
 
 // ---------------------------------------------------------------------
+// Project files — the workbench file tree + read-only viewer.
+// ---------------------------------------------------------------------
+
+/// Resolve a project's code repo: a directory alongside generalstaff-private
+/// whose name matches the project id (case-insensitive — handles WDS1870 /
+/// wds1870, ZERO-PAGE / zero-page, etc.).
+fn resolve_project_repo(id: &str) -> Option<PathBuf> {
+    let parent = generalstaff_root().parent()?.to_path_buf();
+    for entry in std::fs::read_dir(&parent).ok()?.flatten() {
+        if entry.path().is_dir()
+            && entry.file_name().to_string_lossy().eq_ignore_ascii_case(id)
+        {
+            return Some(entry.path());
+        }
+    }
+    None
+}
+
+#[derive(Serialize)]
+struct FileList {
+    ok: bool,
+    message: Option<String>,
+    repo_path: Option<String>,
+    files: Vec<String>,
+}
+
+/// The git-tracked files of a project's code repo (`git ls-files`).
+#[tauri::command]
+fn project_files(id: String) -> FileList {
+    let repo = match resolve_project_repo(&id) {
+        Some(r) => r,
+        None => {
+            return FileList {
+                ok: false,
+                message: Some(format!(
+                    "No code repo found alongside generalstaff-private for '{id}'"
+                )),
+                repo_path: None,
+                files: vec![],
+            }
+        }
+    };
+    let output = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(&repo)
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let mut files: Vec<String> = String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|s| s.to_string())
+                .collect();
+            files.sort();
+            FileList {
+                ok: true,
+                message: None,
+                repo_path: Some(repo.display().to_string()),
+                files,
+            }
+        }
+        _ => FileList {
+            ok: false,
+            message: Some(format!("git ls-files failed in {}", repo.display())),
+            repo_path: Some(repo.display().to_string()),
+            files: vec![],
+        },
+    }
+}
+
+#[derive(Serialize)]
+struct FileContent {
+    ok: bool,
+    message: Option<String>,
+    content: Option<String>,
+}
+
+/// Read one repo-relative file for the viewer. Read-only, size-capped,
+/// path-escape guarded.
+#[tauri::command]
+fn read_project_file(id: String, rel: String) -> FileContent {
+    let repo = match resolve_project_repo(&id) {
+        Some(r) => r,
+        None => {
+            return FileContent {
+                ok: false,
+                message: Some("project repo not found".into()),
+                content: None,
+            }
+        }
+    };
+    if rel.contains("..") {
+        return FileContent {
+            ok: false,
+            message: Some("invalid path".into()),
+            content: None,
+        };
+    }
+    let path = repo.join(&rel);
+    match std::fs::metadata(&path) {
+        Ok(m) if m.len() > 400_000 => FileContent {
+            ok: false,
+            message: Some("file too large to preview".into()),
+            content: None,
+        },
+        Ok(_) => match std::fs::read_to_string(&path) {
+            Ok(text) => FileContent {
+                ok: true,
+                message: None,
+                content: Some(text),
+            },
+            Err(_) => FileContent {
+                ok: false,
+                message: Some("binary or unreadable file".into()),
+                content: None,
+            },
+        },
+        Err(_) => FileContent {
+            ok: false,
+            message: Some("file not found".into()),
+            content: None,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
 
@@ -279,7 +404,11 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![read_fleet])
+        .invoke_handler(tauri::generate_handler![
+            read_fleet,
+            project_files,
+            read_project_file
+        ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.
             let show = MenuItem::with_id(app, "show", "Show GeneralStaff", true, None::<&str>)?;

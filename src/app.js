@@ -158,7 +158,7 @@ function showBriefing() {
   }
 }
 
-function selectProject(id) {
+async function selectProject(id) {
   selectedId = id;
   markSelected();
 
@@ -182,9 +182,11 @@ function selectProject(id) {
   content.innerHTML = `
     <div class="panel">
       <h2>Files</h2>
-      <p>A git-aware file tree and a read-only file viewer for
-      <strong>${id}</strong> land here.</p>
-      <span class="tag">gsd-004</span>
+      <div id="file-tree" class="file-tree muted">Loading file tree…</div>
+    </div>
+    <div class="panel" id="viewer-panel" hidden>
+      <h2 id="viewer-name">—</h2>
+      <pre id="viewer-body" class="viewer-body"></pre>
     </div>
     <div class="panel">
       <h2>Task ledger</h2>
@@ -192,6 +194,105 @@ function selectProject(id) {
       done — from its <code>tasks.json</code>.</p>
       <span class="tag">gsd-005</span>
     </div>`;
+
+  // Load the project's code-repo file tree (git ls-files).
+  let fl;
+  try {
+    fl = await invoke("project_files", { id });
+  } catch (e) {
+    fl = { ok: false, message: String(e), files: [] };
+  }
+  const treeEl = document.getElementById("file-tree");
+  if (!treeEl || selectedId !== id) return; // selection moved on while loading
+  treeEl.className = "file-tree";
+  if (!fl.ok) {
+    treeEl.innerHTML = '<p class="muted">' + (fl.message || "No files.") + "</p>";
+    return;
+  }
+  treeEl.innerHTML = treeToHtml(buildFileTree(fl.files), "");
+  for (const node of treeEl.querySelectorAll(".tree-file")) {
+    const rel = node.dataset.rel;
+    node.addEventListener("click", () => openFile(id, rel));
+    node.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openFile(id, rel);
+      }
+    });
+  }
+}
+
+// Build a nested folder tree from a flat list of repo-relative paths.
+function buildFileTree(paths) {
+  const root = {};
+  for (const p of paths) {
+    const parts = p.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (i === parts.length - 1) {
+        node[part] = null; // file
+      } else {
+        if (node[part] == null) node[part] = {};
+        node = node[part];
+      }
+    }
+  }
+  return root;
+}
+
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Render a tree node: folders as collapsed <details>, files as click rows.
+function treeToHtml(node, prefix) {
+  const names = Object.keys(node).sort();
+  const folders = names.filter((n) => node[n] !== null);
+  const files = names.filter((n) => node[n] === null);
+  let html = "";
+  for (const f of folders) {
+    html +=
+      '<details class="tree-folder"><summary>' +
+      escapeHtml(f) +
+      "</summary>" +
+      treeToHtml(node[f], prefix + f + "/") +
+      "</details>";
+  }
+  for (const f of files) {
+    const rel = prefix + f;
+    html +=
+      '<div class="tree-file" data-rel="' +
+      escapeHtml(rel) +
+      '" role="button" tabindex="0">' +
+      escapeHtml(f) +
+      "</div>";
+  }
+  return html;
+}
+
+// Load one file into the viewer panel.
+async function openFile(id, rel) {
+  const panel = document.getElementById("viewer-panel");
+  const nameEl = document.getElementById("viewer-name");
+  const bodyEl = document.getElementById("viewer-body");
+  if (!panel || !nameEl || !bodyEl) return;
+  panel.hidden = false;
+  nameEl.textContent = rel;
+  bodyEl.textContent = "Loading…";
+  let fc;
+  try {
+    fc = await invoke("read_project_file", { id, rel });
+  } catch (e) {
+    fc = { ok: false, message: String(e) };
+  }
+  bodyEl.textContent = fc.ok
+    ? fc.content
+    : "— " + (fc.message || "could not read file");
 }
 
 async function reload() {

@@ -5,15 +5,224 @@
 //! it reads state to display it and drives the `gs` CLI for actions;
 //! it never writes GS state files directly.
 //!
-//! v0.0.1 / gsd-001 — the native shell only: the window, the fleet
-//! rail, the main area, and the tray icon. No data is wired yet;
-//! gsd-002 adds the fleet state layer.
+//! The "fleet" is the project portfolio in `generalstaff-private/state/`
+//! — each project's `tasks.json` / `MISSION.md` / `project-meta.yaml`.
+//! That is where the real work happens; the public GeneralStaff repo is
+//! the sanitized mirror and is not what the desktop reads.
 
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use notify::{RecursiveMode, Watcher};
+use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
+    Emitter, Manager,
 };
+
+// ---------------------------------------------------------------------
+// Locating GeneralStaff (the private working repo)
+// ---------------------------------------------------------------------
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// Resolve the generalstaff-private repo root — the private working repo
+/// where the project portfolio lives. Honors `~/.generalstaff-desktop/
+/// config.json` ({"generalstaff_path": "..."}), else falls back to the
+/// conventional `~/Desktop/Dev Work/generalstaff-private`.
+fn generalstaff_root() -> PathBuf {
+    if let Some(home) = home_dir() {
+        let cfg = home.join(".generalstaff-desktop").join("config.json");
+        if let Ok(text) = std::fs::read_to_string(&cfg) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(p) = v.get("generalstaff_path").and_then(|x| x.as_str()) {
+                    return PathBuf::from(p);
+                }
+            }
+        }
+        return home
+            .join("Desktop")
+            .join("Dev Work")
+            .join("generalstaff-private");
+    }
+    PathBuf::from("generalstaff-private")
+}
+
+// ---------------------------------------------------------------------
+// Fleet state — read GS's file-based state, never written.
+// ---------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+struct ProjectState {
+    id: String,
+    /// "active" (has pending tasks) | "clear" (none pending)
+    status: String,
+    total: u64,
+    pending: u64,
+    interactive_pending: u64,
+}
+
+#[derive(Serialize, Clone)]
+struct FleetSnapshot {
+    ok: bool,
+    message: Option<String>,
+    generalstaff_path: String,
+    projects: Vec<ProjectState>,
+}
+
+/// Read a JSON file into a Value; None on any failure (missing, or a
+/// torn read mid-write — the caller degrades gracefully rather than
+/// presenting confidently-wrong data).
+fn read_json(path: &Path) -> Option<serde_json::Value> {
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// (total, pending, interactive-only-pending) task counts for a
+/// project's tasks.json.
+fn task_counts(tasks_path: &Path) -> (u64, u64, u64) {
+    let Some(v) = read_json(tasks_path) else {
+        return (0, 0, 0);
+    };
+    let Some(arr) = v.as_array() else {
+        return (0, 0, 0);
+    };
+    let mut total = 0;
+    let mut pending = 0;
+    let mut interactive = 0;
+    for t in arr {
+        total += 1;
+        if t.get("status").and_then(|s| s.as_str()) == Some("pending") {
+            pending += 1;
+            if t.get("interactive_only").and_then(|b| b.as_bool()) == Some(true) {
+                interactive += 1;
+            }
+        }
+    }
+    (total, pending, interactive)
+}
+
+/// Read the whole project portfolio from generalstaff-private's state dir.
+#[tauri::command]
+fn read_fleet() -> FleetSnapshot {
+    let root = generalstaff_root();
+    let state_dir = root.join("state");
+
+    if !state_dir.is_dir() {
+        return FleetSnapshot {
+            ok: false,
+            message: Some(format!(
+                "generalstaff-private state not found at {}",
+                state_dir.display()
+            )),
+            generalstaff_path: root.display().to_string(),
+            projects: vec![],
+        };
+    }
+
+    let entries = match std::fs::read_dir(&state_dir) {
+        Ok(e) => e,
+        Err(_) => {
+            return FleetSnapshot {
+                ok: false,
+                message: Some(format!("Cannot read {}", state_dir.display())),
+                generalstaff_path: root.display().to_string(),
+                projects: vec![],
+            }
+        }
+    };
+
+    let mut projects: Vec<ProjectState> = vec![];
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        if id.starts_with('_') || id.starts_with('.') || id == "pings" {
+            continue;
+        }
+        // A real project dir carries a ledger file; this skips stray dirs.
+        let is_project = dir.join("tasks.json").exists()
+            || dir.join("project-meta.yaml").exists()
+            || dir.join("MISSION.md").exists();
+        if !is_project {
+            continue;
+        }
+
+        let (total, pending, interactive_pending) = task_counts(&dir.join("tasks.json"));
+        let status = if pending > 0 { "active" } else { "clear" };
+
+        projects.push(ProjectState {
+            id,
+            status: status.to_string(),
+            total,
+            pending,
+            interactive_pending,
+        });
+    }
+
+    // Projects with open work first, alphabetical within each group.
+    projects.sort_by(|a, b| {
+        let ra = if a.status == "active" { 0 } else { 1 };
+        let rb = if b.status == "active" { 0 } else { 1 };
+        ra.cmp(&rb)
+            .then_with(|| a.id.to_lowercase().cmp(&b.id.to_lowercase()))
+    });
+
+    FleetSnapshot {
+        ok: true,
+        message: None,
+        generalstaff_path: root.display().to_string(),
+        projects,
+    }
+}
+
+// ---------------------------------------------------------------------
+// File-watcher — emit `fleet-updated` when the portfolio changes.
+// ---------------------------------------------------------------------
+
+fn start_fleet_watcher(app: &tauri::AppHandle) {
+    let state_dir = generalstaff_root().join("state");
+    let app_handle = app.clone();
+    let last_emit = Mutex::new(Instant::now() - Duration::from_secs(1));
+
+    let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if res.is_err() {
+            return;
+        }
+        // State changes arrive in flurries — coalesce to ~one emit / 400ms.
+        let mut last = last_emit.lock().unwrap();
+        if last.elapsed() < Duration::from_millis(400) {
+            return;
+        }
+        *last = Instant::now();
+        drop(last);
+        let _ = app_handle.emit("fleet-updated", ());
+    });
+
+    let mut watcher = match watcher {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+
+    if state_dir.is_dir() {
+        let _ = watcher.watch(&state_dir, RecursiveMode::Recursive);
+    }
+
+    // Keep the watcher (and its background thread) alive for the app's life.
+    Box::leak(Box::new(watcher));
+}
+
+// ---------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------
 
 /// Show, un-minimize, and focus the main window — used by the tray.
 fn surface_main(app: &tauri::AppHandle) {
@@ -30,13 +239,12 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .invoke_handler(tauri::generate_handler![read_fleet])
         .setup(|app| {
-            // Tray icon — a persistent menu-bar presence. v0.0.1 ships a
-            // static icon; gsd-002 will drive it from live fleet status.
+            // Tray icon — a persistent menu-bar presence.
             let show = MenuItem::with_id(app, "show", "Show GeneralStaff", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-
             TrayIconBuilder::with_id("gs-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GeneralStaff")
@@ -48,6 +256,8 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Live portfolio — watch generalstaff-private's state dir.
+            start_fleet_watcher(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

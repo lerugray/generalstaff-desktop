@@ -779,6 +779,21 @@ function scaffoldPrompt(ping) {
   );
 }
 
+// The seed prompt a "Dispatch" click hands the dispatcher session.
+function dispatchPrompt(ping) {
+  return (
+    "A task came in via the GeneralStaff pings inbox (" +
+    ping.when +
+    ", " +
+    ping.actor +
+    "):\n\n" +
+    ping.body +
+    "\n\nHandle it. If it belongs to a specific fleet project, work in " +
+    "that project's repo — open a child session there if that is cleaner. " +
+    "Otherwise handle it directly. Report what you did."
+  );
+}
+
 // Load the open pings into the briefing's pings panel.
 async function loadPings() {
   let pl;
@@ -794,10 +809,19 @@ async function loadPings() {
     el.innerHTML = '<p class="muted">No open pings.</p>';
     return;
   }
-  const shown = pl.pings.slice(0, 10);
+  const shown = pl.pings.slice(0, 12);
   el.innerHTML = shown
     .map((p, i) => {
       const snip = escapeHtml(pingSnippet(p.body));
+      // Scaffold for ideas, Dispatch for tasks/issues, nothing for the rest.
+      let action = "";
+      if (p.kind === "idea") {
+        action =
+          '<button class="ping-scaffold" data-i="' + i + '">Scaffold</button>';
+      } else if (p.kind === "task") {
+        action =
+          '<button class="ping-dispatch" data-i="' + i + '">Dispatch</button>';
+      }
       return (
         '<div class="ping-row">' +
         '<div class="ping-meta">' +
@@ -812,23 +836,25 @@ async function loadPings() {
         '">' +
         snip +
         "</div>" +
-        '<button class="ping-scaffold" data-i="' +
-        i +
-        '">Scaffold</button>' +
+        action +
         "</div>"
       );
     })
     .join("");
+  const fire = (ping, prompt) =>
+    startSession(
+      "claude",
+      snapshot.generalstaff_path,
+      prompt,
+      document.getElementById("pings-msg")
+    );
   for (const btn of el.querySelectorAll(".ping-scaffold")) {
     const ping = shown[Number(btn.dataset.i)];
-    btn.addEventListener("click", () => {
-      startSession(
-        "claude",
-        snapshot.generalstaff_path,
-        scaffoldPrompt(ping),
-        document.getElementById("pings-msg")
-      );
-    });
+    btn.addEventListener("click", () => fire(ping, scaffoldPrompt(ping)));
+  }
+  for (const btn of el.querySelectorAll(".ping-dispatch")) {
+    const ping = shown[Number(btn.dataset.i)];
+    btn.addEventListener("click", () => fire(ping, dispatchPrompt(ping)));
   }
 }
 

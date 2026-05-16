@@ -443,6 +443,8 @@ struct Ping {
     when: String,
     actor: String,
     body: String,
+    /// "idea" | "task" | "other" — drives which action the desktop offers.
+    kind: String,
 }
 
 #[derive(Serialize)]
@@ -450,6 +452,37 @@ struct PingList {
     ok: bool,
     /// Open (unresolved) pings, newest first.
     pings: Vec<Ping>,
+}
+
+/// Classify a ping by its text. "idea" — a new thing to scope and maybe
+/// build. "task" — a unit of work on something that exists (includes
+/// "X needs help" issues and feature requests). "other" — notes, tests,
+/// nothing actionable. Drives whether the desktop offers Scaffold,
+/// Dispatch, or no action.
+fn classify_ping(body: &str) -> &'static str {
+    let first = body.lines().next().unwrap_or("").trim().to_lowercase();
+    let full = body.to_lowercase();
+    if first.starts_with("idea")
+        || first.starts_with("possible project")
+        || first.contains("wild idea")
+        || first.contains("project idea")
+        || first.contains("new project")
+    {
+        return "idea";
+    }
+    if first.starts_with("task")
+        || first.starts_with("possible task")
+        || first.starts_with("feature request")
+        || first.starts_with("feature idea")
+        || first.starts_with("consider")
+        || first.contains("improvement")
+        || first.contains("could use")
+        || full.contains("needs help")
+        || full.contains("needs some help")
+    {
+        return "task";
+    }
+    "other"
 }
 
 /// Parse state/pings/inbox.md and return the open pings. The inbox is a
@@ -520,6 +553,7 @@ fn read_pings() -> PingList {
         pings.push(Ping {
             when,
             actor,
+            kind: classify_ping(body).to_string(),
             body: body.clone(),
         });
     }

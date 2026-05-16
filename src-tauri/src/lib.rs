@@ -243,7 +243,7 @@ fn read_fleet() -> FleetSnapshot {
 /// Resolve a project's code repo: a directory alongside generalstaff-private
 /// whose name matches the project id (case-insensitive — handles WDS1870 /
 /// wds1870, ZERO-PAGE / zero-page, etc.).
-fn resolve_project_repo(id: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_project_repo(id: &str) -> Option<PathBuf> {
     let parent = generalstaff_root().parent()?.to_path_buf();
     for entry in std::fs::read_dir(&parent).ok()?.flatten() {
         if entry.path().is_dir()
@@ -518,6 +518,8 @@ pub fn run() {
 
             // Live portfolio — watch generalstaff-private's state dir.
             start_fleet_watcher(app.handle());
+            // Dispatcher spawn requests — watch ~/.generalstaff-desktop/requests/.
+            sessions::start_request_watcher(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

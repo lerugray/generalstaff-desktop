@@ -240,20 +240,19 @@ async function startSession(agent, cwd, prompt, msgEl) {
     return;
   }
   if (msgEl) msgEl.textContent = "Starting " + agent + "…";
-  let info;
   try {
-    info = await invoke("spawn_session", {
+    // The tab opens on the session-spawned event the backend emits —
+    // the same path the dispatcher's request-file spawn travels.
+    await invoke("spawn_session", {
       agent,
       cwd,
       prompt: prompt || null,
       mode: "interactive",
     });
+    if (msgEl) msgEl.textContent = "";
   } catch (e) {
     if (msgEl) msgEl.textContent = "Could not start session: " + e;
-    return;
   }
-  if (msgEl) msgEl.textContent = "";
-  openSessionTab(info);
 }
 
 listen("pty-output", (e) => {
@@ -268,6 +267,12 @@ listen("pty-exit", (e) => {
     s.term.write("\r\n\x1b[2m— session ended —\x1b[0m\r\n");
     renderTabbar();
   }
+});
+
+// A session spawned anywhere — the workbench button, the dispatcher
+// button, or a dispatcher session's spawn tool — opens its tab here.
+listen("session-spawned", (e) => {
+  openSessionTab(e.payload);
 });
 
 // ---------------------------------------------------------------------
@@ -465,7 +470,29 @@ function showBriefing() {
     rows +
     "</div></div>";
 
-  fleetView.innerHTML = headHtml("Fleet briefing", sub) + situation + attention;
+  const dispatcher =
+    '<div class="panel"><h2>Dispatcher</h2>' +
+    '<p class="panel-note">An orchestration session — a Claude Code ' +
+    "session that can open child sessions for any project straight from " +
+    "chat. Tell it what you need and a tab appears.</p>" +
+    '<div class="spawn-row">' +
+    '<button id="dispatch-go">Open dispatcher session</button></div>' +
+    '<div id="dispatch-msg" class="spawn-msg"></div></div>';
+
+  fleetView.innerHTML =
+    headHtml("Fleet briefing", sub) + dispatcher + situation + attention;
+
+  const dgo = document.getElementById("dispatch-go");
+  if (dgo) {
+    dgo.addEventListener("click", () => {
+      startSession(
+        "claude",
+        snapshot.generalstaff_path,
+        "",
+        document.getElementById("dispatch-msg")
+      );
+    });
+  }
 
   for (const row of fleetView.querySelectorAll(".attn-row")) {
     const id = row.dataset.id;

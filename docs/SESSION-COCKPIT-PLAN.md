@@ -48,12 +48,16 @@ manage tabs.
    here": pick agent, optional seed prompt → a new session tab, the
    agent process running in that project's repo.
 
-4. **Spawn path 2 — the dispatcher, from chat.** The desktop hosts a
-   small in-process HTTP MCP server exposing one tool,
-   `gs_spawn_session`. Spawned `claude` sessions are configured to use
-   it. The dispatcher session — a `claude` session in
-   generalstaff-private — can then spawn child session tabs from
-   plain-English instruction: agent, repo, seed prompt, mode.
+4. **Spawn path 2 — the dispatcher, from chat.** A small stdio MCP
+   server (`gs-mcp`, built alongside the app) gives every spawned
+   `claude` session a `spawn_session` tool. Calling it drops a request
+   file into `~/.generalstaff-desktop/requests/`, which the app watches
+   — so a dispatcher session (a `claude` session in generalstaff-private)
+   spawns child session tabs from plain-English instruction: agent,
+   repo, seed prompt, mode. A file-request queue rather than an
+   in-process HTTP server: a simpler transport, and it keeps the MCP
+   server out of the app's process space (the coupling the audit
+   flagged).
 
 5. **Autonomous launches** run `claude -p` / `cursor-agent -p --trust`,
    rendered in a tab so the run is watchable, marked done on process

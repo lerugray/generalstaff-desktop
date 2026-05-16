@@ -2,19 +2,26 @@
 //! CLI processes under a PTY, streams their output to the frontend, and
 //! routes keystrokes back. The desktop wraps Claude Code; it does not
 //! reimplement it. See docs/SESSION-COCKPIT-PLAN.md.
+//!
+//! Sessions are spawned two ways, both through `do_spawn`:
+//!   • the `spawn_session` command — the workbench "Start session here"
+//!     button and the briefing's dispatcher button;
+//!   • the request-file watcher — a dispatcher session calls the
+//!     `gs-mcp` tool, which drops a request file this watcher picks up.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use base64::Engine;
+use notify::{RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::home_dir;
+use crate::{home_dir, resolve_project_repo};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -59,6 +66,19 @@ struct PtyExit {
     id: String,
 }
 
+/// A spawn request dropped into ~/.generalstaff-desktop/requests/ by the
+/// `gs-mcp` stdio server when a dispatcher session calls its spawn tool.
+#[derive(Deserialize)]
+struct SpawnRequest {
+    agent: String,
+    /// A fleet project id — its code repo is resolved automatically.
+    project: Option<String>,
+    /// An explicit working directory — alternative to `project`.
+    cwd: Option<String>,
+    prompt: Option<String>,
+    mode: Option<String>,
+}
+
 /// Resolve an agent's real binary. `claude` is shell-aliased on Ray's
 /// machines, so a directly-spawned process cannot rely on the alias —
 /// resolve the actual file.
@@ -100,8 +120,24 @@ fn agent_path() -> String {
     parts.join(":")
 }
 
-/// Build the agent command — explicit environment, cwd, and the args
-/// for the requested mode.
+/// ~/.generalstaff-desktop/requests/ — the spawn-request drop directory.
+fn requests_dir() -> PathBuf {
+    home_dir()
+        .unwrap_or_default()
+        .join(".generalstaff-desktop")
+        .join("requests")
+}
+
+/// The `gs-mcp` stdio MCP server binary — built alongside the app, so it
+/// sits next to the app executable.
+fn gs_mcp_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let p = exe.parent()?.join("gs-mcp");
+    p.exists().then_some(p)
+}
+
+/// Build the agent command — explicit environment, cwd, the dispatcher
+/// MCP tool (claude only), and the args for the requested mode.
 fn build_command(
     agent: &str,
     cwd: &str,
@@ -119,6 +155,19 @@ fn build_command(
     }
     cmd.env("PATH", agent_path());
     cmd.env("TERM", "xterm-256color");
+
+    // A claude session gets the gs-mcp tool, so it can act as a
+    // dispatcher — opening child session tabs straight from chat.
+    if agent == "claude" {
+        if let Some(mcp) = gs_mcp_path() {
+            let cfg = serde_json::json!({
+                "mcpServers": { "gs": { "command": mcp.display().to_string() } }
+            })
+            .to_string();
+            cmd.arg("--mcp-config");
+            cmd.arg(cfg);
+        }
+    }
 
     match (agent, mode) {
         ("claude", "autonomous") => {
@@ -146,12 +195,11 @@ fn build_command(
     Ok(cmd)
 }
 
-/// Spawn a child agent session under a PTY. Returns once the process is
-/// running; output arrives asynchronously via `pty-output` events.
-#[tauri::command]
-pub fn spawn_session(
-    app: AppHandle,
-    mgr: State<SessionManager>,
+/// Spawn a session under a PTY — the shared path for the spawn command
+/// and the request-file watcher. Starts the reader thread and emits
+/// `session-spawned` so the frontend opens a tab.
+fn do_spawn(
+    app: &AppHandle,
     agent: String,
     cwd: String,
     prompt: Option<String>,
@@ -224,7 +272,7 @@ pub fn spawn_session(
         status: "running".into(),
     };
 
-    mgr.sessions.lock().unwrap().insert(
+    app.state::<SessionManager>().sessions.lock().unwrap().insert(
         id.clone(),
         Session {
             id,
@@ -237,7 +285,21 @@ pub fn spawn_session(
         },
     );
 
+    let _ = app.emit("session-spawned", info.clone());
     Ok(info)
+}
+
+/// Spawn a child agent session under a PTY. Output arrives via
+/// `pty-output` events; the new tab opens on the `session-spawned` event.
+#[tauri::command]
+pub fn spawn_session(
+    app: AppHandle,
+    agent: String,
+    cwd: String,
+    prompt: Option<String>,
+    mode: String,
+) -> Result<SessionInfo, String> {
+    do_spawn(&app, agent, cwd, prompt, mode)
 }
 
 /// Write keystrokes (xterm.js `onData`) to a session's PTY.
@@ -304,4 +366,62 @@ pub fn list_sessions(mgr: State<SessionManager>) -> Vec<SessionInfo> {
             status: "running".into(),
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------
+// Dispatcher spawn requests — the gs-mcp tool drops a file here.
+// ---------------------------------------------------------------------
+
+/// Handle one spawn-request file: read it, consume it (delete), spawn.
+fn handle_request(app: &AppHandle, path: &Path) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    // Consume the file once, even if it turns out malformed — no retry loop.
+    let _ = std::fs::remove_file(path);
+    let Ok(req) = serde_json::from_str::<SpawnRequest>(&text) else {
+        return;
+    };
+    let cwd = match (req.cwd, req.project) {
+        (Some(c), _) => c,
+        (None, Some(p)) => match resolve_project_repo(&p) {
+            Some(r) => r.display().to_string(),
+            None => return,
+        },
+        (None, None) => return,
+    };
+    let _ = do_spawn(
+        app,
+        req.agent,
+        cwd,
+        req.prompt,
+        req.mode.unwrap_or_else(|| "interactive".into()),
+    );
+}
+
+/// Watch ~/.generalstaff-desktop/requests/ for spawn-request files
+/// written by the gs-mcp stdio server (a dispatcher session's tool).
+pub fn start_request_watcher(app: &AppHandle) {
+    let dir = requests_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let app_handle = app.clone();
+
+    let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else {
+            return;
+        };
+        for path in event.paths {
+            if path.extension().and_then(|e| e.to_str()) == Some("json") && path.is_file() {
+                handle_request(&app_handle, &path);
+            }
+        }
+    });
+
+    if let Ok(mut watcher) = watcher {
+        if dir.is_dir() {
+            let _ = watcher.watch(&dir, RecursiveMode::NonRecursive);
+        }
+        // Keep the watcher (and its background thread) alive for the app's life.
+        Box::leak(Box::new(watcher));
+    }
 }

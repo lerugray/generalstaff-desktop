@@ -608,14 +608,26 @@ function showBriefing() {
     '<div id="pings-list" class="ping-list muted">Loading pings&hellip;</div>' +
     '<div id="pings-msg" class="spawn-msg"></div></div>';
 
+  const recent =
+    '<div class="panel"><h2>Recent activity</h2>' +
+    '<p class="panel-note">The latest session notes and commits from ' +
+    "generalstaff-private &mdash; where you left off.</p>" +
+    '<div id="recent-notes" class="recent-notes muted">Loading&hellip;</div>' +
+    '<div id="recent-commits" class="recent-commits"></div></div>';
+
+  // Dashboard-first: the briefing opens with the orienting panels —
+  // Situation stats, Recent activity, Attention — then the action
+  // panels (Dispatcher, Open pings) below.
   fleetView.innerHTML =
     headHtml("Fleet briefing", sub) +
-    dispatcher +
-    pings +
     situation +
-    attention;
+    recent +
+    attention +
+    dispatcher +
+    pings;
 
   loadPings();
+  loadRecentActivity();
 
   const dgo = document.getElementById("dispatch-go");
   if (dgo) {
@@ -999,6 +1011,63 @@ async function loadPings() {
   for (const btn of el.querySelectorAll(".ping-resolve")) {
     const ping = shown[Number(btn.dataset.i)];
     btn.addEventListener("click", () => resolvePing(ping));
+  }
+}
+
+// ---------------------------------------------------------------------
+// Recent activity — session notes + git history
+// ---------------------------------------------------------------------
+
+// Load the Recent-activity panel: collapsible recent session notes and
+// the recent generalstaff-private commit log.
+async function loadRecentActivity() {
+  let notes = [];
+  try {
+    notes = await invoke("recent_session_notes");
+  } catch (e) {
+    notes = [];
+  }
+  const nEl = document.getElementById("recent-notes");
+  if (nEl) {
+    nEl.className = "recent-notes";
+    nEl.innerHTML = notes.length
+      ? notes
+          .map(
+            (n) =>
+              '<details class="note-item"><summary>' +
+              '<span class="note-title">' +
+              escapeHtml(n.title) +
+              '</span><span class="note-excerpt">' +
+              escapeHtml(n.excerpt) +
+              "</span></summary>" +
+              '<pre class="note-body">' +
+              escapeHtml(n.body) +
+              "</pre></details>"
+          )
+          .join("")
+      : '<p class="muted">No session notes.</p>';
+  }
+
+  let commits = [];
+  try {
+    commits = await invoke("recent_commits");
+  } catch (e) {
+    commits = [];
+  }
+  const cEl = document.getElementById("recent-commits");
+  if (cEl && commits.length) {
+    cEl.innerHTML =
+      '<div class="recent-sub">generalstaff-private &mdash; recent commits</div>' +
+      commits
+        .map(
+          (c) =>
+            '<div class="commit-row"><span class="commit-date">' +
+            escapeHtml(c.date) +
+            '</span><span class="commit-subject">' +
+            escapeHtml(c.subject) +
+            "</span></div>"
+        )
+        .join("");
   }
 }
 

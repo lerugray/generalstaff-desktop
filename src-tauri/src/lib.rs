@@ -688,6 +688,114 @@ fn resolve_ping(
 }
 
 // ---------------------------------------------------------------------
+// Recent activity — session notes + git history. The "where did I
+// leave off" half of the briefing; pairs with the Situation stats.
+// ---------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct SessionNote {
+    file: String,
+    title: String,
+    excerpt: String,
+    body: String,
+}
+
+/// The most recent session notes from generalstaff-private/docs/sessions/,
+/// newest first — filenames are YYYY-MM-DD-… so a reverse sort is
+/// chronological.
+#[tauri::command]
+fn recent_session_notes() -> Vec<SessionNote> {
+    let dir = generalstaff_root().join("docs").join("sessions");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return vec![];
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md"))
+        .collect();
+    files.sort();
+    files.reverse();
+    files.truncate(8);
+
+    let mut notes = vec![];
+    for path in files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let file = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        // Title = first `# ` heading; excerpt = first couple of prose lines.
+        let title = text
+            .lines()
+            .find(|l| l.starts_with("# "))
+            .map(|l| l.trim_start_matches("# ").trim().to_string())
+            .unwrap_or_else(|| file.clone());
+        let excerpt = text
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let excerpt = if excerpt.chars().count() > 200 {
+            excerpt.chars().take(199).collect::<String>() + "…"
+        } else {
+            excerpt
+        };
+        notes.push(SessionNote {
+            file,
+            title,
+            excerpt,
+            body: text,
+        });
+    }
+    notes
+}
+
+#[derive(Serialize)]
+struct Commit {
+    hash: String,
+    date: String,
+    subject: String,
+}
+
+/// Recent commits from the generalstaff-private repo — the orchestration
+/// log (session notes, state, pings).
+#[tauri::command]
+fn recent_commits() -> Vec<Commit> {
+    let output = std::process::Command::new("git")
+        .args([
+            "log",
+            "-n",
+            "15",
+            "--pretty=format:%h\x1f%ad\x1f%s",
+            "--date=short",
+        ])
+        .current_dir(generalstaff_root())
+        .output();
+    let Ok(out) = output else {
+        return vec![];
+    };
+    if !out.status.success() {
+        return vec![];
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\x1f');
+            Some(Commit {
+                hash: parts.next()?.to_string(),
+                date: parts.next()?.to_string(),
+                subject: parts.next()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
 
@@ -758,6 +866,8 @@ pub fn run() {
             project_tasks,
             read_pings,
             resolve_ping,
+            recent_session_notes,
+            recent_commits,
             sessions::spawn_session,
             sessions::write_session,
             sessions::resize_session,

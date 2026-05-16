@@ -6,6 +6,10 @@ authors = ["Ray Weiss"]
 license = "LicenseRef-Proprietary"
 edition = "2021"
 rust-version = "1.77.2"
+# This crate builds two binaries — the app (src/main.rs) and the gs-mcp
+# stdio MCP server (src/bin/gs-mcp.rs). default-run names the app so
+# `tauri build` bundles the right one (gs-mcp ships as a sidecar).
+default-run = "generalstaff-desktop"
 
 [lib]
 name = "app_lib"

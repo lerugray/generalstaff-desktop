@@ -1,9 +1,12 @@
 //! GeneralStaff Desktop — the command console for the GeneralStaff
 //! dev-fleet orchestrator.
 //!
-//! Strictly a viewer/controller over GeneralStaff's file-based state:
-//! it reads state to display it and drives the `gs` CLI for actions;
-//! it never writes GS state files directly.
+//! A viewer/controller over GeneralStaff's file-based state: it reads
+//! state to display it and never edits the structured state files
+//! (`tasks.json`, `project-meta.yaml`) directly. The one write it makes
+//! is to the pings inbox (`state/pings/inbox.md`) — a shared append-only
+//! log any actor may add to; resolving a ping appends a `## resolved`
+//! block, the same kind of write the inbox is built for.
 //!
 //! The "fleet" is the project portfolio in `generalstaff-private/state/`
 //! — each project's `tasks.json` / `MISSION.md` / `project-meta.yaml`.
@@ -561,6 +564,77 @@ fn read_pings() -> PingList {
     PingList { ok: true, pings }
 }
 
+/// Resolve a ping — insert a `## resolved` block immediately after the
+/// matching ping in state/pings/inbox.md, the convention `read_pings`
+/// recognises as closing it. The ping is matched by heading (when +
+/// actor) *and* body, so a same-minute timestamp collision cannot
+/// resolve the wrong one. This is the desktop's one write to GS state —
+/// an append to a shared log built for exactly this kind of write.
+#[tauri::command]
+fn resolve_ping(
+    when: String,
+    actor: String,
+    body: String,
+    date: String,
+) -> Result<(), String> {
+    let path = generalstaff_root()
+        .join("state")
+        .join("pings")
+        .join("inbox.md");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read pings inbox: {e}"))?;
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Heading-line indices of every `## ` block — the same block split
+    // read_pings does.
+    let heads: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with("## "))
+        .map(|(i, _)| i)
+        .collect();
+
+    // The target ping: a block whose heading parses to (when, actor) and
+    // whose body matches. `end` is the block boundary the resolved block
+    // is spliced in at.
+    let mut end: Option<usize> = None;
+    for (bi, &h) in heads.iter().enumerate() {
+        let heading = lines[h].strip_prefix("## ").unwrap_or("").trim();
+        let parts: Vec<&str> = heading.splitn(3, ' ').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        if format!("{} {}", parts[0], parts[1]) != when || parts[2] != actor {
+            continue;
+        }
+        let stop = heads.get(bi + 1).copied().unwrap_or(lines.len());
+        if lines[h + 1..stop].join("\n").trim() == body.trim() {
+            end = Some(stop);
+            break;
+        }
+    }
+    let Some(end) = end else {
+        return Err("ping not found — it may already be resolved".into());
+    };
+
+    // Splice the resolved block in, with one blank line on each side.
+    let mut out: Vec<String> = lines[..end].iter().map(|s| s.to_string()).collect();
+    while out.last().map(String::is_empty).unwrap_or(false) {
+        out.pop();
+    }
+    out.push(String::new());
+    out.push(format!("## resolved {date}"));
+    out.push("Resolved from GeneralStaff Desktop.".to_string());
+    out.push(String::new());
+    out.extend(lines[end..].iter().map(|s| s.to_string()));
+
+    let mut joined = out.join("\n");
+    if text.ends_with('\n') {
+        joined.push('\n');
+    }
+    std::fs::write(&path, joined).map_err(|e| format!("cannot write pings inbox: {e}"))
+}
+
 // ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
@@ -624,11 +698,14 @@ pub fn run() {
             read_project_file,
             project_tasks,
             read_pings,
+            resolve_ping,
             sessions::spawn_session,
             sessions::write_session,
             sessions::resize_session,
             sessions::kill_session,
-            sessions::list_sessions
+            sessions::list_sessions,
+            sessions::save_session_layout,
+            sessions::load_session_layout
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

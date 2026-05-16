@@ -78,6 +78,8 @@ struct SpawnRequest {
     cwd: Option<String>,
     prompt: Option<String>,
     mode: Option<String>,
+    /// Resume the agent's prior conversation in the repo, not start fresh.
+    resume: Option<bool>,
 }
 
 /// Resolve an agent's real binary. `claude` is shell-aliased on Ray's
@@ -144,6 +146,7 @@ fn build_command(
     cwd: &str,
     prompt: Option<&str>,
     mode: &str,
+    resume: bool,
 ) -> Result<CommandBuilder, String> {
     let bin = resolve_agent_binary(agent)?;
     let mut cmd = CommandBuilder::new(bin);
@@ -171,6 +174,15 @@ fn build_command(
             cmd.arg("--mcp-config");
             cmd.arg(cfg);
         }
+    }
+
+    // Restore path: resume the agent's prior conversation in this repo
+    // rather than starting fresh. `claude --continue` reopens the latest
+    // session in the cwd — no session id needed, so no terminal-stream
+    // parsing (the audit's prohibition holds). cursor-agent has no
+    // id-free resume flag, so a restored cursor session starts fresh.
+    if resume && agent == "claude" {
+        cmd.arg("--continue");
     }
 
     match (agent, mode) {
@@ -218,6 +230,7 @@ fn do_spawn(
     cwd: String,
     prompt: Option<String>,
     mode: String,
+    resume: bool,
 ) -> Result<SessionInfo, String> {
     let pty = native_pty_system();
     let pair = pty
@@ -229,7 +242,7 @@ fn do_spawn(
         })
         .map_err(|e| format!("openpty: {e}"))?;
 
-    let cmd = build_command(&agent, &cwd, prompt.as_deref(), &mode)?;
+    let cmd = build_command(&agent, &cwd, prompt.as_deref(), &mode, resume)?;
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -320,8 +333,9 @@ pub fn spawn_session(
     cwd: String,
     prompt: Option<String>,
     mode: String,
+    resume: bool,
 ) -> Result<SessionInfo, String> {
-    do_spawn(&app, agent, cwd, prompt, mode)
+    do_spawn(&app, agent, cwd, prompt, mode, resume)
 }
 
 /// Write keystrokes (xterm.js `onData`) to a session's PTY.
@@ -391,6 +405,51 @@ pub fn list_sessions(mgr: State<SessionManager>) -> Vec<SessionInfo> {
 }
 
 // ---------------------------------------------------------------------
+// Session layout — persist the open session tabs so a relaunch can
+// reopen them. They reopen *dormant*: nothing re-spawns on launch; a
+// click resumes the session. No surprise processes, no cost on open.
+// ---------------------------------------------------------------------
+
+/// One persisted session tab — enough to reopen it dormant and, on a
+/// click, resume it (`claude --continue`).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PersistedSession {
+    agent: String,
+    cwd: String,
+    mode: String,
+}
+
+/// ~/.generalstaff-desktop/sessions.json — the persisted tab layout.
+fn sessions_file() -> PathBuf {
+    home_dir()
+        .unwrap_or_default()
+        .join(".generalstaff-desktop")
+        .join("sessions.json")
+}
+
+/// Persist the open session tabs — called by the frontend whenever a
+/// session tab opens or closes.
+#[tauri::command]
+pub fn save_session_layout(sessions: Vec<PersistedSession>) -> Result<(), String> {
+    let path = sessions_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&sessions).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// The persisted session tabs from the last run — reopened dormant on
+/// launch. An empty list (not an error) when there is no saved layout.
+#[tauri::command]
+pub fn load_session_layout() -> Vec<PersistedSession> {
+    std::fs::read_to_string(sessions_file())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------
 // Dispatcher spawn requests — the gs-mcp tool drops a file here.
 // ---------------------------------------------------------------------
 
@@ -418,6 +477,7 @@ fn handle_request(app: &AppHandle, path: &Path) {
         cwd,
         req.prompt,
         req.mode.unwrap_or_else(|| "interactive".into()),
+        req.resume.unwrap_or(false),
     );
 }
 

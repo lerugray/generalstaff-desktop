@@ -84,18 +84,29 @@ function renderTabbar() {
     el.className = "tab" + (tab.id === activeTabId ? " tab-active" : "");
 
     if (tab.kind === "session") {
-      const s = sessions.get(tab.sessionId);
-      const st = (s && s.status) || "running";
-      const dotClass =
-        st === "exited"
-          ? "dot-done"
-          : st === "idle"
-            ? "dot-attention"
-            : "dot-running";
       const dot = document.createElement("span");
-      dot.className = "tab-dot " + dotClass;
-      dot.title =
-        st === "exited" ? "ended" : st === "idle" ? "idle — may want you" : "running";
+      if (tab.dormant) {
+        // Restored from the last run — no live process until clicked.
+        el.classList.add("tab-dormant");
+        dot.className = "tab-dot dot-dormant";
+        dot.title = "dormant — click to resume";
+      } else {
+        const s = sessions.get(tab.sessionId);
+        const st = (s && s.status) || "running";
+        const dotClass =
+          st === "exited"
+            ? "dot-done"
+            : st === "idle"
+              ? "dot-attention"
+              : "dot-running";
+        dot.className = "tab-dot " + dotClass;
+        dot.title =
+          st === "exited"
+            ? "ended"
+            : st === "idle"
+              ? "idle — may want you"
+              : "running";
+      }
       el.appendChild(dot);
     }
 
@@ -123,6 +134,12 @@ function renderTabbar() {
 
 function activateTab(id) {
   if (!tabs.some((t) => t.id === id)) id = "fleet";
+  // A dormant tab has no live process — activating it wakes it.
+  const target = tabs.find((t) => t.id === id);
+  if (target && target.dormant) {
+    resumeDormant(id);
+    return;
+  }
   activeTabId = id;
   for (const v of contentEl.querySelectorAll(".view")) {
     v.classList.toggle("view-hidden", v.dataset.view !== id);
@@ -151,6 +168,7 @@ function closeTab(id) {
     sessions.delete(tab.sessionId);
   }
   tabs = tabs.filter((t) => t.id !== id);
+  persistLayout();
   if (activeTabId === id) activateTab("fleet");
   else renderTabbar();
 }
@@ -189,6 +207,11 @@ function createTerminal(host, sessionId) {
     (window.FitAddon && window.FitAddon.FitAddon) || window.FitAddon;
   const fit = new FitAddonCtor();
   term.loadAddon(fit);
+  // Cmd+1-9 are tab hotkeys — don't forward the digit to the agent; the
+  // document keydown handler does the tab switch.
+  term.attachCustomKeyEventHandler(
+    (e) => !(e.metaKey && /^[1-9]$/.test(e.key)),
+  );
   term.open(host);
   term.onData((d) => {
     invoke("write_session", { id: sessionId, data: d }).catch(() => {});
@@ -241,9 +264,11 @@ function openSessionTab(info) {
     sessionId: info.id,
   });
   activateTab("se:" + info.id);
+  persistLayout();
 }
 
-async function startSession(agent, cwd, prompt, msgEl) {
+async function startSession(agent, cwd, prompt, msgEl, opts) {
+  opts = opts || {};
   if (!cwd) {
     if (msgEl) msgEl.textContent = "No code repo for this project.";
     return;
@@ -256,7 +281,8 @@ async function startSession(agent, cwd, prompt, msgEl) {
       agent,
       cwd,
       prompt: prompt || null,
-      mode: "interactive",
+      mode: opts.mode || "interactive",
+      resume: Boolean(opts.resume),
     });
     if (msgEl) msgEl.textContent = "";
   } catch (e) {
@@ -288,6 +314,83 @@ listen("pty-exit", (e) => {
 // button, or a dispatcher session's spawn tool — opens its tab here.
 listen("session-spawned", (e) => {
   openSessionTab(e.payload);
+});
+
+// ---------------------------------------------------------------------
+// Session restore + quick-switch — reopen the last run's tabs dormant,
+// and Cmd+1-9 to jump between tabs.
+// ---------------------------------------------------------------------
+
+let dormantSeq = 0;
+
+// Persist the open session tabs (interactive only) so a relaunch can
+// reopen them. Live tabs contribute their session info; dormant tabs —
+// restored, not yet woken — contribute their stored restore info.
+function persistLayout() {
+  const layout = [];
+  for (const tab of tabs) {
+    if (tab.kind !== "session") continue;
+    let r = null;
+    if (tab.dormant) {
+      r = tab.restore;
+    } else {
+      const s = sessions.get(tab.sessionId);
+      if (s) r = s.info;
+    }
+    if (r && r.mode === "interactive") {
+      layout.push({ agent: r.agent, cwd: r.cwd, mode: r.mode });
+    }
+  }
+  invoke("save_session_layout", { sessions: layout }).catch(() => {});
+}
+
+// Reopen a session from the last run as a dormant tab — a tab-bar entry
+// with no live process. Clicking it (or Cmd+N) resumes the session.
+function openDormantTab(restore) {
+  const id = "rest:" + dormantSeq++;
+  tabs.push({
+    id,
+    kind: "session",
+    label: sessionLabel(restore),
+    dormant: true,
+    restore,
+  });
+  renderTabbar();
+}
+
+// Wake a dormant tab: drop the placeholder and spawn the real session,
+// resuming the agent's prior conversation in that repo. The live tab
+// opens on the session-spawned event — the same path as any spawn.
+function resumeDormant(id) {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab || !tab.dormant) return;
+  const { agent, cwd, mode } = tab.restore;
+  tabs = tabs.filter((t) => t.id !== id);
+  renderTabbar();
+  startSession(agent, cwd, "", null, { mode, resume: true });
+}
+
+// On launch, reopen the prior run's session tabs — dormant. Nothing
+// spawns; the workspace is back, each session waits for a click.
+async function restoreLayout() {
+  let saved = [];
+  try {
+    saved = await invoke("load_session_layout");
+  } catch (e) {
+    saved = [];
+  }
+  for (const s of saved) openDormantTab(s);
+}
+
+// Cmd+1-9 — jump to the tab at that position (Cmd+1 is the Fleet tab).
+function switchToTabIndex(i) {
+  if (i >= 0 && i < tabs.length) activateTab(tabs[i].id);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey && !e.ctrlKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+    e.preventDefault();
+    switchToTabIndex(Number(e.key) - 1);
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -794,6 +897,33 @@ function dispatchPrompt(ping) {
   );
 }
 
+// Today's date as YYYY-MM-DD (local) — stamped into a resolved block.
+function todayIso() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + m + "-" + day;
+}
+
+// Resolve a ping from the desktop — closes it in the GS inbox itself, so
+// it drops off the daily brief too, not just this panel.
+async function resolvePing(ping) {
+  const msg = document.getElementById("pings-msg");
+  if (msg) msg.textContent = "Resolving…";
+  try {
+    await invoke("resolve_ping", {
+      when: ping.when,
+      actor: ping.actor,
+      body: ping.body,
+      date: todayIso(),
+    });
+    if (msg) msg.textContent = "";
+    loadPings(); // re-render — the resolved ping drops off
+  } catch (e) {
+    if (msg) msg.textContent = "Could not resolve: " + e;
+  }
+}
+
 // Load the open pings into the briefing's pings panel.
 async function loadPings() {
   let pl;
@@ -822,6 +952,9 @@ async function loadPings() {
         action =
           '<button class="ping-dispatch" data-i="' + i + '">Dispatch</button>';
       }
+      // Every ping is resolvable — clears it from the GS inbox.
+      const resolveBtn =
+        '<button class="ping-resolve" data-i="' + i + '">Resolve</button>';
       return (
         '<div class="ping-row">' +
         '<div class="ping-meta">' +
@@ -837,6 +970,7 @@ async function loadPings() {
         snip +
         "</div>" +
         action +
+        resolveBtn +
         "</div>"
       );
     })
@@ -855,6 +989,10 @@ async function loadPings() {
   for (const btn of el.querySelectorAll(".ping-dispatch")) {
     const ping = shown[Number(btn.dataset.i)];
     btn.addEventListener("click", () => fire(ping, dispatchPrompt(ping)));
+  }
+  for (const btn of el.querySelectorAll(".ping-resolve")) {
+    const ping = shown[Number(btn.dataset.i)];
+    btn.addEventListener("click", () => resolvePing(ping));
   }
 }
 
@@ -920,3 +1058,4 @@ setInterval(() => {
 listen("fleet-updated", reload);
 renderTabbar();
 reload();
+restoreLayout();

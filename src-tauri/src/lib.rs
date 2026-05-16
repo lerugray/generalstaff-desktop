@@ -582,6 +582,7 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(sessions::SessionManager::default())
         .invoke_handler(tauri::generate_handler![
             read_fleet,

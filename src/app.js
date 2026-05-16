@@ -85,9 +85,17 @@ function renderTabbar() {
 
     if (tab.kind === "session") {
       const s = sessions.get(tab.sessionId);
+      const st = (s && s.status) || "running";
+      const dotClass =
+        st === "exited"
+          ? "dot-done"
+          : st === "idle"
+            ? "dot-attention"
+            : "dot-running";
       const dot = document.createElement("span");
-      dot.className =
-        "tab-dot " + (s && s.status === "running" ? "dot-running" : "dot-idle");
+      dot.className = "tab-dot " + dotClass;
+      dot.title =
+        st === "exited" ? "ended" : st === "idle" ? "idle — may want you" : "running";
       el.appendChild(dot);
     }
 
@@ -223,6 +231,7 @@ function openSessionTab(info) {
     host,
     view,
     status: "running",
+    lastOutputAt: Date.now(),
   });
 
   tabs.push({
@@ -257,7 +266,13 @@ async function startSession(agent, cwd, prompt, msgEl) {
 
 listen("pty-output", (e) => {
   const s = sessions.get(e.payload.id);
-  if (s) s.term.write(base64ToBytes(e.payload.data));
+  if (!s) return;
+  s.term.write(base64ToBytes(e.payload.data));
+  s.lastOutputAt = Date.now();
+  if (s.status === "idle") {
+    s.status = "running";
+    renderTabbar();
+  }
 });
 
 listen("pty-exit", (e) => {
@@ -857,6 +872,24 @@ window.addEventListener("resize", () => {
     if (tab && tab.kind === "session") fitSession(tab.sessionId);
   }, 120);
 });
+
+// Mark a session "idle" once its output has been quiet a while — a
+// rough "may want you" badge. Lifecycle + output timing only; the
+// terminal stream is never parsed.
+const IDLE_AFTER_MS = 10000;
+setInterval(() => {
+  let changed = false;
+  for (const s of sessions.values()) {
+    if (s.status === "exited") continue;
+    const next =
+      Date.now() - (s.lastOutputAt || 0) > IDLE_AFTER_MS ? "idle" : "running";
+    if (s.status !== next) {
+      s.status = next;
+      changed = true;
+    }
+  }
+  if (changed) renderTabbar();
+}, 3000);
 
 listen("fleet-updated", reload);
 renderTabbar();

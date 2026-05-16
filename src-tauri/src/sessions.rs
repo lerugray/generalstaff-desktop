@@ -20,6 +20,7 @@ use notify::{RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::{home_dir, resolve_project_repo};
 
@@ -198,6 +199,16 @@ fn build_command(
     Ok(cmd)
 }
 
+/// A short human label for a session — e.g. "claude · hammerstein".
+fn session_label(agent: &str, cwd: &str) -> String {
+    let base = Path::new(cwd)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(cwd);
+    let agent = if agent == "cursor-agent" { "cursor" } else { agent };
+    format!("{agent} · {base}")
+}
+
 /// Spawn a session under a PTY — the shared path for the spawn command
 /// and the request-file watcher. Starts the reader thread and emits
 /// `session-spawned` so the frontend opens a tab.
@@ -243,6 +254,7 @@ fn do_spawn(
     // on EOF reaps the child and signals exit.
     let app_for_reader = app.clone();
     let id_for_reader = id.clone();
+    let label = session_label(&agent, &cwd);
     std::thread::spawn(move || {
         let mut child = child;
         let mut reader = reader;
@@ -264,6 +276,13 @@ fn do_spawn(
             }
         }
         let _ = child.wait();
+        // Native notification — for a dispatched session you tabbed away from.
+        let _ = app_for_reader
+            .notification()
+            .builder()
+            .title("GeneralStaff")
+            .body(format!("Session ended — {label}"))
+            .show();
         let _ = app_for_reader.emit("pty-exit", PtyExit { id: id_for_reader });
     });
 

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeneralStaff</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="rail">
+        <header id="rail-head" title="Back to the fleet briefing">
+          <span class="wordmark">GENERALSTAFF</span>
+          <span class="rail-sub">command console</span>
+        </header>
+        <div class="rail-section-label">Fleet</div>
+        <nav id="fleet-list" aria-label="Fleet"></nav>
+        <footer id="rail-foot">
+          <span class="dot dot-idle"></span>
+          <span>fleet idle</span>
+        </footer>
+      </aside>
+      <main id="main">
+        <header id="topbar">
+          <h1 id="context-title">Fleet briefing</h1>
+          <span id="context-sub"></span>
+        </header>
+        <section id="content"></section>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

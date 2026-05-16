@@ -1,6 +1,7 @@
-// GeneralStaff Desktop — the shell. gsd-002: live project portfolio.
-// Reads generalstaff-private's project state through the Rust backend and
-// re-renders whenever a file-watcher reports a change.
+// GeneralStaff Desktop - the shell. Reads generalstaff-private's project
+// state through the Rust backend and re-renders on file-watcher events.
+// All rendered text routes through escapeHtml(), which entity-escapes
+// every non-ASCII char so the output is pure ASCII and cannot mojibake.
 "use strict";
 
 const { invoke } = window.__TAURI__.core;
@@ -21,6 +22,19 @@ const footText = document.getElementById("fleet-status-text");
 
 let snapshot = { ok: false, projects: [] };
 let selectedId = null;
+
+// Escape HTML metacharacters AND every non-ASCII char (to a numeric
+// entity). The rendered HTML is then pure ASCII, which renders correctly
+// regardless of how the webview decodes the page's character set.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]|[^\x00-\x7f]/g, (c) => {
+    if (c === "&") return "&amp;";
+    if (c === "<") return "&lt;";
+    if (c === ">") return "&gt;";
+    if (c === '"') return "&quot;";
+    return "&#" + c.charCodeAt(0) + ";";
+  });
+}
 
 function markSelected() {
   for (const row of fleetList.children) {
@@ -45,7 +59,7 @@ function renderRail() {
     row.setAttribute("tabindex", "0");
     row.title =
       (STATUS_LABEL[proj.status] || proj.status) +
-      (proj.pending ? " — " + proj.pending + " pending" : "");
+      (proj.pending ? " - " + proj.pending + " pending" : "");
 
     const dot = document.createElement("span");
     dot.className = "dot dot-" + proj.status;
@@ -77,7 +91,7 @@ function renderRail() {
   footText.textContent =
     snapshot.projects.length +
     " projects" +
-    (active ? " · " + active + " with open work" : "");
+    (active ? " / " + active + " with open work" : "");
 }
 
 function showBriefing() {
@@ -89,7 +103,9 @@ function showBriefing() {
     contextSub.textContent = "";
     content.innerHTML =
       '<div class="panel"><h2>GeneralStaff not found</h2><p>' +
-      (snapshot.message || "Could not locate the generalstaff-private state.") +
+      escapeHtml(
+        snapshot.message || "Could not locate the generalstaff-private state."
+      ) +
       " Set <code>generalstaff_path</code> in " +
       "<code>~/.generalstaff-desktop/config.json</code> to point at your " +
       "generalstaff-private repo.</p></div>";
@@ -102,7 +118,7 @@ function showBriefing() {
   const waiting = projs.reduce((n, p) => n + p.interactive_pending, 0);
   contextSub.textContent = projs.length + " projects in the portfolio";
 
-  // Situation — the portfolio at a glance.
+  // Situation - the portfolio at a glance.
   const stat = (num, label) =>
     '<div class="stat"><span class="stat-num">' + num + "</span>" +
     '<span class="stat-label">' + label + "</span></div>";
@@ -114,7 +130,7 @@ function showBriefing() {
     stat(waiting, "waiting on you") +
     "</div></div>";
 
-  // Attention — where review time goes, against what each project is worth.
+  // Attention - where review time goes, against what each project is worth.
   const ranked = projs
     .filter((p) => p.interactive_pending > 0)
     .sort((a, b) => b.interactive_pending - a.interactive_pending)
@@ -128,9 +144,9 @@ function showBriefing() {
             (p.viability_sum <= 3 ? " low" : "") +
             '">viability ' + p.viability_sum + "</span>";
       return (
-        '<div class="attn-row" data-id="' + p.id +
+        '<div class="attn-row" data-id="' + escapeHtml(p.id) +
         '" role="button" tabindex="0">' +
-        '<span class="attn-name">' + p.id + "</span>" +
+        '<span class="attn-name">' + escapeHtml(p.id) + "</span>" +
         '<span class="attn-wait">' + p.interactive_pending + " waiting</span>" +
         score + "</div>"
       );
@@ -138,10 +154,11 @@ function showBriefing() {
     .join("");
   if (!rows) rows = '<p class="muted">Nothing waiting on you.</p>';
   const attention =
-    '<div class="panel"><h2>Attention — where your review time goes</h2>' +
+    '<div class="panel"><h2>Attention &mdash; where your review time goes</h2>' +
     '<p class="panel-note">Ranked by tasks waiting on you, against each ' +
-    "project's viability score (financial + reputation + lifestyle, 0–11). " +
-    "A high wait count next to a low score is a triage candidate.</p>" +
+    "project's viability score (financial + reputation + lifestyle, " +
+    "0&ndash;11). A high wait count next to a low score is a triage " +
+    "candidate.</p>" +
     '<div class="attn-list">' + rows + "</div></div>";
 
   content.innerHTML = situation + attention;
@@ -174,7 +191,7 @@ async function selectProject(id) {
     if (proj.viability_sum !== null && proj.viability_sum !== undefined) {
       bits.push("viability " + proj.viability_sum);
     }
-    contextSub.textContent = bits.join(" · ");
+    contextSub.textContent = bits.join("  /  ");
   } else {
     contextSub.textContent = "project workbench";
   }
@@ -182,15 +199,15 @@ async function selectProject(id) {
   content.innerHTML = `
     <div class="panel">
       <h2>Files</h2>
-      <div id="file-tree" class="file-tree muted">Loading file tree…</div>
+      <div id="file-tree" class="file-tree muted">Loading file tree...</div>
     </div>
     <div class="panel" id="viewer-panel" hidden>
-      <h2 id="viewer-name">—</h2>
+      <h2 id="viewer-name">&mdash;</h2>
       <pre id="viewer-body" class="viewer-body"></pre>
     </div>
     <div class="panel">
       <h2>Task ledger</h2>
-      <div id="task-ledger" class="task-ledger muted">Loading task ledger…</div>
+      <div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>
     </div>`;
 
   // Load the task ledger (state/<id>/tasks.json) alongside the file tree.
@@ -207,7 +224,8 @@ async function selectProject(id) {
   if (!treeEl || selectedId !== id) return; // selection moved on while loading
   treeEl.className = "file-tree";
   if (!fl.ok) {
-    treeEl.innerHTML = '<p class="muted">' + (fl.message || "No files.") + "</p>";
+    treeEl.innerHTML =
+      '<p class="muted">' + escapeHtml(fl.message || "No files.") + "</p>";
     return;
   }
   treeEl.innerHTML = treeToHtml(buildFileTree(fl.files), "");
@@ -240,14 +258,6 @@ function buildFileTree(paths) {
     }
   }
   return root;
-}
-
-function escapeHtml(s) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 // Render a tree node: folders as collapsed <details>, files as click rows.
@@ -284,7 +294,7 @@ async function openFile(id, rel) {
   if (!panel || !nameEl || !bodyEl) return;
   panel.hidden = false;
   nameEl.textContent = rel;
-  bodyEl.textContent = "Loading…";
+  bodyEl.textContent = "Loading...";
   let fc;
   try {
     fc = await invoke("read_project_file", { id, rel });
@@ -293,10 +303,10 @@ async function openFile(id, rel) {
   }
   bodyEl.textContent = fc.ok
     ? fc.content
-    : "— " + (fc.message || "could not read file");
+    : fc.message || "could not read file";
 }
 
-// Load the project's task ledger into the workbench panel.
+// Load the project's task ledger - sectioned Pending / Done for legibility.
 async function loadTaskLedger(id) {
   let tl;
   try {
@@ -308,32 +318,35 @@ async function loadTaskLedger(id) {
   if (!el || selectedId !== id) return; // selection moved on while loading
   el.className = "task-ledger";
   if (!tl.ok) {
-    el.innerHTML = '<p class="muted">' + (tl.message || "No tasks.") + "</p>";
+    el.innerHTML =
+      '<p class="muted">' + escapeHtml(tl.message || "No tasks.") + "</p>";
     return;
   }
-  // Pending first, then done; by priority within each.
-  const rank = (t) => (t.status === "pending" ? 0 : 1);
-  const sorted = tl.tasks
-    .slice()
-    .sort((a, b) => rank(a) - rank(b) || (a.priority || 9) - (b.priority || 9));
-  if (!sorted.length) {
+  const byPrio = (a, b) => (a.priority || 9) - (b.priority || 9);
+  const pending = tl.tasks.filter((t) => t.status === "pending").sort(byPrio);
+  const done = tl.tasks.filter((t) => t.status !== "pending").sort(byPrio);
+  if (!pending.length && !done.length) {
     el.innerHTML = '<p class="muted">No tasks.</p>';
     return;
   }
-  el.innerHTML = sorted
-    .map(
-      (t) =>
-        '<div class="task-row" title="' + escapeHtml(t.title) + '">' +
-        '<span class="task-status task-' + escapeHtml(t.status) + '">' +
-        escapeHtml(t.status) + "</span>" +
-        '<span class="task-id">' + escapeHtml(t.id) + "</span>" +
-        '<span class="task-title">' + escapeHtml(t.title) + "</span>" +
-        (t.interactive_only
-          ? '<span class="task-flag" title="waiting on you">●</span>'
-          : "") +
-        "</div>"
-    )
-    .join("");
+  const rowHtml = (t) =>
+    '<div class="task-row" title="' + escapeHtml(t.title) + '">' +
+    '<span class="task-id">' + escapeHtml(t.id) + "</span>" +
+    '<span class="task-title">' + escapeHtml(t.title) + "</span>" +
+    (t.interactive_only
+      ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
+      : "") +
+    "</div>";
+  const section = (label, list) =>
+    !list.length
+      ? ""
+      : '<div class="task-section">' +
+        label +
+        " (" +
+        list.length +
+        ")</div>" +
+        list.map(rowHtml).join("");
+  el.innerHTML = section("Pending", pending) + section("Done", done);
 }
 
 async function reload() {

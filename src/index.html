@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeneralStaff</title>
     <link rel="stylesheet" href="styles.css" />
@@ -15,6 +16,10 @@
         </header>
         <div class="rail-section-label">Fleet</div>
         <nav id="fleet-list" aria-label="Fleet"></nav>
+        <div id="rail-legend">
+          <span class="legend-item"><span class="dot dot-active"></span>open work</span>
+          <span class="legend-item"><span class="dot dot-clear"></span>clear</span>
+        </div>
         <footer id="rail-foot">
           <span id="fleet-status-dot" class="dot dot-idle"></span>
           <span id="fleet-status-text">fleet state</span>

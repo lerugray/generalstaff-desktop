@@ -48,8 +48,8 @@ const tabbar = document.getElementById("tabbar");
 const contentEl = document.getElementById("content");
 const fleetView = document.getElementById("fleet-view");
 const railHead = document.getElementById("rail-head");
-const footDot = document.getElementById("fleet-status-dot");
 const footText = document.getElementById("fleet-status-text");
+const railThemes = document.getElementById("rail-themes");
 
 let snapshot = { ok: false, projects: [] };
 let selectedId = null; // selected project in the Fleet view
@@ -71,6 +71,59 @@ function escapeHtml(s) {
     if (c === '"') return "&quot;";
     return "&#" + c.charCodeAt(0) + ";";
   });
+}
+
+// ---------------------------------------------------------------------
+// Theme — six Kriegspiel palettes (gsd-006). The choice is a body class
+// swap and persists in localStorage; the swatch row lives in the rail.
+// ---------------------------------------------------------------------
+
+const THEMES = [
+  { id: "paper", name: "Kriegspiel Paper" },
+  { id: "night", name: "Kriegspiel Night" },
+  { id: "linen", name: "Linen Folio" },
+  { id: "vellum", name: "Map Vellum" },
+  { id: "iron", name: "Iron Press" },
+  { id: "carbon", name: "Carbon Folio" },
+];
+const THEME_KEY = "gsd-theme";
+let activeTheme = "paper";
+
+function applyTheme(id) {
+  if (!THEMES.some((t) => t.id === id)) id = "paper";
+  activeTheme = id;
+  document.body.className = "theme-" + id;
+  try {
+    localStorage.setItem(THEME_KEY, id);
+  } catch (e) {}
+  if (railThemes) {
+    for (const sw of railThemes.querySelectorAll(".rail__theme")) {
+      sw.classList.toggle("is-active", sw.dataset.t === id);
+    }
+  }
+}
+
+function renderThemeSwatches() {
+  if (!railThemes) return;
+  railThemes.innerHTML = "";
+  for (const t of THEMES) {
+    const sw = document.createElement("button");
+    sw.className = "rail__theme" + (t.id === activeTheme ? " is-active" : "");
+    sw.dataset.t = t.id;
+    sw.title = t.name;
+    sw.setAttribute("aria-label", t.name);
+    sw.addEventListener("click", () => applyTheme(t.id));
+    railThemes.appendChild(sw);
+  }
+}
+
+function initTheme() {
+  let saved = "paper";
+  try {
+    saved = localStorage.getItem(THEME_KEY) || "paper";
+  } catch (e) {}
+  applyTheme(saved);
+  renderThemeSwatches();
 }
 
 // ---------------------------------------------------------------------
@@ -398,8 +451,8 @@ document.addEventListener("keydown", (e) => {
 // ---------------------------------------------------------------------
 
 function markSelected() {
-  for (const row of fleetList.querySelectorAll(".fleet-row")) {
-    row.classList.toggle("selected", row.dataset.id === selectedId);
+  for (const row of fleetList.querySelectorAll(".rail__item")) {
+    row.classList.toggle("is-active", row.dataset.id === selectedId);
   }
 }
 
@@ -421,7 +474,8 @@ function openFleetProject(id) {
 
 function buildFleetRow(proj) {
   const row = document.createElement("div");
-  row.className = "fleet-row";
+  row.className = "rail__item";
+  if (proj.status === "active") row.classList.add("has-work");
   if (isParked(proj)) row.classList.add("parked");
   row.dataset.id = proj.id;
   row.setAttribute("role", "button");
@@ -431,15 +485,15 @@ function buildFleetRow(proj) {
     (proj.pending ? " - " + proj.pending + " pending" : "");
 
   const dot = document.createElement("span");
-  dot.className = "dot dot-" + proj.status;
+  dot.className = "rail__dot";
   const name = document.createElement("span");
-  name.className = "row-name";
+  name.className = "rail__name";
   name.textContent = proj.id;
 
   row.append(dot, name);
   if (proj.pending) {
     const count = document.createElement("span");
-    count.className = "row-count";
+    count.className = "rail__count";
     count.textContent = proj.pending;
     row.appendChild(count);
   }
@@ -458,7 +512,6 @@ function renderRail() {
   fleetList.innerHTML = "";
 
   if (!snapshot.ok) {
-    footDot.className = "dot dot-failed";
     footText.textContent = "GeneralStaff not found";
     return;
   }
@@ -484,12 +537,11 @@ function renderRail() {
   markSelected();
 
   const withWork = activeProjs.filter((p) => p.status === "active").length;
-  footDot.className = "dot dot-idle";
   footText.textContent =
     activeProjs.length +
     " active" +
-    (withWork ? " / " + withWork + " with open work" : "") +
-    (parkedProjs.length ? " / " + parkedProjs.length + " parked" : "");
+    (withWork ? " · " + withWork + " with work" : "") +
+    (parkedProjs.length ? " · " + parkedProjs.length + " parked" : "");
 }
 
 // ---------------------------------------------------------------------
@@ -498,10 +550,10 @@ function renderRail() {
 
 function headHtml(title, sub) {
   return (
-    '<div class="fleet-head"><h1>' +
+    '<div class="dash__head"><h1 class="dash__title">' +
     escapeHtml(title) +
     "</h1>" +
-    (sub ? '<div class="sub">' + escapeHtml(sub) + "</div>" : "") +
+    (sub ? '<div class="dash__breadcrumb">' + escapeHtml(sub) + "</div>" : "") +
     "</div>"
   );
 }
@@ -513,14 +565,16 @@ function showBriefing() {
 
   if (!snapshot.ok) {
     fleetView.innerHTML =
+      '<div class="workbench">' +
       headHtml("Fleet briefing", "") +
-      '<div class="panel"><h2>GeneralStaff not found</h2><p>' +
+      '<div class="panel"><div class="panel__head">' +
+      '<h2 class="panel__title">GeneralStaff not found</h2></div>' +
+      '<div class="panel__body"><p class="muted">' +
       escapeHtml(
         snapshot.message || "Could not locate the generalstaff-private state."
       ) +
       " Set <code>generalstaff_path</code> in " +
-      "<code>~/.generalstaff-desktop/config.json</code> to point at your " +
-      "generalstaff-private repo.</p></div>";
+      "<code>~/.generalstaff-desktop/config.json</code>.</p></div></div></div>";
     return;
   }
 
@@ -529,108 +583,126 @@ function showBriefing() {
   const active = activeProjs.filter((p) => p.status === "active").length;
   const pending = activeProjs.reduce((n, p) => n + p.pending, 0);
   const waiting = activeProjs.reduce((n, p) => n + p.interactive_pending, 0);
-  const sub =
-    activeProjs.length +
-    " active projects" +
-    (parkedCount ? " / " + parkedCount + " parked" : "");
 
-  const stat = (num, label) =>
-    '<div class="stat"><span class="stat-num">' +
+  // Situation strip — four figures across the top.
+  const sitCell = (num, label, cls) =>
+    '<div class="sit__cell' +
+    (cls ? " " + cls : "") +
+    '"><div class="sit__num">' +
     num +
-    '</span><span class="stat-label">' +
+    '</div><div class="sit__label">' +
     label +
-    "</span></div>";
-  const situation =
-    '<div class="panel"><h2>Situation</h2><div class="stat-row">' +
-    stat(activeProjs.length, "projects") +
-    stat(active, "with open work") +
-    stat(pending, "pending tasks") +
-    stat(waiting, "waiting on you") +
     "</div></div>";
+  const situation =
+    '<div class="sit dash__situation">' +
+    sitCell(activeProjs.length, "Active projects") +
+    sitCell(active, "With open work") +
+    sitCell(pending, "Pending tasks") +
+    sitCell(waiting, "Waiting on you", "is-rust") +
+    "</div>";
 
+  // Attention — projects with work waiting, ranked, against viability.
   const ranked = activeProjs
     .filter((p) => p.interactive_pending > 0)
     .sort((a, b) => b.interactive_pending - a.interactive_pending)
-    .slice(0, 10);
-  let rows = ranked
+    .slice(0, 12);
+  let attnRows = ranked
     .map((p) => {
-      const score =
-        p.viability_sum === null || p.viability_sum === undefined
-          ? '<span class="attn-score none">unscored</span>'
-          : '<span class="attn-score' +
-            (p.viability_sum <= 3 ? " low" : "") +
-            '">viability ' +
-            p.viability_sum +
-            "</span>";
+      const v = p.viability_sum;
+      const scored = v !== null && v !== undefined;
+      const pct = scored
+        ? Math.round((Math.max(0, Math.min(11, v)) / 11) * 100)
+        : 0;
+      const warn = scored && v <= 3;
       return (
-        '<div class="attn-row" data-id="' +
+        '<div class="attn__row' +
+        (warn ? " warn" : "") +
+        '" data-id="' +
         escapeHtml(p.id) +
         '" role="button" tabindex="0">' +
-        '<span class="attn-name">' +
+        '<div class="attn__name">' +
         escapeHtml(p.id) +
-        "</span>" +
-        '<span class="attn-wait">' +
+        "<small>" +
         p.interactive_pending +
-        " waiting</span>" +
-        score +
-        "</div>"
+        " waiting</small></div>" +
+        '<div class="attn__bar"><i style="width:' +
+        pct +
+        '%"></i></div>' +
+        '<div class="attn__score">' +
+        (scored ? v : "&mdash;") +
+        "</div></div>"
       );
     })
     .join("");
-  if (!rows) rows = '<p class="muted">Nothing waiting on you.</p>';
-  const attention =
-    '<div class="panel"><h2>Attention &mdash; where your review time goes</h2>' +
-    '<p class="panel-note">Ranked by tasks waiting on you, against each ' +
-    "project's viability score (financial + reputation + lifestyle, " +
-    "0&ndash;11). A high wait count next to a low score is a triage " +
-    "candidate.</p>" +
-    '<div class="attn-list">' +
-    rows +
+  if (!attnRows) attnRows = '<p class="muted">Nothing waiting on you.</p>';
+
+  const pingsPanel =
+    '<div class="panel dash__pings"><div class="panel__head">' +
+    '<h2 class="panel__title">Open pings</h2>' +
+    '<span class="panel__meta" id="pings-count"></span></div>' +
+    '<div class="panel__body">' +
+    '<div class="pings__toolbar">' +
+    '<div class="pings__filter" id="pings-filter">' +
+    '<button data-f="all" class="on">All</button>' +
+    '<button data-f="idea">Idea</button>' +
+    '<button data-f="task">Task</button>' +
+    '<button data-f="other">Other</button></div>' +
+    '<label class="pings__search"><input id="pings-search" type="text" ' +
+    'placeholder="Search pings" autocomplete="off" spellcheck="false" /></label>' +
+    "</div>" +
+    '<div id="pings-list" class="muted">Loading pings&hellip;</div>' +
+    '<div id="pings-msg" class="spawn-msg"></div>' +
     "</div></div>";
 
   const dispatcher =
-    '<div class="panel"><h2>Dispatcher</h2>' +
-    '<p class="panel-note">An orchestration session — a Claude Code ' +
-    "session that can open child sessions for any project straight from " +
-    "chat. Tell it what you need and a tab appears.</p>" +
-    '<div class="spawn-row">' +
-    '<button id="dispatch-go">Open dispatcher session</button></div>' +
-    '<div id="dispatch-msg" class="spawn-msg"></div></div>';
+    '<div class="dispatch"><div>' +
+    '<div class="dispatch__label">Dispatcher</div>' +
+    '<div class="dispatch__head">Open an orchestration session</div>' +
+    '<div class="dispatch__sub">A Claude Code session in ' +
+    "generalstaff-private that opens child sessions for any project " +
+    "from chat.</div></div>" +
+    '<button class="dispatch__btn" id="dispatch-go">Open</button>' +
+    '<div class="dispatch__msg" id="dispatch-msg"></div></div>';
 
-  const pings =
-    '<div class="panel"><div class="panel-head"><h2>Open pings</h2>' +
-    '<button id="pings-refresh" class="panel-action">Refresh</button>' +
-    "</div>" +
-    '<p class="panel-note">Inbound from the GS inbox. &ldquo;Scaffold&rdquo; ' +
-    "opens a dispatcher session seeded with the idea and a Hammerstein " +
-    "scope-it prompt; &ldquo;Resolve&rdquo; closes a ping in the inbox " +
-    "itself. The list refreshes on its own when the inbox changes.</p>" +
-    '<div id="pings-list" class="ping-list muted">Loading pings&hellip;</div>' +
-    '<div id="pings-msg" class="spawn-msg"></div></div>';
+  const attention =
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Attention</h2>' +
+    '<span class="panel__meta">ranked by viability</span></div>' +
+    '<div class="panel__body">' +
+    attnRows +
+    "</div></div>";
 
   const recent =
-    '<div class="panel"><div class="panel-head"><h2>Recent activity</h2>' +
-    '<button id="gen-note" class="panel-action">Generate session note</button>' +
-    "</div>" +
-    '<p class="panel-note">The latest session notes and commits from ' +
-    "generalstaff-private &mdash; where you left off. &ldquo;Generate " +
-    "session note&rdquo; opens a session that drafts the next note from the " +
-    "git history since the last one; it commits a draft &mdash; review and " +
-    "push it yourself.</p>" +
-    '<div id="recent-notes" class="recent-notes muted">Loading&hellip;</div>' +
-    '<div id="recent-commits" class="recent-commits"></div>' +
-    '<div id="gen-note-msg" class="spawn-msg"></div></div>';
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Recent activity</h2>' +
+    '<span class="panel__meta">sessions &middot; commits</span></div>' +
+    '<div class="panel__body">' +
+    '<div id="recent-notes" class="muted">Loading&hellip;</div>' +
+    '<div id="recent-commits"></div>' +
+    '<div class="recent__foot">' +
+    '<button class="btn-ghost" id="gen-note">Generate session note</button>' +
+    '<span class="spawn-msg" id="gen-note-msg"></span>' +
+    "</div></div></div>";
 
-  // Dashboard-first: the briefing opens with the orienting panels —
-  // Situation stats, Recent activity, Attention — then the action
-  // panels (Dispatcher, Open pings) below.
+  const bc =
+    activeProjs.length +
+    " active" +
+    (parkedCount ? " &middot; " + parkedCount + " parked" : "");
+
   fleetView.innerHTML =
-    headHtml("Fleet briefing", sub) +
+    '<div class="dash">' +
+    '<div class="dash__head"><h1 class="dash__title">Fleet briefing</h1>' +
+    '<div class="dash__breadcrumb">' +
+    bc +
+    "</div></div>" +
+    '<div class="dash__grid">' +
     situation +
-    recent +
-    attention +
+    pingsPanel +
+    '<div class="dash__side">' +
     dispatcher +
-    pings;
+    attention +
+    recent +
+    "</div></div></div>";
 
   loadPings();
   loadRecentActivity();
@@ -647,13 +719,32 @@ function showBriefing() {
     });
   }
 
-  const prefresh = document.getElementById("pings-refresh");
-  if (prefresh) prefresh.addEventListener("click", () => loadPings());
-
   const genNote = document.getElementById("gen-note");
   if (genNote) genNote.addEventListener("click", generateSessionNote);
 
-  for (const row of fleetView.querySelectorAll(".attn-row")) {
+  const filterEl = document.getElementById("pings-filter");
+  if (filterEl) {
+    for (const btn of filterEl.querySelectorAll("button")) {
+      btn.classList.toggle("on", btn.dataset.f === pingFilter);
+      btn.addEventListener("click", () => {
+        pingFilter = btn.dataset.f;
+        for (const b of filterEl.querySelectorAll("button")) {
+          b.classList.toggle("on", b === btn);
+        }
+        renderPingRows();
+      });
+    }
+  }
+  const searchEl = document.getElementById("pings-search");
+  if (searchEl) {
+    searchEl.value = pingSearch;
+    searchEl.addEventListener("input", () => {
+      pingSearch = searchEl.value;
+      renderPingRows();
+    });
+  }
+
+  for (const row of fleetView.querySelectorAll(".attn__row")) {
     const id = row.dataset.id;
     row.addEventListener("click", () => openFleetProject(id));
     row.addEventListener("keydown", (e) => {
@@ -691,34 +782,32 @@ async function selectProject(id) {
   }
 
   fleetView.innerHTML =
+    '<div class="workbench">' +
     headHtml(id, sub) +
-    `
-    <div class="panel">
-      <h2>Session</h2>
-      <p class="panel-note">Start an interactive agent session in this
-        project's repo. It opens in its own tab.</p>
-      <div class="spawn-row">
-        <select id="spawn-agent">
-          <option value="claude">Claude Code</option>
-          <option value="cursor-agent">Cursor</option>
-        </select>
-        <input id="spawn-prompt" type="text" placeholder="optional seed prompt" />
-        <button id="spawn-go" disabled>Start session here</button>
-      </div>
-      <div id="spawn-msg" class="spawn-msg">Locating code repo&hellip;</div>
-    </div>
-    <div class="panel">
-      <h2>Files</h2>
-      <div id="file-tree" class="file-tree muted">Loading file tree...</div>
-    </div>
-    <div class="panel" id="viewer-panel" hidden>
-      <h2 id="viewer-name">&mdash;</h2>
-      <pre id="viewer-body" class="viewer-body"></pre>
-    </div>
-    <div class="panel">
-      <h2>Task ledger</h2>
-      <div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>
-    </div>`;
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Session</h2></div><div class="panel__body">' +
+    '<p class="panel-note">Start an interactive agent session in this ' +
+    "project's repo. It opens in its own tab.</p>" +
+    '<div class="spawn-row">' +
+    '<select id="spawn-agent">' +
+    '<option value="claude">Claude Code</option>' +
+    '<option value="cursor-agent">Cursor</option></select>' +
+    '<input id="spawn-prompt" type="text" placeholder="optional seed prompt" />' +
+    '<button id="spawn-go" disabled>Start session here</button></div>' +
+    '<div id="spawn-msg" class="spawn-msg">Locating code repo&hellip;</div>' +
+    "</div></div>" +
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Files</h2></div><div class="panel__body">' +
+    '<div id="file-tree" class="file-tree muted">Loading file tree...</div>' +
+    "</div></div>" +
+    '<div class="panel" id="viewer-panel" hidden><div class="panel__head">' +
+    '<h2 class="panel__title" id="viewer-name">&mdash;</h2></div>' +
+    '<div class="panel__body"><pre id="viewer-body" class="viewer-body"></pre>' +
+    "</div></div>" +
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Task ledger</h2></div><div class="panel__body">' +
+    '<div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>' +
+    "</div></div></div>";
 
   loadTaskLedger(id);
 
@@ -1023,7 +1112,7 @@ async function resolvePing(ping) {
 // fallback for cross-project / GS-state pings, and when a chosen project
 // has no resolved repo).
 function dispatchPing(btn, ping) {
-  const row = btn.closest(".ping-row");
+  const row = btn.closest(".ping");
   const sel = row ? row.querySelector(".ping-target") : null;
   const target = sel ? sel.value : GS_PRIVATE_TARGET;
   let cwd = snapshot.generalstaff_path;
@@ -1043,7 +1132,13 @@ function dispatchPing(btn, ping) {
   );
 }
 
-// Load the open pings into the briefing's pings panel.
+// Pings — the open GS inbox. loadPings fetches; renderPingRows filters
+// by the toolbar's kind chip + search box and draws the rows. Fetch and
+// render are split so a file-watcher refresh keeps the current search.
+let pingsCache = [];
+let pingFilter = "all";
+let pingSearch = "";
+
 async function loadPings() {
   let pl;
   try {
@@ -1051,68 +1146,104 @@ async function loadPings() {
   } catch (e) {
     pl = { ok: false, pings: [] };
   }
+  pingsCache = pl.ok && pl.pings ? pl.pings : [];
+  renderPingRows();
+}
+
+function renderPingRows() {
   const el = document.getElementById("pings-list");
   if (!el) return;
-  el.className = "ping-list";
-  if (!pl.ok || !pl.pings.length) {
-    el.innerHTML = '<p class="muted">No open pings.</p>';
+  const q = pingSearch.trim().toLowerCase();
+  const shown = pingsCache.filter((p) => {
+    if (pingFilter !== "all" && p.kind !== pingFilter) return false;
+    if (q && !String(p.body || "").toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const countEl = document.getElementById("pings-count");
+  if (countEl) {
+    countEl.textContent =
+      shown.length === pingsCache.length
+        ? pingsCache.length + " items"
+        : shown.length + " of " + pingsCache.length;
+  }
+
+  if (!shown.length) {
+    el.className = "muted";
+    el.innerHTML = pingsCache.length
+      ? "<p>No pings match.</p>"
+      : "<p>No open pings.</p>";
     return;
   }
-  const shown = pl.pings;
+  el.className = "";
+
   el.innerHTML = shown
     .map((p, i) => {
       const snip = escapeHtml(pingSnippet(p.body));
-      // Scaffold for ideas, Dispatch for tasks/issues, nothing for the rest.
-      let action = "";
+      const kindCls =
+        p.kind === "idea"
+          ? " kind-idea"
+          : p.kind === "task"
+            ? " kind-task"
+            : "";
+      let actions = "";
       if (p.kind === "idea") {
-        action =
-          '<button class="ping-scaffold" data-i="' + i + '">Scaffold</button>';
+        actions =
+          '<button class="ping__act act-scaffold" data-act="scaffold" data-i="' +
+          i +
+          '">Scaffold</button>';
       } else if (p.kind === "task") {
-        action =
+        actions =
           targetSelectHtml(detectPingProject(p.body)) +
-          '<button class="ping-dispatch" data-i="' + i + '">Dispatch</button>';
+          '<button class="ping__act act-dispatch" data-act="dispatch" data-i="' +
+          i +
+          '">Dispatch</button>';
       }
-      // Every ping is resolvable — clears it from the GS inbox.
-      const resolveBtn =
-        '<button class="ping-resolve" data-i="' + i + '">Resolve</button>';
+      actions +=
+        '<button class="ping__act" data-act="resolve" data-i="' +
+        i +
+        '">Resolve</button>';
       return (
-        '<div class="ping-row">' +
-        '<div class="ping-meta">' +
-        '<span class="ping-when">' +
+        '<div class="ping">' +
+        '<div class="ping__meta">' +
+        '<span class="ping__when">' +
         escapeHtml(p.when) +
         "</span>" +
-        '<span class="ping-actor">' +
-        escapeHtml(p.actor) +
+        '<span class="ping__kind' +
+        kindCls +
+        '">' +
+        escapeHtml(p.kind) +
         "</span></div>" +
-        '<div class="ping-body" title="' +
+        '<div class="ping__body"><div class="ping__text" title="' +
         snip +
         '">' +
         snip +
-        "</div>" +
-        action +
-        resolveBtn +
-        "</div>"
+        "</div></div>" +
+        '<div class="ping__actions">' +
+        actions +
+        "</div></div>"
       );
     })
     .join("");
-  const fire = (ping, prompt) =>
-    startSession(
-      "claude",
-      snapshot.generalstaff_path,
-      prompt,
-      document.getElementById("pings-msg")
-    );
-  for (const btn of el.querySelectorAll(".ping-scaffold")) {
+
+  for (const btn of el.querySelectorAll(".ping__act")) {
     const ping = shown[Number(btn.dataset.i)];
-    btn.addEventListener("click", () => fire(ping, scaffoldPrompt(ping)));
-  }
-  for (const btn of el.querySelectorAll(".ping-dispatch")) {
-    const ping = shown[Number(btn.dataset.i)];
-    btn.addEventListener("click", () => dispatchPing(btn, ping));
-  }
-  for (const btn of el.querySelectorAll(".ping-resolve")) {
-    const ping = shown[Number(btn.dataset.i)];
-    btn.addEventListener("click", () => resolvePing(ping));
+    if (!ping) continue;
+    const act = btn.dataset.act;
+    if (act === "scaffold") {
+      btn.addEventListener("click", () =>
+        startSession(
+          "claude",
+          snapshot.generalstaff_path,
+          scaffoldPrompt(ping),
+          document.getElementById("pings-msg")
+        )
+      );
+    } else if (act === "dispatch") {
+      btn.addEventListener("click", () => dispatchPing(btn, ping));
+    } else {
+      btn.addEventListener("click", () => resolvePing(ping));
+    }
   }
 }
 
@@ -1131,21 +1262,25 @@ async function loadRecentActivity() {
   }
   const nEl = document.getElementById("recent-notes");
   if (nEl) {
-    nEl.className = "recent-notes";
+    nEl.className = "";
     nEl.innerHTML = notes.length
       ? notes
-          .map(
-            (n) =>
-              '<details class="note-item"><summary>' +
-              '<span class="note-title">' +
+          .map((n) => {
+            const d = /^\d{4}-\d{2}-\d{2}/.test(n.file)
+              ? n.file.slice(5, 10)
+              : "";
+            return (
+              '<details class="recent__row"><summary>' +
+              '<span class="recent__date">' +
+              escapeHtml(d) +
+              '</span><div class="recent__title">' +
               escapeHtml(n.title) +
-              '</span><span class="note-excerpt">' +
-              escapeHtml(n.excerpt) +
-              "</span></summary>" +
-              '<pre class="note-body">' +
+              "</div></summary>" +
+              '<pre class="recent__body">' +
               escapeHtml(n.body) +
               "</pre></details>"
-          )
+            );
+          })
           .join("")
       : '<p class="muted">No session notes.</p>';
   }
@@ -1157,19 +1292,21 @@ async function loadRecentActivity() {
     commits = [];
   }
   const cEl = document.getElementById("recent-commits");
-  if (cEl && commits.length) {
-    cEl.innerHTML =
-      '<div class="recent-sub">generalstaff-private &mdash; recent commits</div>' +
-      commits
-        .map(
-          (c) =>
-            '<div class="commit-row"><span class="commit-date">' +
-            escapeHtml(c.date) +
-            '</span><span class="commit-subject">' +
-            escapeHtml(c.subject) +
-            "</span></div>"
-        )
-        .join("");
+  if (cEl) {
+    cEl.innerHTML = commits.length
+      ? '<div class="recent__sub">generalstaff-private &mdash; commits</div>' +
+        commits
+          .map(
+            (c) =>
+              '<div class="recent__commit">' +
+              '<span class="recent__date">' +
+              escapeHtml(c.date && c.date.length >= 10 ? c.date.slice(5) : c.date) +
+              '</span><span class="recent__csub">' +
+              escapeHtml(c.subject) +
+              "</span></div>"
+          )
+          .join("")
+      : "";
   }
 }
 
@@ -1238,6 +1375,8 @@ async function reload() {
     showBriefing();
   }
 }
+
+initTheme();
 
 railHead.setAttribute("role", "button");
 railHead.setAttribute("tabindex", "0");

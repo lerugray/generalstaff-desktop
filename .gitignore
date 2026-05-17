@@ -24,3 +24,7 @@ Thumbs.db
 # Local config / secrets
 .env
 .env.local
+
+# Claude Design — gsd-006 CD bundle extract. The design is integrated
+# into src/; this is the raw claude.ai/design output kept for reference.
+claude-design-output/

@@ -8,22 +8,18 @@
     <link rel="stylesheet" href="vendor/xterm/xterm.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="theme-paper">
     <div id="app">
-      <aside id="rail">
-        <header id="rail-head" title="Back to the fleet briefing">
-          <span class="wordmark">GENERALSTAFF</span>
-          <span class="rail-sub">command console</span>
+      <aside id="rail" class="rail">
+        <header id="rail-head" class="rail__head" title="Back to the fleet briefing">
+          <div class="rail__wordmark">GENERALSTAFF</div>
+          <div class="rail__sub">Command Console</div>
         </header>
-        <div class="rail-section-label">Fleet</div>
-        <nav id="fleet-list" aria-label="Fleet"></nav>
-        <div id="rail-legend">
-          <span class="legend-item"><span class="dot dot-active"></span>open work</span>
-          <span class="legend-item"><span class="dot dot-clear"></span>clear</span>
-        </div>
-        <footer id="rail-foot">
-          <span id="fleet-status-dot" class="dot dot-idle"></span>
+        <div class="rail__section">Fleet</div>
+        <nav id="fleet-list" class="rail__list" aria-label="Fleet"></nav>
+        <footer id="rail-foot" class="rail__foot">
           <span id="fleet-status-text">fleet state</span>
+          <div id="rail-themes" class="rail__themes" title="Theme" aria-label="Theme"></div>
         </footer>
       </aside>
       <main id="main">

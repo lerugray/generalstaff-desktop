@@ -160,20 +160,12 @@ fn build_command(
     cmd.env("PATH", agent_path());
     cmd.env("TERM", "xterm-256color");
 
-    // A claude session runs at max effort (Ray's standing preference —
-    // he trusts the reasoning) and gets the gs-mcp tool, so it can act
-    // as a dispatcher — opening child session tabs straight from chat.
+    // A claude session runs at max effort — Ray's standing preference,
+    // he trusts the reasoning. (The gs-mcp dispatcher tool is wired in
+    // last, below — see the --mcp-config note.)
     if agent == "claude" {
         cmd.arg("--effort");
         cmd.arg("max");
-        if let Some(mcp) = gs_mcp_path() {
-            let cfg = serde_json::json!({
-                "mcpServers": { "gs": { "command": mcp.display().to_string() } }
-            })
-            .to_string();
-            cmd.arg("--mcp-config");
-            cmd.arg(cfg);
-        }
     }
 
     // Restore path: resume the agent's prior conversation in this repo
@@ -208,6 +200,25 @@ fn build_command(
             }
         }
     }
+
+    // The gs-mcp dispatcher tool (claude only) — wired in LAST, after the
+    // prompt. `--mcp-config` is variadic (`--mcp-config <configs...>`):
+    // any bare argument after it is swallowed as another config, so a
+    // seed prompt placed after it makes claude try to open the prompt as
+    // a file and die with ENAMETOOLONG. Keeping it last bounds it to its
+    // one value. This is what lets a claude session open child session
+    // tabs straight from chat.
+    if agent == "claude" {
+        if let Some(mcp) = gs_mcp_path() {
+            let cfg = serde_json::json!({
+                "mcpServers": { "gs": { "command": mcp.display().to_string() } }
+            })
+            .to_string();
+            cmd.arg("--mcp-config");
+            cmd.arg(cfg);
+        }
+    }
+
     Ok(cmd)
 }
 

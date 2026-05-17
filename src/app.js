@@ -54,6 +54,10 @@ const railThemes = document.getElementById("rail-themes");
 let snapshot = { ok: false, projects: [] };
 let selectedId = null; // selected project in the Fleet view
 let currentRepoPath = null; // code-repo path of the selected project
+// gsd-025 — scroll positions captured before a briefing rebuild so the
+// re-render can restore them; resolving a ping or adding one otherwise
+// snaps the dashboard back to the top.
+let scrollToRestore = null;
 
 // tabs: [{ id, kind: 'fleet'|'session', label, sessionId? }]
 let tabs = [{ id: "fleet", kind: "fleet", label: "Fleet" }];
@@ -641,6 +645,14 @@ function showBriefing() {
     '<h2 class="panel__title">Open pings</h2>' +
     '<span class="panel__meta" id="pings-count"></span></div>' +
     '<div class="panel__body">' +
+    '<div class="pings__compose">' +
+    '<input id="ping-compose-text" type="text" autocomplete="off" ' +
+    'spellcheck="false" placeholder="Add a ping to the inbox" />' +
+    '<select id="ping-compose-kind" title="Ping kind — sets which action it gets">' +
+    '<option value="task">Task</option>' +
+    '<option value="idea">Idea</option>' +
+    '<option value="other">Note</option></select>' +
+    '<button id="ping-compose-add">Add</button></div>' +
     '<div class="pings__toolbar">' +
     '<div class="pings__filter" id="pings-filter">' +
     '<button data-f="all" class="on">All</button>' +
@@ -681,6 +693,7 @@ function showBriefing() {
     '<div id="recent-commits"></div>' +
     '<div class="recent__foot">' +
     '<button class="btn-ghost" id="gen-note">Generate session note</button>' +
+    '<button class="btn-ghost" id="reconcile-go">Reconcile state</button>' +
     '<span class="spawn-msg" id="gen-note-msg"></span>' +
     "</div></div></div>";
 
@@ -704,6 +717,9 @@ function showBriefing() {
     recent +
     "</div></div></div>";
 
+  // gsd-025 — restore the dashboard scroll after the rebuild.
+  if (scrollToRestore) fleetView.scrollTop = scrollToRestore.view || 0;
+
   loadPings();
   loadRecentActivity();
 
@@ -721,6 +737,21 @@ function showBriefing() {
 
   const genNote = document.getElementById("gen-note");
   if (genNote) genNote.addEventListener("click", generateSessionNote);
+
+  const recon = document.getElementById("reconcile-go");
+  if (recon) recon.addEventListener("click", reconcileState);
+
+  const composeAdd = document.getElementById("ping-compose-add");
+  if (composeAdd) composeAdd.addEventListener("click", addPing);
+  const composeText = document.getElementById("ping-compose-text");
+  if (composeText) {
+    composeText.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addPing();
+      }
+    });
+  }
 
   const filterEl = document.getElementById("pings-filter");
   if (filterEl) {
@@ -1062,6 +1093,15 @@ function dispatchPrompt(ping, projectId) {
     "):\n\n" +
     ping.body +
     "\n\n";
+  // gsd-027 — every dispatched session tags its commit with a GS-Ping
+  // trailer (the ping's exact timestamp) and pushes, so the Reconcile
+  // pass has an explicit, greppable signal to close the ping against.
+  const trailer =
+    "\n\nWhen you commit, put this exact line in the commit message body — " +
+    "it lets the work be reconciled back to the GeneralStaff ping inbox:" +
+    "\n\n    GS-Ping: " +
+    ping.when +
+    "\n\nThen push the commit.";
   if (projectId) {
     return (
       intro +
@@ -1069,14 +1109,17 @@ function dispatchPrompt(ping, projectId) {
       projectId +
       " repo — the project this task is for. Handle it here: make the " +
       "change, commit it, and report what you did. If the task turns out " +
-      "not to belong to this project after all, say so rather than forcing it."
+      "not to belong to this project after all, say so rather than " +
+      "forcing it — and skip the trailer if you did not do the work." +
+      trailer
     );
   }
   return (
     intro +
     "Handle it. If it belongs to a specific fleet project, work in that " +
     "project's repo — open a child session there if that is cleaner. " +
-    "Otherwise handle it directly. Report what you did."
+    "Otherwise handle it directly. Report what you did." +
+    trailer
   );
 }
 
@@ -1086,6 +1129,23 @@ function todayIso() {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return d.getFullYear() + "-" + m + "-" + day;
+}
+
+// Now as "YYYY-MM-DD HH:MM" (local) — the heading stamp for a new ping.
+function nowStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    d.getFullYear() +
+    "-" +
+    p(d.getMonth() + 1) +
+    "-" +
+    p(d.getDate()) +
+    " " +
+    p(d.getHours()) +
+    ":" +
+    p(d.getMinutes())
+  );
 }
 
 // Resolve a ping from the desktop — closes it in the GS inbox itself, so
@@ -1101,7 +1161,9 @@ async function resolvePing(ping) {
       date: todayIso(),
     });
     if (msg) msg.textContent = "";
-    loadPings(); // re-render — the resolved ping drops off
+    // The state/ file-watcher fires fleet-updated -> reload(), which
+    // re-renders the panel with scroll preserved (gsd-025). No explicit
+    // loadPings() here — that was the redundant double-render.
   } catch (e) {
     if (msg) msg.textContent = "Could not resolve: " + e;
   }
@@ -1173,6 +1235,7 @@ function renderPingRows() {
     el.innerHTML = pingsCache.length
       ? "<p>No pings match.</p>"
       : "<p>No open pings.</p>";
+    consumePingScroll();
     return;
   }
   el.className = "";
@@ -1245,6 +1308,105 @@ function renderPingRows() {
       btn.addEventListener("click", () => resolvePing(ping));
     }
   }
+
+  // gsd-025 — restore the pings panel scroll after this async re-render.
+  consumePingScroll();
+  // gsd-027 — flag open pings whose project has shipped activity.
+  decoratePingHints(shown);
+}
+
+// gsd-025 — restore the pings panel body's scroll after a re-render and
+// clear the one-shot capture. The body fills in async (loadPings), so
+// this runs at the tail of renderPingRows, not right after showBriefing.
+function consumePingScroll() {
+  if (!scrollToRestore) return;
+  const pb = fleetView.querySelector(".dash__pings .panel__body");
+  if (pb) pb.scrollTop = scrollToRestore.pings || 0;
+  scrollToRestore = null;
+}
+
+// gsd-026 — the inbox classifies a ping from its first word, so the kind
+// dropdown is honoured by prefixing the body when it doesn't already
+// read as that kind. "other" gets no prefix.
+function composePingBody(kind, text) {
+  const t = text.trim();
+  const low = t.toLowerCase();
+  if (kind === "task" && !/^(task|feature|consider|possible task)/.test(low)) {
+    return "Task: " + t;
+  }
+  if (
+    kind === "idea" &&
+    !/^(idea|possible project|wild idea|project idea|new project)/.test(low)
+  ) {
+    return "Idea: " + t;
+  }
+  return t;
+}
+
+// gsd-026 — add a ping to the GS inbox from the dashboard. Appends a
+// block to state/pings/inbox.md; the file-watcher then refreshes the
+// panel. Sits alongside mission-companion's GS mode, not replacing it.
+async function addPing() {
+  const input = document.getElementById("ping-compose-text");
+  const kindSel = document.getElementById("ping-compose-kind");
+  const msg = document.getElementById("pings-msg");
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) {
+    input.focus();
+    return;
+  }
+  const body = composePingBody(kindSel ? kindSel.value : "task", text);
+  if (msg) msg.textContent = "Adding ping…";
+  try {
+    await invoke("append_ping", { when: nowStamp(), actor: "ray", body });
+    input.value = "";
+    if (msg) msg.textContent = "";
+    // The file-watcher fires fleet-updated -> reload(); the new ping
+    // shows up on its own.
+  } catch (e) {
+    if (msg) msg.textContent = "Could not add ping: " + e;
+  }
+}
+
+// gsd-027 — the non-destructive "possibly resolved" hint. For each open
+// task ping, ask the backend whether the project it names has shipped
+// activity (a GS-Ping trailer for the ping, or a commit after it). A
+// flagged ping gets a marker — a cue to run Reconcile, never an action.
+async function decoratePingHints(shown) {
+  const probes = [];
+  for (const p of shown) {
+    if (p.kind !== "task") continue;
+    const det = detectPingProject(p.body);
+    if (!det) continue;
+    const proj = (snapshot.projects || []).find((x) => x.id === det);
+    if (proj && proj.repo_path) {
+      probes.push({ when: p.when, repo: proj.repo_path });
+    }
+  }
+  if (!probes.length) return;
+  let flagged = [];
+  try {
+    flagged = await invoke("ping_hints", { probes });
+  } catch (e) {
+    return;
+  }
+  const set = new Set(flagged);
+  const el = document.getElementById("pings-list");
+  if (!el) return;
+  const rows = el.querySelectorAll(".ping");
+  shown.forEach((p, i) => {
+    if (!set.has(p.when)) return;
+    const meta = rows[i] && rows[i].querySelector(".ping__meta");
+    if (!meta || meta.querySelector(".ping__hint")) return;
+    const hint = document.createElement("span");
+    hint.className = "ping__hint";
+    hint.textContent = "may be done";
+    hint.title =
+      "This ping's project has commit activity since the ping — it may " +
+      "already be handled. Use Reconcile state to check and close it.";
+    meta.appendChild(hint);
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -1354,11 +1516,57 @@ async function generateSessionNote() {
   startSession("claude", snapshot.generalstaff_path, prompt, msg);
 }
 
+// gsd-027 — the decoupled state-reconciliation pass. Spawns a claude
+// session in generalstaff-private seeded to check the open pings + task
+// ledgers against what has shipped in the project repos, and propose
+// closures in a reviewable draft commit — no push, Ray reviews. Kept
+// separate from the session-note generator per the Hammerstein audit:
+// coupling reconciliation to note-writing enlarges the review draft and
+// skips reconciliation whenever a note is skipped.
+function reconcileState() {
+  const msg = document.getElementById("gen-note-msg");
+  if (msg) msg.textContent = "Opening a session to reconcile state…";
+  const prompt =
+    "Reconcile the GeneralStaff ping inbox and task ledgers against what " +
+    "has actually shipped. Work in generalstaff-private.\n\n" +
+    "1. Read state/pings/inbox.md — the open pings are the dated blocks " +
+    "with no `## resolved` block immediately after them.\n" +
+    "2. For each open ping, identify the project it concerns and look in " +
+    "that project's repo (a sibling directory of generalstaff-private) " +
+    "for evidence the work shipped: a commit whose message carries a " +
+    "`GS-Ping: <timestamp>` trailer matching the ping is an explicit " +
+    "signal; a matching task-ledger entry marked done, or a version " +
+    "bump, is corroborating evidence.\n" +
+    "3. Where the evidence is explicit and unambiguous, resolve the ping " +
+    "— append a `## resolved " +
+    todayIso() +
+    "` block saying what shipped (commit refs, version). Where the " +
+    "project keeps a state/<id>/tasks.json ledger, also file or close " +
+    "the matching task entry.\n" +
+    "4. Be conservative — only close a ping on clear evidence. If a " +
+    "ping's status is ambiguous, leave it open and note it for Ray.\n" +
+    "5. Commit the changes to generalstaff-private with a clear message. " +
+    "Do NOT push — leave the commit local so Ray can review the " +
+    "reconciliation and push it himself.\n" +
+    "6. End with a short summary: what you resolved, and what you left " +
+    "open and why.";
+  startSession("claude", snapshot.generalstaff_path, prompt, msg);
+}
+
 // ---------------------------------------------------------------------
 // Reload + init
 // ---------------------------------------------------------------------
 
 async function reload() {
+  // gsd-025 — capture fleet scroll before the rebuild so a ping resolve
+  // (or any fleet-updated event) doesn't snap the dashboard to the top.
+  if (activeTabId === "fleet" && !selectedId) {
+    const pb = fleetView.querySelector(".dash__pings .panel__body");
+    scrollToRestore = {
+      view: fleetView.scrollTop,
+      pings: pb ? pb.scrollTop : 0,
+    };
+  }
   try {
     snapshot = await invoke("read_fleet");
   } catch (e) {

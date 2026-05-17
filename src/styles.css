@@ -638,8 +638,48 @@ body.theme-night, body.theme-carbon {
 .sit__cell.is-live .sit__num { color: var(--prussian); }
 
 /* -----------------------------------------------------------
- * Open pings — search + filter + rows
+ * Open pings — compose + search + filter + rows
  * ----------------------------------------------------------- */
+.pings__compose {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 10px;
+}
+.pings__compose input {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--rule-faint);
+  border-radius: 3px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  padding: 6px 8px;
+  outline: none;
+}
+.pings__compose input:focus { border-color: var(--rule); }
+.pings__compose input::placeholder { color: var(--ink-ghost); }
+.pings__compose select {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 5px 6px;
+  border: 1px solid var(--rule-faint);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.pings__compose button {
+  background: var(--paper);
+  border: 1px solid var(--rule-faint);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.pings__compose button:hover { border-color: var(--rust); color: var(--rust); }
 .pings__toolbar {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 10px;
@@ -709,6 +749,18 @@ body.theme-night, body.theme-carbon {
 }
 .ping__kind.kind-idea { color: var(--rust); }
 .ping__kind.kind-task { color: var(--prussian); }
+.ping__hint {
+  align-self: start;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rust);
+  border: 1px solid var(--rust);
+  border-radius: 2px;
+  padding: 1px 4px;
+  cursor: help;
+}
 .ping__body { min-width: 0; }
 .ping__text {
   font-size: 12px;
@@ -929,7 +981,7 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--rule-faint);
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 .btn-ghost {
   background: none;

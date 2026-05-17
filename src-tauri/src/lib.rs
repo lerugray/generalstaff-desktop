@@ -3,10 +3,11 @@
 //!
 //! A viewer/controller over GeneralStaff's file-based state: it reads
 //! state to display it and never edits the structured state files
-//! (`tasks.json`, `project-meta.yaml`) directly. The one write it makes
-//! is to the pings inbox (`state/pings/inbox.md`) — a shared append-only
-//! log any actor may add to; resolving a ping appends a `## resolved`
-//! block, the same kind of write the inbox is built for.
+//! (`tasks.json`, `project-meta.yaml`) directly. Its writes are all to
+//! the pings inbox (`state/pings/inbox.md`) — a shared append-only log
+//! any actor may add to: resolving a ping appends a `## resolved` block,
+//! and the dashboard's add-ping affordance appends a new ping block.
+//! Both are the same kind of write the inbox is built for.
 //!
 //! The "fleet" is the project portfolio across two repos: most projects
 //! keep their `tasks.json` / `MISSION.md` / `project-meta.yaml` in
@@ -20,7 +21,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use notify::{RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -717,6 +718,87 @@ fn resolve_ping(
     std::fs::write(&path, joined).map_err(|e| format!("cannot write pings inbox: {e}"))
 }
 
+/// Append a ping to the GS inbox (gsd-026) — the dashboard's add-ping
+/// affordance. A second use of the inbox-write carve-out `resolve_ping`
+/// established; the inbox is a shared append-only log built for exactly
+/// this. `when` is "YYYY-MM-DD HH:MM" — the frontend stamps local time.
+#[tauri::command]
+fn append_ping(when: String, actor: String, body: String) -> Result<(), String> {
+    let when = when.trim();
+    let actor = actor.trim();
+    let body = body.trim();
+    if body.is_empty() {
+        return Err("ping body is empty".into());
+    }
+    // Guard the heading shape so a malformed `when` cannot write a block
+    // read_pings would not recognise as a dated ping.
+    let wb = when.as_bytes();
+    let dated = wb.len() >= 16
+        && wb[0..4].iter().all(u8::is_ascii_digit)
+        && wb[4] == b'-'
+        && wb[7] == b'-'
+        && wb[10] == b' ';
+    if !dated || actor.is_empty() {
+        return Err("ping heading must be 'YYYY-MM-DD HH:MM <actor>'".into());
+    }
+    let path = generalstaff_root()
+        .join("state")
+        .join("pings")
+        .join("inbox.md");
+    let mut text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read pings inbox: {e}"))?;
+    // One blank line between the prior block and the new one.
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    if !text.ends_with("\n\n") {
+        text.push('\n');
+    }
+    text.push_str(&format!("## {when} {actor}\n{body}\n"));
+    std::fs::write(&path, text).map_err(|e| format!("cannot write pings inbox: {e}"))
+}
+
+/// Whether a project repo shows a ping's work as shipped (gsd-027).
+/// Strong signal: a commit carrying the exact `GS-Ping: <when>` trailer
+/// a dispatched session leaves. Weak signal: any commit dated after the
+/// ping. Either flags the ping as "possibly resolved" — a hint only.
+fn repo_shipped_ping(repo: &str, when: &str) -> bool {
+    let trailer = format!("GS-Ping: {when}");
+    let grep = std::process::Command::new("git")
+        .args(["-C", repo, "log", "-1", "--format=%H", "--fixed-strings"])
+        .arg(format!("--grep={trailer}"))
+        .output();
+    if let Ok(o) = grep {
+        if !o.stdout.is_empty() {
+            return true;
+        }
+    }
+    std::process::Command::new("git")
+        .args(["-C", repo, "log", "-1", "--format=%H"])
+        .arg(format!("--since={when}"))
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+#[derive(Deserialize)]
+struct PingProbe {
+    when: String,
+    repo: String,
+}
+
+/// For a batch of (open task ping -> its project repo) probes, return the
+/// `when` of each ping whose repo shows shipped activity (gsd-027). One
+/// round trip; the desktop decorates the flagged rows with a hint.
+#[tauri::command]
+fn ping_hints(probes: Vec<PingProbe>) -> Vec<String> {
+    probes
+        .into_iter()
+        .filter(|p| repo_shipped_ping(&p.repo, &p.when))
+        .map(|p| p.when)
+        .collect()
+}
+
 // ---------------------------------------------------------------------
 // Recent activity — session notes + git history. The "where did I
 // leave off" half of the briefing; pairs with the Situation stats.
@@ -896,6 +978,8 @@ pub fn run() {
             project_tasks,
             read_pings,
             resolve_ping,
+            append_ping,
+            ping_hints,
             recent_session_notes,
             recent_commits,
             sessions::spawn_session,

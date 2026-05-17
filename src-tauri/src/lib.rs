@@ -758,24 +758,16 @@ fn append_ping(when: String, actor: String, body: String) -> Result<(), String> 
     std::fs::write(&path, text).map_err(|e| format!("cannot write pings inbox: {e}"))
 }
 
-/// Whether a project repo shows a ping's work as shipped (gsd-027).
-/// Strong signal: a commit carrying the exact `GS-Ping: <when>` trailer
-/// a dispatched session leaves. Weak signal: any commit dated after the
-/// ping. Either flags the ping as "possibly resolved" — a hint only.
+/// Whether a project repo carries the explicit `GS-Ping: <when>` commit
+/// trailer a dispatched session leaves when it ships a ping's work
+/// (gsd-027). An exact, greppable signal — deliberately NOT a fuzzy
+/// "any recent commit" guess, which would flag every ping for an
+/// actively-developed project. No trailer, no hint: no false positives.
 fn repo_shipped_ping(repo: &str, when: &str) -> bool {
     let trailer = format!("GS-Ping: {when}");
-    let grep = std::process::Command::new("git")
+    std::process::Command::new("git")
         .args(["-C", repo, "log", "-1", "--format=%H", "--fixed-strings"])
         .arg(format!("--grep={trailer}"))
-        .output();
-    if let Ok(o) = grep {
-        if !o.stdout.is_empty() {
-            return true;
-        }
-    }
-    std::process::Command::new("git")
-        .args(["-C", repo, "log", "-1", "--format=%H"])
-        .arg(format!("--since={when}"))
         .output()
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false)

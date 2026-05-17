@@ -1370,9 +1370,9 @@ async function addPing() {
 }
 
 // gsd-027 — the non-destructive "possibly resolved" hint. For each open
-// task ping, ask the backend whether the project it names has shipped
-// activity (a GS-Ping trailer for the ping, or a commit after it). A
-// flagged ping gets a marker — a cue to run Reconcile, never an action.
+// task ping, ask the backend whether the project it names carries the
+// explicit GS-Ping commit trailer for that ping. A flagged ping gets a
+// marker — a cue to run Reconcile, never an action.
 async function decoratePingHints(shown) {
   const probes = [];
   for (const p of shown) {
@@ -1403,8 +1403,8 @@ async function decoratePingHints(shown) {
     hint.className = "ping__hint";
     hint.textContent = "may be done";
     hint.title =
-      "This ping's project has commit activity since the ping — it may " +
-      "already be handled. Use Reconcile state to check and close it.";
+      "A commit in this ping's project carries a GS-Ping marker for it — " +
+      "the dispatched work shipped. Use Reconcile state to close the ping.";
     meta.appendChild(hint);
   });
 }

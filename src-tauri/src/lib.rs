@@ -715,7 +715,9 @@ fn resolve_ping(
     if text.ends_with('\n') {
         joined.push('\n');
     }
-    std::fs::write(&path, joined).map_err(|e| format!("cannot write pings inbox: {e}"))
+    std::fs::write(&path, joined).map_err(|e| format!("cannot write pings inbox: {e}"))?;
+    commit_inbox_write(format!("resolve {when}"));
+    Ok(())
 }
 
 /// Append a ping to the GS inbox (gsd-026) — the dashboard's add-ping
@@ -755,7 +757,59 @@ fn append_ping(when: String, actor: String, body: String) -> Result<(), String> 
         text.push('\n');
     }
     text.push_str(&format!("## {when} {actor}\n{body}\n"));
-    std::fs::write(&path, text).map_err(|e| format!("cannot write pings inbox: {e}"))
+    std::fs::write(&path, text).map_err(|e| format!("cannot write pings inbox: {e}"))?;
+    commit_inbox_write(format!("add {when} {actor}"));
+    Ok(())
+}
+
+/// Serialises GSD's background inbox commits so two rapid writes cannot
+/// race on git's index lock.
+static INBOX_GIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// Commit — and best-effort push — GSD's write to the pings inbox
+/// (gsd-029). resolve_ping and append_ping otherwise leave inbox.md
+/// uncommitted; an uncommitted local inbox conflicts on the next pull
+/// when mission-companion's GS mode pushes from another machine. Runs
+/// on a background thread so the Tauri command returns at once — the
+/// file-watcher has already refreshed the panel from the file write.
+/// Mirrors mission-companion's git_commit_state_write: commit (a
+/// pathspec commit, so it never sweeps up other staged changes); on a
+/// push reject, pull --rebase and retry once; on a rebase failure,
+/// abort and leave the commit local for a later sync.
+fn commit_inbox_write(summary: String) {
+    std::thread::spawn(move || {
+        let _guard = INBOX_GIT_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = generalstaff_root();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        // A pathspec commit — inbox.md only, never anything else in the
+        // index. No change to inbox.md -> git exits non-zero -> we stop.
+        if !git(&[
+            "commit",
+            "-m",
+            &format!("pings: {summary}"),
+            "--",
+            "state/pings/inbox.md",
+        ]) {
+            return;
+        }
+        if !git(&["push"]) {
+            if git(&["pull", "--rebase"]) {
+                let _ = git(&["push"]);
+            } else {
+                let _ = git(&["rebase", "--abort"]);
+            }
+        }
+    });
 }
 
 /// Whether a project repo carries the explicit `GS-Ping: <when>` commit
@@ -789,6 +843,167 @@ fn ping_hints(probes: Vec<PingProbe>) -> Vec<String> {
         .filter(|p| repo_shipped_ping(&p.repo, &p.when))
         .map(|p| p.when)
         .collect()
+}
+
+// ---------------------------------------------------------------------
+// Agent usage — Claude Code token volume from the local transcripts
+// under ~/.claude/projects/ (gsd-028).
+// ---------------------------------------------------------------------
+
+/// Days since the Unix epoch for a civil (proleptic Gregorian) date —
+/// Howard Hinnant's days_from_civil.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = (if y >= 0 { y } else { y - 399 }) / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Parse a `YYYY-MM-DDTHH:MM:SS...` UTC timestamp — the shape Claude
+/// Code writes — to epoch seconds. Sub-second precision and the zone
+/// suffix are ignored; the transcripts are UTC.
+fn iso_to_epoch(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let num = |a: usize, z: usize| s.get(a..z).and_then(|p| p.parse::<i64>().ok());
+    Some(
+        days_from_civil(num(0, 4)?, num(5, 7)?, num(8, 10)?) * 86_400
+            + num(11, 13)? * 3_600
+            + num(14, 16)? * 60
+            + num(17, 19)?,
+    )
+}
+
+/// The token counts on one transcript line's `message.usage` object.
+/// Serde ignores the rest (server_tool_use, iterations, service_tier…).
+#[derive(Deserialize)]
+struct CcUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+}
+
+#[derive(Deserialize)]
+struct CcMessage {
+    usage: Option<CcUsage>,
+}
+
+/// One transcript line — only the fields the usage roll-up needs.
+#[derive(Deserialize)]
+struct CcLine {
+    timestamp: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    message: Option<CcMessage>,
+}
+
+/// Claude Code usage figures for the desktop's usage panel.
+#[derive(Serialize)]
+struct AgentUsage {
+    /// True once ~/.claude/projects/ was found and scanned.
+    cc_ok: bool,
+    cc_tokens_24h: u64,
+    cc_tokens_7d: u64,
+    cc_sessions_7d: u64,
+}
+
+/// Roll up Claude Code token usage from the local JSONL transcripts
+/// under ~/.claude/projects/ (gsd-028). Each assistant line carries a
+/// `message.usage` block; tokens = input + output + cache read + cache
+/// creation, bucketed into the last 24h and 7d by the line timestamp.
+/// Files untouched for over 9 days are skipped — they cannot hold a
+/// line inside the window. ~1s over a busy ~/.claude; the desktop
+/// caches the result and refreshes it only every few minutes.
+#[tauri::command]
+fn agent_usage() -> AgentUsage {
+    let mut u = AgentUsage {
+        cc_ok: false,
+        cc_tokens_24h: 0,
+        cc_tokens_7d: 0,
+        cc_sessions_7d: 0,
+    };
+    let Some(home) = home_dir() else {
+        return u;
+    };
+    let Ok(projects) = std::fs::read_dir(home.join(".claude").join("projects")) else {
+        return u;
+    };
+    u.cc_ok = true;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let cut_24h = now - 86_400;
+    let cut_7d = now - 7 * 86_400;
+    let mtime_floor = now - 9 * 86_400;
+    let mut sessions: HashSet<String> = HashSet::new();
+
+    for proj in projects.flatten() {
+        let Ok(files) = std::fs::read_dir(proj.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            let path = f.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            // Skip files untouched for over 9 days — out of the window.
+            let fresh = f
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64 >= mtime_floor)
+                .unwrap_or(true);
+            if !fresh {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for line in text.lines() {
+                // Cheap pre-filter — only assistant lines carry usage.
+                if !line.contains("\"usage\"") {
+                    continue;
+                }
+                let Ok(parsed) = serde_json::from_str::<CcLine>(line) else {
+                    continue;
+                };
+                let Some(usage) = parsed.message.and_then(|m| m.usage) else {
+                    continue;
+                };
+                let Some(ts) = parsed.timestamp.as_deref().and_then(iso_to_epoch) else {
+                    continue;
+                };
+                if ts < cut_7d {
+                    continue;
+                }
+                let tokens = usage.input_tokens
+                    + usage.output_tokens
+                    + usage.cache_creation_input_tokens
+                    + usage.cache_read_input_tokens;
+                u.cc_tokens_7d += tokens;
+                if let Some(sid) = parsed.session_id {
+                    sessions.insert(sid);
+                }
+                if ts >= cut_24h {
+                    u.cc_tokens_24h += tokens;
+                }
+            }
+        }
+    }
+    u.cc_sessions_7d = sessions.len() as u64;
+    u
 }
 
 // ---------------------------------------------------------------------
@@ -972,6 +1187,7 @@ pub fn run() {
             resolve_ping,
             append_ping,
             ping_hints,
+            agent_usage,
             recent_session_notes,
             recent_commits,
             sessions::spawn_session,

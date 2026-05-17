@@ -512,9 +512,34 @@ body.theme-night, body.theme-carbon {
 .dash__side {
   grid-column: 2; grid-row: 2;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
+}
+.usage {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.usage__cell {
+  text-align: center;
+  padding: 7px 4px;
+  border: 1px solid var(--rule-faint);
+  border-radius: 3px;
+}
+.usage__num {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.usage__label {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
 }
 
 /* -----------------------------------------------------------

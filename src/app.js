@@ -697,6 +697,14 @@ function showBriefing() {
     '<span class="spawn-msg" id="gen-note-msg"></span>' +
     "</div></div></div>";
 
+  const usage =
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">Claude Code usage</h2>' +
+    '<span class="panel__meta">local transcripts</span></div>' +
+    '<div class="panel__body">' +
+    '<div id="usage-body" class="muted">Loading&hellip;</div>' +
+    "</div></div>";
+
   const bc =
     activeProjs.length +
     " active" +
@@ -713,6 +721,7 @@ function showBriefing() {
     pingsPanel +
     '<div class="dash__side">' +
     dispatcher +
+    usage +
     attention +
     recent +
     "</div></div></div>";
@@ -722,6 +731,7 @@ function showBriefing() {
 
   loadPings();
   loadRecentActivity();
+  loadAgentUsage();
 
   const dgo = document.getElementById("dispatch-go");
   if (dgo) {
@@ -1551,6 +1561,60 @@ function reconcileState() {
     "6. End with a short summary: what you resolved, and what you left " +
     "open and why.";
   startSession("claude", snapshot.generalstaff_path, prompt, msg);
+}
+
+// ---------------------------------------------------------------------
+// Agent usage — Claude Code token volume (gsd-028)
+// ---------------------------------------------------------------------
+
+// Aggregating the local ~/.claude transcripts is a ~1s parse, so the
+// result is cached and recomputed only when stale — a fleet-updated
+// re-render draws from the cache instead of re-parsing.
+let agentUsageCache = null;
+let agentUsageAt = 0;
+const AGENT_USAGE_TTL = 5 * 60 * 1000;
+
+async function loadAgentUsage() {
+  const fresh =
+    agentUsageCache && Date.now() - agentUsageAt < AGENT_USAGE_TTL;
+  if (!fresh) {
+    try {
+      agentUsageCache = await invoke("agent_usage");
+      agentUsageAt = Date.now();
+    } catch (e) {
+      agentUsageCache = null;
+    }
+  }
+  renderAgentUsage();
+}
+
+// Compact count — 1234567 -> "1.2M", 8400 -> "8.4k".
+function fmtCount(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "k";
+  return String(n);
+}
+
+function renderAgentUsage() {
+  const el = document.getElementById("usage-body");
+  if (!el) return;
+  const u = agentUsageCache;
+  if (!u || !u.cc_ok) {
+    el.className = "muted";
+    el.innerHTML = "<p>Claude Code transcripts not found.</p>";
+    return;
+  }
+  el.className = "usage";
+  const cell = (num, label) =>
+    '<div class="usage__cell"><div class="usage__num">' +
+    escapeHtml(String(num)) +
+    '</div><div class="usage__label">' +
+    label +
+    "</div></div>";
+  el.innerHTML =
+    cell(fmtCount(u.cc_tokens_24h), "tokens 24h") +
+    cell(fmtCount(u.cc_tokens_7d), "tokens 7d") +
+    cell(u.cc_sessions_7d, "sessions 7d");
 }
 
 // ---------------------------------------------------------------------

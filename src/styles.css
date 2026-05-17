@@ -619,6 +619,18 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
   cursor: pointer;
 }
 .ping-dispatch:hover { background: var(--prussian); color: var(--paper); }
+.ping-target {
+  flex-shrink: 0;
+  max-width: 160px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 6px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  cursor: pointer;
+}
 .ping-resolve {
   flex-shrink: 0;
   font-family: var(--font-mono);

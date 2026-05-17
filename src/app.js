@@ -609,11 +609,17 @@ function showBriefing() {
     '<div id="pings-msg" class="spawn-msg"></div></div>';
 
   const recent =
-    '<div class="panel"><h2>Recent activity</h2>' +
+    '<div class="panel"><div class="panel-head"><h2>Recent activity</h2>' +
+    '<button id="gen-note" class="panel-action">Generate session note</button>' +
+    "</div>" +
     '<p class="panel-note">The latest session notes and commits from ' +
-    "generalstaff-private &mdash; where you left off.</p>" +
+    "generalstaff-private &mdash; where you left off. &ldquo;Generate " +
+    "session note&rdquo; opens a session that drafts the next note from the " +
+    "git history since the last one; it commits a draft &mdash; review and " +
+    "push it yourself.</p>" +
     '<div id="recent-notes" class="recent-notes muted">Loading&hellip;</div>' +
-    '<div id="recent-commits" class="recent-commits"></div></div>';
+    '<div id="recent-commits" class="recent-commits"></div>' +
+    '<div id="gen-note-msg" class="spawn-msg"></div></div>';
 
   // Dashboard-first: the briefing opens with the orienting panels —
   // Situation stats, Recent activity, Attention — then the action
@@ -643,6 +649,9 @@ function showBriefing() {
 
   const prefresh = document.getElementById("pings-refresh");
   if (prefresh) prefresh.addEventListener("click", () => loadPings());
+
+  const genNote = document.getElementById("gen-note");
+  if (genNote) genNote.addEventListener("click", generateSessionNote);
 
   for (const row of fleetView.querySelectorAll(".attn-row")) {
     const id = row.dataset.id;
@@ -885,6 +894,58 @@ function pingSnippet(body) {
   return line.length > 140 ? line.slice(0, 139) + "…" : line;
 }
 
+// gsd-023 — the dispatch target meaning "open in generalstaff-private"
+// (the orchestration repo) rather than a project's own repo.
+const GS_PRIVATE_TARGET = "__gs-private__";
+
+// Best-effort: which fleet project is this ping about? Scans the body for
+// a project id as a whole token (case-insensitive) and returns the
+// earliest-mentioned one, or null. Only a default — the Dispatch target
+// select shows the result and is fully overridable.
+function detectPingProject(body) {
+  const text = String(body).toLowerCase();
+  let bestId = null;
+  let bestAt = Infinity;
+  for (const p of snapshot.projects || []) {
+    const id = String(p.id).toLowerCase();
+    if (!id) continue;
+    const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = text.match(new RegExp("(^|[^a-z0-9-])" + esc + "([^a-z0-9-]|$)"));
+    if (m && m.index < bestAt) {
+      bestAt = m.index;
+      bestId = p.id;
+    }
+  }
+  return bestId;
+}
+
+// The Dispatch target <select> for a task ping — generalstaff-private plus
+// every fleet project, with the detected project pre-selected (or
+// generalstaff-private when nothing was detected).
+function targetSelectHtml(detected) {
+  let opts =
+    '<option value="' +
+    GS_PRIVATE_TARGET +
+    '"' +
+    (detected ? "" : " selected") +
+    ">generalstaff-private</option>";
+  for (const p of snapshot.projects || []) {
+    opts +=
+      '<option value="' +
+      escapeHtml(p.id) +
+      '"' +
+      (p.id === detected ? " selected" : "") +
+      ">" +
+      escapeHtml(p.id) +
+      "</option>";
+  }
+  return (
+    '<select class="ping-target" title="Dispatch target — which repo the session opens in">' +
+    opts +
+    "</select>"
+  );
+}
+
 // The seed prompt a "Scaffold" click hands the dispatcher session.
 function scaffoldPrompt(ping) {
   return (
@@ -900,17 +961,32 @@ function scaffoldPrompt(ping) {
   );
 }
 
-// The seed prompt a "Dispatch" click hands the dispatcher session.
-function dispatchPrompt(ping) {
-  return (
+// The seed prompt a "Dispatch" click hands the spawned session. When the
+// session opens in a project's own repo it is told so; when it opens in
+// generalstaff-private it keeps the orchestration framing.
+function dispatchPrompt(ping, projectId) {
+  const intro =
     "A task came in via the GeneralStaff pings inbox (" +
     ping.when +
     ", " +
     ping.actor +
     "):\n\n" +
     ping.body +
-    "\n\nHandle it. If it belongs to a specific fleet project, work in " +
-    "that project's repo — open a child session there if that is cleaner. " +
+    "\n\n";
+  if (projectId) {
+    return (
+      intro +
+      "This session is open in the " +
+      projectId +
+      " repo — the project this task is for. Handle it here: make the " +
+      "change, commit it, and report what you did. If the task turns out " +
+      "not to belong to this project after all, say so rather than forcing it."
+    );
+  }
+  return (
+    intro +
+    "Handle it. If it belongs to a specific fleet project, work in that " +
+    "project's repo — open a child session there if that is cleaner. " +
     "Otherwise handle it directly. Report what you did."
   );
 }
@@ -942,6 +1018,31 @@ async function resolvePing(ping) {
   }
 }
 
+// Dispatch a task ping: spawn a claude session in the target chosen in the
+// ping row's select — a project's own repo, or generalstaff-private (the
+// fallback for cross-project / GS-state pings, and when a chosen project
+// has no resolved repo).
+function dispatchPing(btn, ping) {
+  const row = btn.closest(".ping-row");
+  const sel = row ? row.querySelector(".ping-target") : null;
+  const target = sel ? sel.value : GS_PRIVATE_TARGET;
+  let cwd = snapshot.generalstaff_path;
+  let projectId = null;
+  if (target && target !== GS_PRIVATE_TARGET) {
+    const proj = (snapshot.projects || []).find((p) => p.id === target);
+    if (proj && proj.repo_path) {
+      cwd = proj.repo_path;
+      projectId = proj.id;
+    }
+  }
+  startSession(
+    "claude",
+    cwd,
+    dispatchPrompt(ping, projectId),
+    document.getElementById("pings-msg")
+  );
+}
+
 // Load the open pings into the briefing's pings panel.
 async function loadPings() {
   let pl;
@@ -968,6 +1069,7 @@ async function loadPings() {
           '<button class="ping-scaffold" data-i="' + i + '">Scaffold</button>';
       } else if (p.kind === "task") {
         action =
+          targetSelectHtml(detectPingProject(p.body)) +
           '<button class="ping-dispatch" data-i="' + i + '">Dispatch</button>';
       }
       // Every ping is resolvable — clears it from the GS inbox.
@@ -1006,7 +1108,7 @@ async function loadPings() {
   }
   for (const btn of el.querySelectorAll(".ping-dispatch")) {
     const ping = shown[Number(btn.dataset.i)];
-    btn.addEventListener("click", () => fire(ping, dispatchPrompt(ping)));
+    btn.addEventListener("click", () => dispatchPing(btn, ping));
   }
   for (const btn of el.querySelectorAll(".ping-resolve")) {
     const ping = shown[Number(btn.dataset.i)];
@@ -1069,6 +1171,50 @@ async function loadRecentActivity() {
         )
         .join("");
   }
+}
+
+// gsd-024 — open a session that drafts the next session note from the git
+// history since the last one. The session does the synthesis; it commits
+// a draft but does NOT push — Ray reviews the note and pushes it himself.
+async function generateSessionNote() {
+  const msg = document.getElementById("gen-note-msg");
+  if (msg) msg.textContent = "Opening a session to draft the note…";
+  let notes = [];
+  try {
+    notes = await invoke("recent_session_notes");
+  } catch (e) {
+    notes = [];
+  }
+  const last = notes && notes.length ? notes[0] : null;
+  const lastFile = last && last.file ? last.file : null;
+  const lastDate =
+    lastFile && /^\d{4}-\d{2}-\d{2}/.test(lastFile)
+      ? lastFile.slice(0, 10)
+      : null;
+  const today = todayIso();
+  const since = lastDate
+    ? "since the last session note (" + lastFile + ", dated " + lastDate + ")"
+    : "covering the last few days of work";
+  const prompt =
+    "Write the next GeneralStaff session note. Cover the work " +
+    since +
+    ". Today is " +
+    today +
+    ".\n\n" +
+    "1. Gather the git history: run `git log` in generalstaff-private" +
+    (lastDate ? " since " + lastDate : " for the last few days") +
+    ", and check the sibling project repos under the parent directory for " +
+    "commits in the same window (mission-companion, generalstaff-desktop, " +
+    "and any others that changed).\n" +
+    "2. Read the two or three most recent notes in docs/sessions/ to match " +
+    "their format, section structure, and register.\n" +
+    "3. Write a new note at docs/sessions/" +
+    today +
+    "-<short-slug>.md — factual, grounded in the actual commits and project " +
+    "state, not invented.\n" +
+    "4. Commit it to generalstaff-private. Do NOT push — leave the commit " +
+    "local so Ray can review the note and push it himself.";
+  startSession("claude", snapshot.generalstaff_path, prompt, msg);
 }
 
 // ---------------------------------------------------------------------

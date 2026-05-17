@@ -14,7 +14,7 @@
 //! theirs in the public GeneralStaff repo's `state/`. The desktop reads
 //! both and merges them by project id.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -111,6 +111,10 @@ struct ProjectState {
     /// active board (set by the 2026-05-16 portfolio triage).
     archived: bool,
     category: Option<String>,
+    /// Absolute path of the project's code repo — a directory alongside
+    /// generalstaff-private whose name matches the id. None if no repo
+    /// exists (a brand-new project not yet under version control).
+    repo_path: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -166,6 +170,7 @@ fn collect_projects(
     state_dir: &Path,
     projects: &mut Vec<ProjectState>,
     seen: &mut HashSet<String>,
+    repo_map: &HashMap<String, PathBuf>,
 ) {
     let Ok(entries) = std::fs::read_dir(state_dir) else {
         return;
@@ -226,6 +231,10 @@ fn collect_projects(
                 })
             });
 
+        let repo_path = repo_map
+            .get(&id.to_lowercase())
+            .map(|p| p.display().to_string());
+
         projects.push(ProjectState {
             id,
             status: status.to_string(),
@@ -236,6 +245,7 @@ fn collect_projects(
             required_attention,
             archived,
             category,
+            repo_path,
         });
     }
 }
@@ -260,13 +270,14 @@ fn read_fleet() -> FleetSnapshot {
         };
     }
 
+    let repo_map = sibling_repo_map();
     let mut projects: Vec<ProjectState> = vec![];
     let mut seen: HashSet<String> = HashSet::new();
-    collect_projects(&state_dir, &mut projects, &mut seen);
+    collect_projects(&state_dir, &mut projects, &mut seen, &repo_map);
     // Public-state projects (generalstaff, bookfinder-general,
     // wargame-design-book, devforge-website) live only in the public repo.
     if let Some(public) = public_gs_root() {
-        collect_projects(&public.join("state"), &mut projects, &mut seen);
+        collect_projects(&public.join("state"), &mut projects, &mut seen, &repo_map);
     }
 
     // Projects with open work first, alphabetical within each group.
@@ -302,6 +313,25 @@ pub(crate) fn resolve_project_repo(id: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// A lowercase-name -> code-repo-path map of every directory alongside
+/// generalstaff-private. Built once per `read_fleet` so each project's
+/// repo path is one map lookup, not a fresh parent-dir scan per project.
+fn sibling_repo_map() -> HashMap<String, PathBuf> {
+    let mut map = HashMap::new();
+    let Some(parent) = generalstaff_root().parent().map(Path::to_path_buf) else {
+        return map;
+    };
+    if let Ok(entries) = std::fs::read_dir(&parent) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                map.insert(name, entry.path());
+            }
+        }
+    }
+    map
 }
 
 #[derive(Serialize)]

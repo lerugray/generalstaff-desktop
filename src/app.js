@@ -131,6 +131,70 @@ function initTheme() {
 }
 
 // ---------------------------------------------------------------------
+// Modal — a centered overlay card. gsd-030 uses it for the full text of
+// a ping, whose dashboard row truncates the body to two lines.
+// ---------------------------------------------------------------------
+
+let modalOverlay = null;
+
+function initModal() {
+  modalOverlay = document.createElement("div");
+  modalOverlay.className = "modal-overlay";
+  modalOverlay.innerHTML =
+    '<div class="modal" role="dialog" aria-modal="true">' +
+    '<div class="modal__head"><div class="modal__meta"></div>' +
+    '<button class="modal__close" title="Close" aria-label="Close">' +
+    "&#215;</button></div>" +
+    '<div class="modal__body"></div></div>';
+  // Backdrop click closes; a click inside the card does not.
+  modalOverlay.addEventListener("click", (e) => {
+    if (e.target === modalOverlay) closeModal();
+  });
+  modalOverlay
+    .querySelector(".modal__close")
+    .addEventListener("click", closeModal);
+  document.body.appendChild(modalOverlay);
+}
+
+function closeModal() {
+  if (modalOverlay) modalOverlay.classList.remove("is-open");
+}
+
+// Open the modal showing one ping's full inbox text and heading meta.
+function openPingModal(ping) {
+  if (!modalOverlay) return;
+  const kindCls =
+    ping.kind === "idea"
+      ? " kind-idea"
+      : ping.kind === "task"
+        ? " kind-task"
+        : "";
+  modalOverlay.querySelector(".modal__meta").innerHTML =
+    '<span class="modal__when">' +
+    escapeHtml(ping.when) +
+    "</span>" +
+    (ping.actor ? "<span>" + escapeHtml(ping.actor) + "</span>" : "") +
+    '<span class="modal__kind' +
+    kindCls +
+    '">' +
+    escapeHtml(ping.kind) +
+    "</span>";
+  modalOverlay.querySelector(".modal__body").innerHTML =
+    '<pre class="modal__text">' + escapeHtml(ping.body) + "</pre>";
+  modalOverlay.classList.add("is-open");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (
+    e.key === "Escape" &&
+    modalOverlay &&
+    modalOverlay.classList.contains("is-open")
+  ) {
+    closeModal();
+  }
+});
+
+// ---------------------------------------------------------------------
 // Tab bar
 // ---------------------------------------------------------------------
 
@@ -140,6 +204,7 @@ function renderTabbar() {
     const el = document.createElement("div");
     el.className = "tab" + (tab.id === activeTabId ? " tab-active" : "");
 
+    let live = false; // a session tab with a running, poppable process
     if (tab.kind === "session") {
       const dot = document.createElement("span");
       if (tab.dormant) {
@@ -150,6 +215,7 @@ function renderTabbar() {
       } else {
         const s = sessions.get(tab.sessionId);
         const st = (s && s.status) || "running";
+        live = st !== "exited";
         const dotClass =
           st === "exited"
             ? "dot-done"
@@ -171,6 +237,19 @@ function renderTabbar() {
     label.className = "tab-label";
     label.textContent = tab.label;
     el.appendChild(label);
+
+    // gsd-035 — pop a live session out into its own OS window.
+    if (live) {
+      const pop = document.createElement("span");
+      pop.className = "tab-popout";
+      pop.textContent = "↗"; // north-east arrow
+      pop.title = "Pop out into its own window";
+      pop.addEventListener("click", (e) => {
+        e.stopPropagation();
+        popOutTab(tab.id);
+      });
+      el.appendChild(pop);
+    }
 
     if (tab.kind !== "fleet") {
       const close = document.createElement("span");
@@ -228,6 +307,34 @@ function closeTab(id) {
   persistLayout();
   if (activeTabId === id) activateTab("fleet");
   else renderTabbar();
+}
+
+// gsd-035 — pop a live session tab out into its own OS window. The PTY
+// keeps running in the backend; the new window (term.html) re-attaches
+// to it by id. On success the tab is dropped from this window — the
+// session now lives in the popped-out window, which owns its lifecycle
+// (closing that window ends the session).
+function popOutTab(id) {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab || tab.kind !== "session" || tab.dormant) return;
+  const s = sessions.get(tab.sessionId);
+  if (!s) return;
+  invoke("popout_session", {
+    id: tab.sessionId,
+    label: sessionLabel(s.info),
+  })
+    .then(() => {
+      try {
+        s.term.dispose();
+      } catch (e) {}
+      s.view.remove();
+      sessions.delete(tab.sessionId);
+      tabs = tabs.filter((t) => t.id !== id);
+      persistLayout();
+      if (activeTabId === id) activateTab("fleet");
+      else renderTabbar();
+    })
+    .catch(() => {});
 }
 
 // ---------------------------------------------------------------------
@@ -347,11 +454,26 @@ async function startSession(agent, cwd, prompt, msgEl, opts) {
   }
 }
 
+// gsd-031 — fire a native OS notification through the backend. The
+// frontend owns the *when* (it knows the active tab and the per-session
+// idle timer); the Rust `notify` command owns the OS call.
+function notifyDesktop(title, body) {
+  invoke("notify", { title, body }).catch(() => {});
+}
+
+// True when the active tab is the one for this session — i.e. the
+// operator is already looking at it, so no notification is warranted.
+function isActiveSession(sessionId) {
+  const tab = tabs.find((t) => t.sessionId === sessionId);
+  return Boolean(tab) && tab.id === activeTabId;
+}
+
 listen("pty-output", (e) => {
   const s = sessions.get(e.payload.id);
   if (!s) return;
   s.term.write(base64ToBytes(e.payload.data));
   s.lastOutputAt = Date.now();
+  s.idleNotified = false; // fresh output — re-arm the idle notification
   if (s.status === "idle") {
     s.status = "running";
     renderTabbar();
@@ -364,7 +486,16 @@ listen("pty-exit", (e) => {
     s.status = "exited";
     s.term.write("\r\n\x1b[2m— session ended —\x1b[0m\r\n");
     renderTabbar();
+    // gsd-031 — notify only when the operator is not on this tab.
+    if (!isActiveSession(e.payload.id)) {
+      notifyDesktop("Session ended", sessionLabel(s.info));
+    }
   }
+  // gsd-032 — a dispatched session may have just shipped a ping's work;
+  // re-probe so the "may be done" hint can appear right away instead of
+  // waiting for an unrelated state change. A harmless no-op when the
+  // briefing is not the rendered fleet view.
+  loadPings();
 });
 
 // A session spawned anywhere — the workbench button, the dispatcher
@@ -848,6 +979,7 @@ async function selectProject(id) {
     '<div class="panel"><div class="panel__head">' +
     '<h2 class="panel__title">Task ledger</h2></div><div class="panel__body">' +
     '<div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>' +
+    '<div id="task-msg" class="spawn-msg"></div>' +
     "</div></div></div>";
 
   loadTaskLedger(id);
@@ -997,6 +1129,11 @@ async function loadTaskLedger(id) {
     (t.interactive_only
       ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
       : "") +
+    (t.status === "pending"
+      ? '<button class="task-dispatch" data-id="' +
+        escapeHtml(t.id) +
+        '">Dispatch</button>'
+      : "") +
     "</div>";
   const section = (label, list) =>
     !list.length
@@ -1008,6 +1145,43 @@ async function loadTaskLedger(id) {
         ")</div>" +
         list.map(rowHtml).join("");
   el.innerHTML = section("Pending", pending) + section("Done", done);
+
+  // gsd-033 — a pending task row's Dispatch button opens a claude
+  // session in the project's repo, seeded with the task.
+  for (const btn of el.querySelectorAll(".task-dispatch")) {
+    const task = pending.find((t) => t.id === btn.dataset.id);
+    if (!task) continue;
+    btn.addEventListener("click", () => dispatchTask(id, task));
+  }
+}
+
+// gsd-033 — dispatch a project task: open a claude session in the
+// project's own repo, seeded with the task — the project-task analogue
+// of a ping's Dispatch button. The task ledger itself is reconciled
+// separately (the dashboard's Reconcile-state pass), so no GS-Ping
+// trailer here; this just gets the work moving.
+function dispatchTask(projectId, task) {
+  const msg = document.getElementById("task-msg");
+  const proj = (snapshot.projects || []).find((p) => p.id === projectId);
+  if (!proj || !proj.repo_path) {
+    if (msg) msg.textContent = "No code repo found for " + projectId + ".";
+    return;
+  }
+  const prompt =
+    "A task from the " +
+    projectId +
+    " project task ledger (generalstaff-private/state/" +
+    projectId +
+    "/tasks.json):\n\n" +
+    task.id +
+    " — " +
+    task.title +
+    "\n\nThis session is open in the " +
+    projectId +
+    " repo. Handle the task: make the change and commit it. If the " +
+    "task turns out to be already done, or should not be done, say so " +
+    "rather than forcing it. Report what you did.";
+  startSession("claude", proj.repo_path, prompt, msg);
 }
 
 // ---------------------------------------------------------------------
@@ -1318,6 +1492,17 @@ function renderPingRows() {
       btn.addEventListener("click", () => resolvePing(ping));
     }
   }
+
+  // gsd-030 — clicking a ping row (anywhere but its action buttons)
+  // opens the full inbox text in a modal; the row truncates it.
+  el.querySelectorAll(".ping").forEach((row, i) => {
+    const ping = shown[i];
+    if (!ping) return;
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".ping__actions")) return;
+      openPingModal(ping);
+    });
+  });
 
   // gsd-025 — restore the pings panel scroll after this async re-render.
   consumePingScroll();
@@ -1649,6 +1834,7 @@ async function reload() {
 }
 
 initTheme();
+initModal();
 
 railHead.setAttribute("role", "button");
 railHead.setAttribute("tabindex", "0");
@@ -1671,17 +1857,32 @@ window.addEventListener("resize", () => {
 
 // Mark a session "idle" once its output has been quiet a while — a
 // rough "may want you" badge. Lifecycle + output timing only; the
-// terminal stream is never parsed.
+// terminal stream is never parsed. The badge flips at IDLE_AFTER_MS; a
+// notification waits the longer NOTIFY_IDLE_AFTER_MS, so a session that
+// is merely mid-thought is far less likely to be flagged as wanting you.
 const IDLE_AFTER_MS = 10000;
+const NOTIFY_IDLE_AFTER_MS = 60000;
 setInterval(() => {
   let changed = false;
-  for (const s of sessions.values()) {
+  const now = Date.now();
+  for (const [id, s] of sessions) {
     if (s.status === "exited") continue;
-    const next =
-      Date.now() - (s.lastOutputAt || 0) > IDLE_AFTER_MS ? "idle" : "running";
+    const quiet = now - (s.lastOutputAt || 0);
+    const next = quiet > IDLE_AFTER_MS ? "idle" : "running";
     if (s.status !== next) {
       s.status = next;
       changed = true;
+    }
+    // gsd-031 — a session quiet long enough to be genuinely awaiting
+    // input, on a tab you are not watching, earns one notification per
+    // idle stretch (re-armed when fresh output arrives).
+    if (
+      quiet > NOTIFY_IDLE_AFTER_MS &&
+      !s.idleNotified &&
+      !isActiveSession(id)
+    ) {
+      s.idleNotified = true;
+      notifyDesktop("Session may want you", sessionLabel(s.info));
     }
   }
   if (changed) renderTabbar();

@@ -20,7 +20,6 @@ use notify::{RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 
 use crate::{home_dir, resolve_project_repo};
 
@@ -222,16 +221,6 @@ fn build_command(
     Ok(cmd)
 }
 
-/// A short human label for a session — e.g. "claude · hammerstein".
-fn session_label(agent: &str, cwd: &str) -> String {
-    let base = Path::new(cwd)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(cwd);
-    let agent = if agent == "cursor-agent" { "cursor" } else { agent };
-    format!("{agent} · {base}")
-}
-
 /// Spawn a session under a PTY — the shared path for the spawn command
 /// and the request-file watcher. Starts the reader thread and emits
 /// `session-spawned` so the frontend opens a tab.
@@ -278,7 +267,6 @@ fn do_spawn(
     // on EOF reaps the child and signals exit.
     let app_for_reader = app.clone();
     let id_for_reader = id.clone();
-    let label = session_label(&agent, &cwd);
     std::thread::spawn(move || {
         let mut child = child;
         let mut reader = reader;
@@ -300,13 +288,9 @@ fn do_spawn(
             }
         }
         let _ = child.wait();
-        // Native notification — for a dispatched session you tabbed away from.
-        let _ = app_for_reader
-            .notification()
-            .builder()
-            .title("GeneralStaff")
-            .body(format!("Session ended — {label}"))
-            .show();
+        // The frontend owns the session-ended notification — it knows
+        // which tab is active, so it notifies only for a session the
+        // operator is not currently watching (gsd-031).
         let _ = app_for_reader.emit("pty-exit", PtyExit { id: id_for_reader });
     });
 
@@ -382,12 +366,13 @@ pub fn resize_session(
     Ok(())
 }
 
-/// Terminate a session: SIGHUP the child (a terminal hangup), then drop
-/// our PTY handles. The reader thread reaps the child and emits exit.
-#[tauri::command]
-pub fn kill_session(mgr: State<SessionManager>, id: String) -> Result<(), String> {
+/// Terminate a session by id: SIGHUP the child (a terminal hangup),
+/// then drop our PTY handles. The reader thread reaps the child and
+/// emits exit. Shared by the kill_session command and the popped-out
+/// window's close handler.
+pub fn kill_session_id(mgr: &SessionManager, id: &str) {
     let mut sessions = mgr.sessions.lock().unwrap();
-    if let Some(s) = sessions.remove(&id) {
+    if let Some(s) = sessions.remove(id) {
         if let Some(pid) = s.pid {
             unsafe {
                 libc::kill(pid as libc::pid_t, libc::SIGHUP);
@@ -395,6 +380,12 @@ pub fn kill_session(mgr: State<SessionManager>, id: String) -> Result<(), String
         }
         // s (master + writer) drops here.
     }
+}
+
+/// Terminate a session — the tab-close command.
+#[tauri::command]
+pub fn kill_session(mgr: State<SessionManager>, id: String) -> Result<(), String> {
+    kill_session_id(mgr.inner(), &id);
     Ok(())
 }
 

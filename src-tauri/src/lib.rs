@@ -25,8 +25,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager,
+    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_notification::NotificationExt;
 
 mod sessions;
 
@@ -1115,6 +1116,41 @@ fn recent_commits() -> Vec<Commit> {
 }
 
 // ---------------------------------------------------------------------
+// Desktop UX — native notifications + session pop-out windows.
+// ---------------------------------------------------------------------
+
+/// Show a native OS notification (gsd-031). The frontend decides *when*
+/// to call this — it owns the active-tab knowledge and the per-session
+/// idle timer — so a notification fires only for a session that ended
+/// or went idle in a tab the operator is not currently watching.
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) {
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Pop a running session out into its own OS window (gsd-035) so it can
+/// move to a second monitor while the dashboard stays put. The PTY
+/// session keeps running in the backend; the new window (term.html)
+/// re-attaches to it by id, read from the `term-<id>` window label.
+/// Idempotent — a second call for a session already popped out just
+/// focuses its window.
+#[tauri::command]
+fn popout_session(app: tauri::AppHandle, id: String, label: String) -> Result<(), String> {
+    let win_label = format!("term-{id}");
+    if let Some(existing) = app.get_webview_window(&win_label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, win_label, WebviewUrl::App("term.html".into()))
+        .title(format!("GeneralStaff — {label}"))
+        .inner_size(900.0, 600.0)
+        .min_inner_size(420.0, 280.0)
+        .build()
+        .map_err(|e| format!("could not open session window: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------
 // File-watcher — emit `fleet-updated` when the portfolio changes.
 // ---------------------------------------------------------------------
 
@@ -1190,6 +1226,8 @@ pub fn run() {
             agent_usage,
             recent_session_notes,
             recent_commits,
+            notify,
+            popout_session,
             sessions::spawn_session,
             sessions::write_session,
             sessions::resize_session,
@@ -1221,11 +1259,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Persistent console: closing the window hides it (the tray
-            // icon brings it back). Cmd+Q still quits for real.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+                if window.label() == "main" {
+                    // Persistent console: closing the main window hides
+                    // it (the tray icon brings it back). Cmd+Q quits.
+                    let _ = window.hide();
+                    api.prevent_close();
+                } else if let Some(id) = window.label().strip_prefix("term-") {
+                    // A popped-out session window — closing it ends the
+                    // session it carried, the way closing its tab would.
+                    sessions::kill_session_id(
+                        window.state::<sessions::SessionManager>().inner(),
+                        id,
+                    );
+                }
             }
         })
         .run(tauri::generate_context!())

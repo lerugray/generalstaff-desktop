@@ -7,8 +7,13 @@
 #     next to the app, where gs_mcp_path() looks for it. Without it the
 #     dispatcher (a claude session spawning child tabs) silently dies in
 #     the installed app.
-#   - Tauri's release bundle ships a broken ad-hoc code signature that
-#     macOS can refuse to launch; the bundle is re-signed inside-out.
+#   - The sidecar copy invalidates Tauri's release-bundle signature; the
+#     bundle is re-signed inside-out with the stable `GS Dev Signing`
+#     identity that tauri.conf.json declares. Ad-hoc re-signing (the
+#     prior approach) changed the bundle's designated requirement on
+#     every install, so macOS TCC forgot every granted permission
+#     (Desktop folder, Screen Recording, Accessibility) and re-prompted
+#     — which is what blocked peekaboo-via-GSD on FnordOS.
 #
 # `default-run` in Cargo.toml handles the third snag (Tauri otherwise
 # can't tell which of the two binaries is the app) — no action needed
@@ -33,10 +38,11 @@ echo "==> Building the release bundle…"
 echo "==> Adding the gs-mcp sidecar to the bundle…"
 cp "$ROOT/src-tauri/target/release/gs-mcp" "$APP_SRC/Contents/MacOS/gs-mcp"
 
-echo "==> Re-signing the bundle (ad-hoc, inside-out)…"
-codesign --force --sign - "$APP_SRC/Contents/MacOS/gs-mcp"
-codesign --force --sign - "$APP_SRC/Contents/MacOS/generalstaff-desktop"
-codesign --force --sign - "$APP_SRC"
+echo "==> Re-signing the bundle with GS Dev Signing (inside-out)…"
+SIGN_ID="GS Dev Signing"
+codesign --force --sign "$SIGN_ID" "$APP_SRC/Contents/MacOS/gs-mcp"
+codesign --force --sign "$SIGN_ID" "$APP_SRC/Contents/MacOS/generalstaff-desktop"
+codesign --force --sign "$SIGN_ID" "$APP_SRC"
 
 echo "==> Installing to /Applications…"
 rm -rf "$APP_DST"

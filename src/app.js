@@ -1159,11 +1159,31 @@ async function loadTaskLedger(id) {
   }
 }
 
+// The autonomy preamble every click-launched dispatch (task or ping)
+// shares. Ray operates GSD as a non-programmer — he can't read diffs
+// and doesn't want to. Routine commits + pushes are pre-authorized so
+// the bot ships work end-to-end instead of pausing to ask. Escalation
+// is still expected for genuinely-risky operations (hands-off paths,
+// destructive git, ambiguous design calls), but the default for an
+// ordinary code change is: do it, commit, push, report in plain
+// English. No diff dumps.
+const NON_PROGRAMMER_PREAMBLE =
+  "Operator note — Ray runs GSD as a non-programmer. He cannot review " +
+  "diffs and does not want to. For this dispatch you are pre-authorized " +
+  "to commit and push routine work without asking. Do not surface a " +
+  "diff for approval, do not ask 'should I commit this?', do not ask " +
+  "'should I push?'. When you finish: commit with a descriptive " +
+  "message, push, then report in one short paragraph of plain English " +
+  "what you actually changed and what Ray will see different. Only " +
+  "stop and ask if the work would touch hands_off paths, force-push, " +
+  "delete history, or hinges on a design call (voice / feel / scope) " +
+  "that Ray needs to make. Mechanical / structural calls — file " +
+  "organization, library choice, test approach — are yours to make.";
+
 // gsd-033 — dispatch a project task: open a claude session in the
 // project's own repo, seeded with the task — the project-task analogue
-// of a ping's Dispatch button. The task ledger itself is reconciled
-// separately (the dashboard's Reconcile-state pass), so no GS-Ping
-// trailer here; this just gets the work moving.
+// of a ping's Dispatch button. The GS-Task trailer (gsd-039) gives the
+// Reconcile-state pass an explicit signal to close the task against.
 function dispatchTask(projectId, task) {
   const msg = document.getElementById("task-msg");
   const proj = (snapshot.projects || []).find((p) => p.id === projectId);
@@ -1172,7 +1192,8 @@ function dispatchTask(projectId, task) {
     return;
   }
   const prompt =
-    "A task from the " +
+    NON_PROGRAMMER_PREAMBLE +
+    "\n\nA task from the " +
     projectId +
     " project task ledger (generalstaff-private/state/" +
     projectId +
@@ -1182,9 +1203,14 @@ function dispatchTask(projectId, task) {
     task.title +
     "\n\nThis session is open in the " +
     projectId +
-    " repo. Handle the task: make the change and commit it. If the " +
-    "task turns out to be already done, or should not be done, say so " +
-    "rather than forcing it. Report what you did.";
+    " repo. Handle the task: make the change, commit it, and push. If " +
+    "the task turns out to be already done, or should not be done, say " +
+    "so rather than forcing it — and skip the trailer if you did not " +
+    "do the work." +
+    "\n\nWhen you commit, put this exact line in the commit message " +
+    "body so the Reconcile pass can close the task ledger entry:" +
+    "\n\n    GS-Task: " +
+    task.id;
   startSession("claude", proj.repo_path, prompt, msg);
 }
 
@@ -1287,6 +1313,9 @@ function targetSelectHtml(detected) {
 }
 
 // The seed prompt a "Scaffold" click hands the dispatcher session.
+// Scaffold is a scoping pass — it researches and proposes, it does not
+// ship code — so the non-programmer preamble doesn't apply here (no
+// commit/push decision to pre-authorize).
 function scaffoldPrompt(ping) {
   return (
     "A new idea came in via the GeneralStaff pings inbox (" +
@@ -1306,7 +1335,8 @@ function scaffoldPrompt(ping) {
 // generalstaff-private it keeps the orchestration framing.
 function dispatchPrompt(ping, projectId) {
   const intro =
-    "A task came in via the GeneralStaff pings inbox (" +
+    NON_PROGRAMMER_PREAMBLE +
+    "\n\nA task came in via the GeneralStaff pings inbox (" +
     ping.when +
     ", " +
     ping.actor +
@@ -1328,9 +1358,9 @@ function dispatchPrompt(ping, projectId) {
       "This session is open in the " +
       projectId +
       " repo — the project this task is for. Handle it here: make the " +
-      "change, commit it, and report what you did. If the task turns out " +
-      "not to belong to this project after all, say so rather than " +
-      "forcing it — and skip the trailer if you did not do the work." +
+      "change, commit it, push, and report what shipped. If the task " +
+      "turns out not to belong to this project after all, say so rather " +
+      "than forcing it — and skip the trailer if you did not do the work." +
       trailer
     );
   }
@@ -1338,7 +1368,7 @@ function dispatchPrompt(ping, projectId) {
     intro +
     "Handle it. If it belongs to a specific fleet project, work in that " +
     "project's repo — open a child session there if that is cleaner. " +
-    "Otherwise handle it directly. Report what you did." +
+    "Otherwise handle it directly. Commit, push, and report what shipped." +
     trailer
   );
 }
@@ -1813,18 +1843,27 @@ async function generateSessionNote() {
 }
 
 // gsd-027 — the decoupled state-reconciliation pass. Spawns a claude
-// session in generalstaff-private seeded to check the open pings + task
-// ledgers against what has shipped in the project repos, and propose
-// closures in a reviewable draft commit — no push, Ray reviews. Kept
-// separate from the session-note generator per the Hammerstein audit:
-// coupling reconciliation to note-writing enlarges the review draft and
-// skips reconciliation whenever a note is skipped.
+// session in generalstaff-private seeded to check the open pings AND
+// every project's task ledger against what has shipped in the project
+// repos, and propose closures in a reviewable draft commit — no push,
+// Ray reviews. Kept separate from the session-note generator per the
+// Hammerstein audit: coupling reconciliation to note-writing enlarges
+// the review draft and skips reconciliation whenever a note is skipped.
+//
+// gsd-042 — the original 2026-05-19 prompt only walked pings, with
+// tasks.json as corroborating evidence for ping closures. Work that
+// shipped through a regular CC session (no ping, no GS-Ping trailer)
+// went uncaught — e.g. asciigpt asci-003 stayed pending after commit
+// 1738cc1 explicitly named it. The pass now walks both directions:
+// pings → shipped AND tasks → shipped.
 function reconcileState() {
   const msg = document.getElementById("gen-note-msg");
   if (msg) msg.textContent = "Opening a session to reconcile state…";
   const prompt =
-    "Reconcile the GeneralStaff ping inbox and task ledgers against what " +
-    "has actually shipped. Work in generalstaff-private.\n\n" +
+    "Reconcile the GeneralStaff ping inbox AND every project's task " +
+    "ledger against what has actually shipped. Work in generalstaff-" +
+    "private. Two passes, both required.\n\n" +
+    "=== Pass 1 — pings inbox ===\n" +
     "1. Read state/pings/inbox.md — the open pings are the dated blocks " +
     "with no `## resolved` block immediately after them.\n" +
     "2. For each open ping, identify the project it concerns and look in " +
@@ -1836,16 +1875,34 @@ function reconcileState() {
     "3. Where the evidence is explicit and unambiguous, resolve the ping " +
     "— append a `## resolved " +
     todayIso() +
-    "` block saying what shipped (commit refs, version). Where the " +
-    "project keeps a state/<id>/tasks.json ledger, also file or close " +
-    "the matching task entry.\n" +
-    "4. Be conservative — only close a ping on clear evidence. If a " +
-    "ping's status is ambiguous, leave it open and note it for Ray.\n" +
-    "5. Commit the changes to generalstaff-private with a clear message. " +
+    "` block saying what shipped (commit refs, version).\n\n" +
+    "=== Pass 2 — project task ledgers ===\n" +
+    "4. For every project listed in projects.yaml (and any state/<id>/ " +
+    "directory that carries a tasks.json), read the ledger and pick out " +
+    "every entry whose status is `pending` or `in_progress`.\n" +
+    "5. For each such entry, run `git log --oneline --all` in the " +
+    "project's repo (a sibling directory of generalstaff-private) and " +
+    "look for shipped evidence:\n" +
+    "   - A commit whose message carries a `GS-Task: <task-id>` trailer " +
+    "(explicit signal, post-gsd-039).\n" +
+    "   - A commit subject or body that mentions the task id as a whole " +
+    "token, e.g. `(asci-003)`, `closes asci-003`, `asci-003 —`, etc.\n" +
+    "   - A commit that visibly implements the task title, plus a " +
+    "version bump or done-note elsewhere that corroborates it.\n" +
+    "6. Where the evidence is explicit and unambiguous, flip the entry " +
+    "to `status: \"done\"` (or update an `in_progress` entry's status as " +
+    "appropriate), set `done_at` to the commit's date (or today if " +
+    "ambiguous), and add a short `done_note` quoting the commit SHA and " +
+    "subject.\n\n" +
+    "=== Both passes ===\n" +
+    "7. Be conservative — only close a ping or task on clear evidence. " +
+    "If status is ambiguous, leave it open and note it for Ray.\n" +
+    "8. Commit the changes to generalstaff-private with a clear message. " +
     "Do NOT push — leave the commit local so Ray can review the " +
     "reconciliation and push it himself.\n" +
-    "6. End with a short summary: what you resolved, and what you left " +
-    "open and why.";
+    "9. End with a short summary in two sections: pings " +
+    "(resolved / left open) and tasks (closed / left open), each with " +
+    "one-line why.";
   startSession("claude", snapshot.generalstaff_path, prompt, msg);
 }
 

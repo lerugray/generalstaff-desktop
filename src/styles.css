@@ -849,6 +849,11 @@ body.theme-night, body.theme-carbon {
 .ping__act.act-dispatch:hover { background: var(--prussian); color: var(--paper); }
 body.theme-night .ping__act.act-dispatch:hover,
 body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
+/* gsd-040 — Assess: the quiet pre-flight sibling of Dispatch. Muted at
+   rest; on hover it picks up Dispatch's prussian outline (no fill) to
+   read as the lighter, earlier step in the same pair. */
+.ping__act.act-assess { border-color: var(--rule); color: var(--ink-soft); }
+.ping__act.act-assess:hover { border-color: var(--prussian); color: var(--prussian); }
 
 /* -----------------------------------------------------------
  * Dispatcher card
@@ -1296,6 +1301,23 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
 .task-dispatch:hover { background: var(--prussian); color: var(--paper); }
 body.theme-night .task-dispatch:hover,
 body.theme-carbon .task-dispatch:hover { color: var(--paper-2); }
+/* gsd-040 — Assess button on the task row: same geometry as Dispatch,
+   muted colour, prussian outline on hover (no fill) — the lighter
+   pre-flight action beside Dispatch. */
+.task-assess {
+  flex-shrink: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.task-assess:hover { border-color: var(--prussian); color: var(--prussian); }
 
 /* -----------------------------------------------------------
  * Tab pop-out control (gsd-035) — alongside the close ×.

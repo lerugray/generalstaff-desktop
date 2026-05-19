@@ -1122,7 +1122,10 @@ async function loadTaskLedger(id) {
       ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
       : "") +
     (t.status === "pending"
-      ? '<button class="task-dispatch" data-id="' +
+      ? '<button class="task-assess" data-id="' +
+        escapeHtml(t.id) +
+        '">Assess</button>' +
+        '<button class="task-dispatch" data-id="' +
         escapeHtml(t.id) +
         '">Dispatch</button>'
       : "") +
@@ -1144,6 +1147,15 @@ async function loadTaskLedger(id) {
     const task = pending.find((t) => t.id === btn.dataset.id);
     if (!task) continue;
     btn.addEventListener("click", () => dispatchTask(id, task));
+  }
+
+  // gsd-040 — the Assess button on the same row: a pre-flight pass that
+  // scopes the task and reports whether it is still worth doing, instead
+  // of jumping straight to the work.
+  for (const btn of el.querySelectorAll(".task-assess")) {
+    const task = pending.find((t) => t.id === btn.dataset.id);
+    if (!task) continue;
+    btn.addEventListener("click", () => assessTask(id, task));
   }
 }
 
@@ -1173,6 +1185,38 @@ function dispatchTask(projectId, task) {
     " repo. Handle the task: make the change and commit it. If the " +
     "task turns out to be already done, or should not be done, say so " +
     "rather than forcing it. Report what you did.";
+  startSession("claude", proj.repo_path, prompt, msg);
+}
+
+// gsd-040 — assess a project task: open a claude session in the
+// project's repo seeded with an assessment-only prompt. The pre-flight
+// counterpart of dispatchTask — it scopes the task and reports whether
+// the work is still needed, and changes nothing.
+function assessTask(projectId, task) {
+  const msg = document.getElementById("task-msg");
+  const proj = (snapshot.projects || []).find((p) => p.id === projectId);
+  if (!proj || !proj.repo_path) {
+    if (msg) msg.textContent = "No code repo found for " + projectId + ".";
+    return;
+  }
+  const prompt =
+    "This is an assessment pass — make no changes and do not commit.\n\n" +
+    "A task from the " +
+    projectId +
+    " project task ledger (generalstaff-private/state/" +
+    projectId +
+    "/tasks.json):\n\n" +
+    task.id +
+    " — " +
+    task.title +
+    "\n\nThis session is open in the " +
+    projectId +
+    " repo. Read the git log and the current project state, then tell " +
+    "me plainly: is this task still real and needed, already done, " +
+    "obsolete, or in need of rescoping? If it is real, what would it " +
+    "actually take to do? Give a one-paragraph verdict with a short " +
+    "rationale — and change nothing. A pending ledger entry is not " +
+    "proof the work is needed.";
   startSession("claude", proj.repo_path, prompt, msg);
 }
 
@@ -1299,6 +1343,42 @@ function dispatchPrompt(ping, projectId) {
   );
 }
 
+// gsd-040 — the seed prompt an "Assess" click hands the spawned session:
+// an assessment-only framing, and no GS-Ping trailer — Assess commits
+// nothing, so there is nothing to reconcile back to the inbox.
+function assessPrompt(ping, projectId) {
+  const intro =
+    "This is an assessment pass — make no changes and do not commit.\n\n" +
+    "A task came in via the GeneralStaff pings inbox (" +
+    ping.when +
+    ", " +
+    ping.actor +
+    "):\n\n" +
+    ping.body +
+    "\n\n";
+  const ask =
+    "Read the git log and the current state of the relevant project. " +
+    "Tell me plainly: is this task still real and needed, already done, " +
+    "obsolete, or in need of rescoping? If it is real, what would it " +
+    "actually take to do? Give a one-paragraph verdict with a short " +
+    "rationale — and change nothing.";
+  if (projectId) {
+    return (
+      intro +
+      "This session is open in the " +
+      projectId +
+      " repo — the project this task looks to be for. " +
+      ask
+    );
+  }
+  return (
+    intro +
+    "If this belongs to a specific fleet project, assess it against " +
+    "that project's repo and state. " +
+    ask
+  );
+}
+
 // Today's date as YYYY-MM-DD (local) — stamped into a resolved block.
 function todayIso() {
   const d = new Date();
@@ -1370,6 +1450,30 @@ function dispatchPing(btn, ping) {
   );
 }
 
+// gsd-040 — assess a task ping: the same target resolution as
+// dispatchPing, but the spawned session gets an assessment-only prompt
+// and changes nothing.
+function assessPing(btn, ping) {
+  const row = btn.closest(".ping");
+  const sel = row ? row.querySelector(".ping-target") : null;
+  const target = sel ? sel.value : GS_PRIVATE_TARGET;
+  let cwd = snapshot.generalstaff_path;
+  let projectId = null;
+  if (target && target !== GS_PRIVATE_TARGET) {
+    const proj = (snapshot.projects || []).find((p) => p.id === target);
+    if (proj && proj.repo_path) {
+      cwd = proj.repo_path;
+      projectId = proj.id;
+    }
+  }
+  startSession(
+    "claude",
+    cwd,
+    assessPrompt(ping, projectId),
+    document.getElementById("pings-msg")
+  );
+}
+
 // Pings — the open GS inbox. loadPings fetches; renderPingRows filters
 // by the toolbar's kind chip + search box and draws the rows. Fetch and
 // render are split so a file-watcher refresh keeps the current search.
@@ -1434,6 +1538,9 @@ function renderPingRows() {
       } else if (p.kind === "task") {
         actions =
           targetSelectHtml(detectPingProject(p.body)) +
+          '<button class="ping__act act-assess" data-act="assess" data-i="' +
+          i +
+          '">Assess</button>' +
           '<button class="ping__act act-dispatch" data-act="dispatch" data-i="' +
           i +
           '">Dispatch</button>';
@@ -1480,6 +1587,8 @@ function renderPingRows() {
       );
     } else if (act === "dispatch") {
       btn.addEventListener("click", () => dispatchPing(btn, ping));
+    } else if (act === "assess") {
+      btn.addEventListener("click", () => assessPing(btn, ping));
     } else {
       btn.addEventListener("click", () => resolvePing(ping));
     }

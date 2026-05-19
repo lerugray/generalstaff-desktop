@@ -406,6 +406,9 @@ body.theme-night, body.theme-carbon {
   flex-shrink: 0;
   gap: 2px;
   overflow-x: auto;
+  /* Pin the cross axis: a lone overflow-x:auto lets the spec promote
+     overflow-y to auto, surfacing a stray vertical scrollbar. gsd-038. */
+  overflow-y: hidden;
   white-space: nowrap;
 }
 .tab {
@@ -508,14 +511,22 @@ body.theme-night, body.theme-carbon {
   padding-bottom: 14px;
 }
 .dash__situation { grid-column: 1 / -1; }
-.dash__pings     { grid-column: 1; grid-row: 2; min-height: 0; }
+.dash__pings     { min-height: 0; }
+/* Left column, row 2: Open pings (top, a touch taller) + Attention (below).
+   Each panel scrolls its own body. gsd-038 layout — Attention moved here off
+   the side column so Recent-activity can take the whole right column. */
+.dash__main {
+  grid-column: 1; grid-row: 2;
+  display: grid;
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+/* Right column, row 2: Dispatcher (auto) + Recent-activity (fills the rest). */
 .dash__side {
   grid-column: 2; grid-row: 2;
   display: grid;
-  /* Three panels: dispatcher (auto), Attention, Recent-activity. Attention
-     and Recent get bounded fr rows so each scrolls its own body internally,
-     keeping Recent-activity (and its Reconcile button) on-screen. gsd-038. */
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
 }

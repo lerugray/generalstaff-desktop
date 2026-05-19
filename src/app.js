@@ -841,10 +841,12 @@ function showBriefing() {
     "</div></div>" +
     '<div class="dash__grid">' +
     situation +
+    '<div class="dash__main">' +
     pingsPanel +
+    attention +
+    "</div>" +
     '<div class="dash__side">' +
     dispatcher +
-    attention +
     recent +
     "</div></div></div>";
 

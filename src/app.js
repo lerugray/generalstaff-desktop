@@ -828,14 +828,6 @@ function showBriefing() {
     '<span class="spawn-msg" id="gen-note-msg"></span>' +
     "</div></div></div>";
 
-  const usage =
-    '<div class="panel"><div class="panel__head">' +
-    '<h2 class="panel__title">Claude Code usage</h2>' +
-    '<span class="panel__meta">local transcripts</span></div>' +
-    '<div class="panel__body">' +
-    '<div id="usage-body" class="muted">Loading&hellip;</div>' +
-    "</div></div>";
-
   const bc =
     activeProjs.length +
     " active" +
@@ -852,7 +844,6 @@ function showBriefing() {
     pingsPanel +
     '<div class="dash__side">' +
     dispatcher +
-    usage +
     attention +
     recent +
     "</div></div></div>";
@@ -862,7 +853,6 @@ function showBriefing() {
 
   loadPings();
   loadRecentActivity();
-  loadAgentUsage();
 
   const dgo = document.getElementById("dispatch-go");
   if (dgo) {

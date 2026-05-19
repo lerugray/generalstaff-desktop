@@ -461,7 +461,7 @@ body.theme-night, body.theme-carbon {
 }
 .view { position: absolute; inset: 0; }
 .view-hidden { display: none; }
-.view-fleet { overflow-y: auto; }
+.view-fleet { overflow: hidden; }
 .view-session { padding: 8px; background: #1f1a11; }
 .term-host { width: 100%; height: 100%; overflow: hidden; }
 
@@ -512,11 +512,10 @@ body.theme-night, body.theme-carbon {
 .dash__side {
   grid-column: 2; grid-row: 2;
   display: grid;
-  /* Attention (row 3) is bounded so it scrolls its own list internally --
-     otherwise its full fleet project list eats the column and clips the
-     Recent-activity panel (and its Reconcile button) off the bottom,
-     which .dash overflow:hidden then hides with no way to scroll. gsd-038. */
-  grid-template-rows: auto auto minmax(0, 1.5fr) minmax(0, 1fr);
+  /* Three panels: dispatcher (auto), Attention, Recent-activity. Attention
+     and Recent get bounded fr rows so each scrolls its own body internally,
+     keeping Recent-activity (and its Reconcile button) on-screen. gsd-038. */
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
 }

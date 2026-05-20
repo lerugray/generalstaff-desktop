@@ -1104,32 +1104,52 @@ async function loadTaskLedger(id) {
     return;
   }
   const byPrio = (a, b) => (a.priority || 9) - (b.priority || 9);
+  // gsd-043 — three-way partition. Deferred tasks are paused-by-design
+  // (gated_on says what unblocks); they don't belong in Pending (active
+  // backlog) and they don't belong in Done (still alive, just waiting).
   const pending = tl.tasks.filter((t) => t.status === "pending").sort(byPrio);
-  const done = tl.tasks.filter((t) => t.status !== "pending").sort(byPrio);
-  if (!pending.length && !done.length) {
+  const deferred = tl.tasks.filter((t) => t.status === "deferred").sort(byPrio);
+  const done = tl.tasks
+    .filter((t) => t.status !== "pending" && t.status !== "deferred")
+    .sort(byPrio);
+  if (!pending.length && !deferred.length && !done.length) {
     el.innerHTML = '<p class="muted">No tasks.</p>';
     return;
   }
-  const rowHtml = (t) =>
-    '<div class="task-row" title="' +
-    escapeHtml(t.title) +
-    '"><span class="task-id">' +
-    escapeHtml(t.id) +
-    '</span><span class="task-title">' +
-    escapeHtml(t.title) +
-    "</span>" +
-    (t.interactive_only
-      ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
-      : "") +
-    (t.status === "pending"
-      ? '<button class="task-assess" data-id="' +
-        escapeHtml(t.id) +
-        '">Assess</button>' +
-        '<button class="task-dispatch" data-id="' +
-        escapeHtml(t.id) +
-        '">Dispatch</button>'
-      : "") +
-    "</div>";
+  const rowHtml = (t) => {
+    const cls = "task-row" + (t.status === "deferred" ? " deferred" : "");
+    const row =
+      '<div class="' +
+      cls +
+      '" title="' +
+      escapeHtml(t.title) +
+      '"><span class="task-id">' +
+      escapeHtml(t.id) +
+      '</span><span class="task-title">' +
+      escapeHtml(t.title) +
+      "</span>" +
+      (t.interactive_only
+        ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
+        : "") +
+      (t.status === "pending"
+        ? '<button class="task-assess" data-id="' +
+          escapeHtml(t.id) +
+          '">Assess</button>' +
+          '<button class="task-dispatch" data-id="' +
+          escapeHtml(t.id) +
+          '">Dispatch</button>'
+        : "") +
+      "</div>";
+    if (t.status === "deferred" && t.gated_on) {
+      return (
+        row +
+        '<div class="task-gated-on">' +
+        escapeHtml(t.gated_on) +
+        "</div>"
+      );
+    }
+    return row;
+  };
   const section = (label, list) =>
     !list.length
       ? ""
@@ -1139,7 +1159,10 @@ async function loadTaskLedger(id) {
         list.length +
         ")</div>" +
         list.map(rowHtml).join("");
-  el.innerHTML = section("Pending", pending) + section("Done", done);
+  el.innerHTML =
+    section("Pending", pending) +
+    section("Deferred", deferred) +
+    section("Done", done);
 
   // gsd-033 — a pending task row's Dispatch button opens a claude
   // session in the project's repo, seeded with the task.

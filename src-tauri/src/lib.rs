@@ -453,6 +453,8 @@ struct TaskItem {
     status: String,
     priority: Option<i64>,
     interactive_only: bool,
+    /// gsd-043 — free-text "what unblocks this" for status="deferred" tasks.
+    gated_on: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -511,6 +513,10 @@ fn project_tasks(id: String) -> TaskList {
                 .get("interactive_only")
                 .and_then(|x| x.as_bool())
                 .unwrap_or(false),
+            gated_on: t
+                .get("gated_on")
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
         })
         .collect();
     TaskList {

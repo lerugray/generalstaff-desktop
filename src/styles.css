@@ -1055,7 +1055,11 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
 /* -----------------------------------------------------------
  * Workbench — project drill-in (file tree, viewer, task ledger)
  * ----------------------------------------------------------- */
-.workbench { padding: 20px 24px 26px; }
+.workbench {
+  padding: 20px 24px 26px;
+  height: 100%;
+  overflow-y: auto;
+}
 .workbench .panel { margin-bottom: 14px; }
 .workbench .panel__body { overflow: visible; }
 
@@ -1185,12 +1189,14 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
 /* -----------------------------------------------------------
  * Scrollbar — quiet, paper-matched
  * ----------------------------------------------------------- */
+.workbench::-webkit-scrollbar,
 .panel__body::-webkit-scrollbar,
 .recent__body::-webkit-scrollbar,
 .file-tree::-webkit-scrollbar,
 .viewer-body::-webkit-scrollbar,
 .view-fleet::-webkit-scrollbar,
 .rail__list::-webkit-scrollbar { width: 9px; height: 9px; }
+.workbench::-webkit-scrollbar-thumb,
 .panel__body::-webkit-scrollbar-thumb,
 .recent__body::-webkit-scrollbar-thumb,
 .file-tree::-webkit-scrollbar-thumb,
@@ -1202,6 +1208,7 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+.workbench::-webkit-scrollbar-thumb:hover,
 .panel__body::-webkit-scrollbar-thumb:hover,
 .recent__body::-webkit-scrollbar-thumb:hover,
 .file-tree::-webkit-scrollbar-thumb:hover,

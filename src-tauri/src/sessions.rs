@@ -188,6 +188,18 @@ fn build_command(
     }
     cmd.env("PATH", agent_path());
     cmd.env("TERM", "xterm-256color");
+    // gsd-047 — cursor-agent has no `--settings theme` flag, so the
+    // equivalent of claude's `*-ansi` mode is `FORCE_COLOR=1`, the chalk
+    // env that caps the renderer at the 16-color ANSI palette our xterm
+    // theme controls. Without this the input prompt block on light
+    // palettes had a subtle cool-tinted bg that didn't match the warm
+    // paper (a milder version of the same issue gsd-046 fixed for
+    // claude). Setting it on claude too is harmless — claude's `*-ansi`
+    // mode already limits itself to ANSI 16 — but scoping to cursor-agent
+    // keeps the intent narrow.
+    if agent == "cursor-agent" {
+        cmd.env("FORCE_COLOR", "1");
+    }
 
     // A claude session runs at max effort — Ray's standing preference,
     // he trusts the reasoning. (The gs-mcp dispatcher tool is wired in

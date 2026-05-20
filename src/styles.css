@@ -387,6 +387,26 @@ body.theme-night, body.theme-carbon {
 .rail__theme[data-t="iron"]   { background: #ebe2cb; }
 .rail__theme[data-t="carbon"] { background: #0b0a06; border-color: #2b2718; }
 
+/* gsd-047 — the swatch-row hint. Surfaced when the user flips a light /
+   dark palette while sessions are live, since claude's --settings theme
+   is fixed at spawn (a CC session spawned on paper stays light-ansi
+   through a swap to night until it's reopened). Faint italic mono fits
+   the rail__foot register; opacity transition keeps the surfacing
+   gentle rather than alert-y. */
+.rail__hint {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  font-style: italic;
+  line-height: 1.3;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.rail__hint[hidden] { display: none; }
+.rail__hint.is-show { opacity: 1; }
+
 /* parked-group — archived + dormant projects, collapsed at the foot */
 .parked-group {
   border-top: 1px solid var(--rule-faint);

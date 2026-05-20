@@ -118,8 +118,34 @@ let activeTheme = "paper";
 // (paper, linen, vellum, iron) is a warm/cool light variant.
 const DARK_THEMES = new Set(["night", "carbon"]);
 
+// gsd-047 — the hint shown in the rail footer when a kind flip happens
+// with live sessions. agent processes carry the kind they were spawned
+// with (claude's --settings theme is fixed at process start), so a swap
+// from a light palette to a dark one (or vice versa) leaves running
+// sessions on the wrong side until they're reopened.
+let themeHintTimer = null;
+function showThemeHint() {
+  const el = document.getElementById("theme-hint");
+  if (!el) return;
+  el.hidden = false;
+  // requestAnimationFrame so the transition catches the .is-show toggle
+  // (it can't fade in from a fresh display:block in the same tick).
+  requestAnimationFrame(() => el.classList.add("is-show"));
+  if (themeHintTimer) clearTimeout(themeHintTimer);
+  themeHintTimer = setTimeout(() => {
+    el.classList.remove("is-show");
+    // After the fade, hide it from the layout — the swatch row gets its
+    // bottom spacing back so the rail foot doesn't carry a permanent
+    // empty band.
+    setTimeout(() => {
+      el.hidden = true;
+    }, 260);
+  }, 4500);
+}
+
 function applyTheme(id) {
   if (!THEMES.some((t) => t.id === id)) id = "paper";
+  const prevTheme = activeTheme;
   activeTheme = id;
   document.body.className = "theme-" + id;
   try {
@@ -147,6 +173,15 @@ function applyTheme(id) {
     try {
       s.term.options.theme = next;
     } catch (e) {}
+  }
+  // gsd-047 — surface the reopen hint on a kind flip with live sessions.
+  // Within-kind swaps (paper ↔ linen, night ↔ carbon) shift the ANSI
+  // palette but keep the same dark/light contrast assumption, so a
+  // running session still reads correctly; only the kind flip leaves the
+  // agent's spawn-time assumption inverted.
+  if (prevTheme && prevTheme !== id && sessions.size > 0) {
+    const prevKind = DARK_THEMES.has(prevTheme) ? "dark" : "light";
+    if (prevKind !== kind) showThemeHint();
   }
 }
 

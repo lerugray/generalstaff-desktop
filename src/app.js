@@ -33,6 +33,22 @@ function termTheme() {
   const rustDeep = v("--rust-deep");
   const prussian = v("--prussian");
   const prussianDeep = v("--prussian-deep");
+  // gsd-048 — light/dark direction matters for the ANSI 0/7/8/15 slots.
+  // Before this, white/brightWhite always mapped to ink-family (dark)
+  // values, which was fine for fg text but produced a hard dark band
+  // when claude's TUI used ANSI white/brightWhite as a *background*
+  // for user-message highlights (gsd-046 routed claude through the
+  // ANSI palette via --settings light-ansi to avoid its hardcoded
+  // cool-gray bg; this rebinds the relevant slots so that highlight
+  // resolves to a subtle paper tint instead of a brown slab on a
+  // light theme — and the symmetric thing on a dark theme).
+  const isDark =
+    document.body.classList.contains("theme-night") ||
+    document.body.classList.contains("theme-carbon");
+  const darkAnchor = isDark ? paper : ink;
+  const lightAnchor = isDark ? ink : paper;
+  const lightMid = v(isDark ? "--ink-soft" : "--paper-3");
+  const darkMid = v(isDark ? "--paper-edge" : "--ink-faint");
   return {
     background: paper,
     foreground: ink,
@@ -40,27 +56,27 @@ function termTheme() {
     cursorAccent: paper,
     selectionBackground: v("--rule-soft"),
     // ANSI 16-palette — the GSD token set doesn't define greens / yellows
-    // directly, so the mapping is best-effort: ink/ink-soft for the
-    // grays, rust for red/yellow/magenta family, prussian for blue/cyan
-    // family, prussian for green-ish (closest cool we have). Most CC TUI
-    // colour use is gray-on-paper plus a rust accent; this stays
-    // legible on every theme.
-    black: ink,
+    // directly, so the mapping is best-effort: rust for red/yellow/magenta
+    // family, prussian for blue/cyan family, prussian for green-ish
+    // (closest cool we have). Black/white anchors flip with theme kind so
+    // a "white background" highlight reads as the paper variant on light
+    // themes and the ink variant on dark themes.
+    black: darkAnchor,
     red: rust,
     green: prussian,
     yellow: rustDeep,
     blue: prussian,
     magenta: rustDeep,
     cyan: prussianDeep,
-    white: v("--ink-soft"),
-    brightBlack: v("--ink-faint"),
+    white: lightMid,
+    brightBlack: darkMid,
     brightRed: rustDeep,
     brightGreen: prussianDeep,
     brightYellow: rust,
     brightBlue: prussianDeep,
     brightMagenta: rust,
     brightCyan: prussian,
-    brightWhite: ink,
+    brightWhite: lightAnchor,
   };
 }
 

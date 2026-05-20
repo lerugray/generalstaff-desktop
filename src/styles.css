@@ -819,7 +819,11 @@ body.theme-night, body.theme-carbon {
 
 .ping {
   display: grid;
-  grid-template-columns: 92px 1fr auto;
+  /* The actions column (dropdown + Assess + Dispatch + Resolve) grew past
+     ~300px after gsd-040. On a 1fr middle column that collapsed the body
+     snippet to ~80px wide, wrapping the text into an invisible tall strip.
+     minmax keeps the snippet readable and forces actions to wrap instead. */
+  grid-template-columns: 92px minmax(160px, 1fr) auto;
   gap: 12px;
   align-items: start;
   padding: 10px 2px;

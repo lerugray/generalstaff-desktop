@@ -49,28 +49,39 @@ function termTheme() {
   const rustDeep = v("--rust-deep");
   const prussian = v("--prussian");
   const prussianDeep = v("--prussian-deep");
+  // gsd-048 — mirror of the app.js mapping (see comment there). The
+  // popout reads the same theme class on its own body and needs the
+  // same ANSI direction so claude's user-message highlight doesn't
+  // render as a dark slab on a light theme.
+  const isDark =
+    document.body.classList.contains("theme-night") ||
+    document.body.classList.contains("theme-carbon");
+  const darkAnchor = isDark ? paper : ink;
+  const lightAnchor = isDark ? ink : paper;
+  const lightMid = v(isDark ? "--ink-soft" : "--paper-3");
+  const darkMid = v(isDark ? "--paper-edge" : "--ink-faint");
   return {
     background: paper,
     foreground: ink,
     cursor: rust,
     cursorAccent: paper,
     selectionBackground: v("--rule-soft"),
-    black: ink,
+    black: darkAnchor,
     red: rust,
     green: prussian,
     yellow: rustDeep,
     blue: prussian,
     magenta: rustDeep,
     cyan: prussianDeep,
-    white: v("--ink-soft"),
-    brightBlack: v("--ink-faint"),
+    white: lightMid,
+    brightBlack: darkMid,
     brightRed: rustDeep,
     brightGreen: prussianDeep,
     brightYellow: rust,
     brightBlue: prussianDeep,
     brightMagenta: rust,
     brightCyan: prussian,
-    brightWhite: ink,
+    brightWhite: lightAnchor,
   };
 }
 

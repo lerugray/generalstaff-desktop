@@ -1358,7 +1358,8 @@ pub fn run() {
             sessions::kill_session,
             sessions::list_sessions,
             sessions::save_session_layout,
-            sessions::load_session_layout
+            sessions::load_session_layout,
+            sessions::set_theme_kind
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

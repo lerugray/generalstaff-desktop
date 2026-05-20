@@ -114,6 +114,10 @@ const THEMES = [
 const THEME_KEY = "gsd-theme";
 let activeTheme = "paper";
 
+// gsd-046 — night + carbon are the two dark palettes; everything else
+// (paper, linen, vellum, iron) is a warm/cool light variant.
+const DARK_THEMES = new Set(["night", "carbon"]);
+
 function applyTheme(id) {
   if (!THEMES.some((t) => t.id === id)) id = "paper";
   activeTheme = id;
@@ -121,6 +125,13 @@ function applyTheme(id) {
   try {
     localStorage.setItem(THEME_KEY, id);
   } catch (e) {}
+  // Persist a light/dark classification on disk so the next claude spawn
+  // can pick the matching ANSI-palette theme (`light-ansi` / `dark-ansi`)
+  // — see sessions.rs::build_command. Without this claude imposes its own
+  // light-gray bg on transcript user-message blocks, which clashed with
+  // every GSD palette after gsd-045 made the terminal theme-aware.
+  const kind = DARK_THEMES.has(id) ? "dark" : "light";
+  invoke("set_theme_kind", { kind }).catch(() => {});
   if (railThemes) {
     for (const sw of railThemes.querySelectorAll(".rail__theme")) {
       sw.classList.toggle("is-active", sw.dataset.t === id);

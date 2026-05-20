@@ -130,6 +130,36 @@ fn requests_dir() -> PathBuf {
         .join("requests")
 }
 
+/// ~/.generalstaff-desktop/theme-kind — a one-line "light" or "dark"
+/// classification of the active GSD palette, written by the frontend on
+/// every `applyTheme` (gsd-046). Read at spawn time so `claude` is told
+/// to render with the matching ANSI-palette theme — see `build_command`.
+fn theme_kind_file() -> PathBuf {
+    home_dir()
+        .unwrap_or_default()
+        .join(".generalstaff-desktop")
+        .join("theme-kind")
+}
+
+fn current_theme_kind() -> String {
+    std::fs::read_to_string(theme_kind_file())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// Persist the active palette's light/dark classification so the next
+/// `claude` spawn can pick the matching ANSI-palette theme. JS calls this
+/// from `applyTheme` (gsd-046).
+#[tauri::command]
+pub fn set_theme_kind(kind: String) -> Result<(), String> {
+    let path = theme_kind_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, kind).map_err(|e| e.to_string())
+}
+
 /// The `gs-mcp` stdio MCP server binary — built alongside the app, so it
 /// sits next to the app executable.
 fn gs_mcp_path() -> Option<PathBuf> {
@@ -165,6 +195,22 @@ fn build_command(
     if agent == "claude" {
         cmd.arg("--effort");
         cmd.arg("max");
+        // gsd-046 follow-on to gsd-045 — force claude's `*-ansi` theme so
+        // its UI sticks to the 16-color ANSI palette (which our xterm
+        // theme controls) instead of imposing a hardcoded light/dark
+        // truecolor bg on transcript user-message blocks. Before this,
+        // the echoed user message rendered with claude's own light-gray
+        // bg on every GSD palette — a cool block sitting on warm paper.
+        // With `light-ansi` / `dark-ansi` selected, that block inherits
+        // the terminal bg (var(--paper)) and the rest of claude's chrome
+        // resolves through our ANSI mapping.
+        let theme = if current_theme_kind() == "dark" {
+            "dark-ansi"
+        } else {
+            "light-ansi"
+        };
+        cmd.arg("--settings");
+        cmd.arg(format!("{{\"theme\":\"{}\"}}", theme));
     }
 
     // Restore path: resume the agent's prior conversation in this repo

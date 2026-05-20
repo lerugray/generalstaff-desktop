@@ -347,6 +347,16 @@ body.theme-night, body.theme-carbon {
   font-variant-numeric: tabular-nums;
 }
 .rail__item.has-work .rail__count { color: var(--rust); }
+/* gsd-043 — deferred suffix on the rail badge. Faint + smaller so a
+   project with pending=8, deferred=3 reads "8 +3" with the +3 clearly
+   subordinate to the active backlog count. */
+.rail__count-defer {
+  font-size: 10px;
+  color: var(--ink-ghost);
+  margin-left: 4px;
+  font-style: italic;
+}
+.rail__item.has-work .rail__count-defer { color: var(--ink-faint); }
 
 .rail__foot {
   padding: 11px 20px 14px;
@@ -690,6 +700,10 @@ body.theme-night, body.theme-carbon {
 }
 .sit__cell.is-rust .sit__num { color: var(--rust); }
 .sit__cell.is-live .sit__num { color: var(--prussian); }
+/* gsd-043 — Deferred cell. Faint so the eye doesn't read it as
+   "actionable" — it's the paused pile, sitting between Pending
+   and Waiting on you. */
+.sit__cell.is-faint .sit__num { color: var(--ink-faint); }
 
 /* -----------------------------------------------------------
  * Open pings — compose + search + filter + rows
@@ -1353,6 +1367,92 @@ body.theme-carbon .task-dispatch:hover { color: var(--paper-2); }
   cursor: pointer;
 }
 .task-assess:hover { border-color: var(--prussian); color: var(--prussian); }
+/* gsd-043 follow-on — Defer button: same geometry as Dispatch / Assess.
+   Faint at rest (matches the deferred-row styling), rust outline on
+   hover so it reads as a "this pauses the task" call-to-action. */
+.task-defer {
+  flex-shrink: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.task-defer:hover { border-color: var(--rust); color: var(--rust); }
+
+/* gsd-043 follow-on — Defer modal form. Reuses the .modal scaffold;
+   only the body needs styling. */
+.defer__title {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.defer__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.defer__input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+  min-height: 60px;
+}
+.defer__input:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.defer__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.defer__cancel,
+.defer__confirm {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.defer__cancel {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-soft);
+}
+.defer__cancel:hover { border-color: var(--ink-soft); }
+.defer__confirm {
+  background: var(--rust);
+  border: 1px solid var(--rust);
+  color: var(--paper);
+}
+.defer__confirm:hover:not(:disabled) { background: var(--rust-deep); border-color: var(--rust-deep); }
+.defer__confirm:disabled {
+  background: var(--paper-edge);
+  border-color: var(--rule-soft);
+  color: var(--ink-ghost);
+  cursor: default;
+}
+.defer__msg { margin-top: 8px; font-size: 11px; min-height: 1em; }
 
 /* -----------------------------------------------------------
  * Tab pop-out control (gsd-035) — alongside the close ×.

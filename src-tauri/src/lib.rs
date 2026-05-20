@@ -104,6 +104,10 @@ struct ProjectState {
     status: String,
     total: u64,
     pending: u64,
+    /// gsd-043 — paused-by-design tasks (status="deferred"). Don't count
+    /// as active backlog; carried separately so the rail badge + the
+    /// dashboard Situation strip can show the split.
+    deferred: u64,
     interactive_pending: u64,
     /// Viability rubric sum (financial_return + reputation_signal +
     /// lifestyle_value) from project-meta.yaml. None if no meta file.
@@ -141,28 +145,33 @@ fn read_yaml(path: &Path) -> Option<serde_yaml_ng::Value> {
     serde_yaml_ng::from_str(&text).ok()
 }
 
-/// (total, pending, interactive-only-pending) task counts for a
-/// project's tasks.json.
-fn task_counts(tasks_path: &Path) -> (u64, u64, u64) {
+/// (total, pending, deferred, interactive-only-pending) task counts for
+/// a project's tasks.json.
+fn task_counts(tasks_path: &Path) -> (u64, u64, u64, u64) {
     let Some(v) = read_json(tasks_path) else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
     let Some(arr) = v.as_array() else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
     let mut total = 0;
     let mut pending = 0;
+    let mut deferred = 0;
     let mut interactive = 0;
     for t in arr {
         total += 1;
-        if t.get("status").and_then(|s| s.as_str()) == Some("pending") {
-            pending += 1;
-            if t.get("interactive_only").and_then(|b| b.as_bool()) == Some(true) {
-                interactive += 1;
+        match t.get("status").and_then(|s| s.as_str()) {
+            Some("pending") => {
+                pending += 1;
+                if t.get("interactive_only").and_then(|b| b.as_bool()) == Some(true) {
+                    interactive += 1;
+                }
             }
+            Some("deferred") => deferred += 1,
+            _ => {}
         }
     }
-    (total, pending, interactive)
+    (total, pending, deferred, interactive)
 }
 
 /// Scan one `state/` directory, appending each project to `projects`.
@@ -198,7 +207,8 @@ fn collect_projects(
         }
         seen.insert(id.clone());
 
-        let (total, pending, interactive_pending) = task_counts(&dir.join("tasks.json"));
+        let (total, pending, deferred, interactive_pending) =
+            task_counts(&dir.join("tasks.json"));
         let status = if pending > 0 { "active" } else { "clear" };
 
         // Viability rubric from project-meta.yaml (F + R + L), if present.
@@ -242,6 +252,7 @@ fn collect_projects(
             status: status.to_string(),
             total,
             pending,
+            deferred,
             interactive_pending,
             viability_sum,
             required_attention,
@@ -524,6 +535,112 @@ fn project_tasks(id: String) -> TaskList {
         message: None,
         tasks,
     }
+}
+
+#[derive(Serialize)]
+struct DeferResult {
+    ok: bool,
+    message: Option<String>,
+}
+
+/// gsd-043 — flip a pending task to status="deferred" with a gated_on
+/// phrase. The workbench's Defer button calls this; the file watcher
+/// then re-renders the task ledger automatically.
+#[tauri::command]
+fn defer_task(project: String, task: String, gated_on: String) -> DeferResult {
+    if project.contains('/') || project.contains("..") {
+        return DeferResult {
+            ok: false,
+            message: Some("invalid project id".into()),
+        };
+    }
+    if task.is_empty() || task.len() > 64 || task.contains(|c: char| c.is_whitespace()) {
+        return DeferResult {
+            ok: false,
+            message: Some("invalid task id".into()),
+        };
+    }
+    let gated_on = gated_on.trim().to_string();
+    if gated_on.is_empty() {
+        return DeferResult {
+            ok: false,
+            message: Some("gated_on cannot be empty".into()),
+        };
+    }
+    let Some(dir) = project_state_dir(&project) else {
+        return DeferResult {
+            ok: false,
+            message: Some(format!("no state directory for '{project}'")),
+        };
+    };
+    let path = dir.join("tasks.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return DeferResult {
+            ok: false,
+            message: Some(format!("could not read {}", path.display())),
+        };
+    };
+    let mut value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            return DeferResult {
+                ok: false,
+                message: Some(format!("tasks.json parse error: {e}")),
+            }
+        }
+    };
+    let Some(arr) = value.as_array_mut() else {
+        return DeferResult {
+            ok: false,
+            message: Some("tasks.json is not an array".into()),
+        };
+    };
+    let mut flipped = false;
+    for entry in arr.iter_mut() {
+        let Some(obj) = entry.as_object_mut() else { continue };
+        let id_matches = obj
+            .get("id")
+            .and_then(|x| x.as_str())
+            .map(|s| s == task)
+            .unwrap_or(false);
+        if !id_matches {
+            continue;
+        }
+        let status = obj.get("status").and_then(|x| x.as_str()).unwrap_or("pending");
+        if status == "done" || status == "cancelled" {
+            return DeferResult {
+                ok: false,
+                message: Some(format!("task '{task}' is {status} — refusing to defer")),
+            };
+        }
+        obj.insert("status".into(), serde_json::Value::String("deferred".into()));
+        obj.insert("gated_on".into(), serde_json::Value::String(gated_on.clone()));
+        flipped = true;
+        break;
+    }
+    if !flipped {
+        return DeferResult {
+            ok: false,
+            message: Some(format!("task '{task}' not found in {project}")),
+        };
+    }
+    let mut serialized = match serde_json::to_string_pretty(&value) {
+        Ok(s) => s,
+        Err(e) => {
+            return DeferResult {
+                ok: false,
+                message: Some(format!("serialize error: {e}")),
+            }
+        }
+    };
+    serialized.push('\n');
+    if let Err(e) = std::fs::write(&path, serialized) {
+        return DeferResult {
+            ok: false,
+            message: Some(format!("write error: {e}")),
+        };
+    }
+    DeferResult { ok: true, message: None }
 }
 
 // ---------------------------------------------------------------------
@@ -1225,6 +1342,7 @@ pub fn run() {
             project_files,
             read_project_file,
             project_tasks,
+            defer_task,
             read_pings,
             resolve_ping,
             append_ping,

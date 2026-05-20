@@ -578,6 +578,21 @@ document.addEventListener("keydown", (e) => {
   if (e.metaKey && !e.ctrlKey && !e.altKey && /^[1-9]$/.test(e.key)) {
     e.preventDefault();
     switchToTabIndex(Number(e.key) - 1);
+    return;
+  }
+  // gsd-043 follow-on — Cmd+W closes the active session tab (macOS
+  // convention; matches every other tabbed app). The fleet tab is
+  // exempt — closeTab() already guards it.
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.key === "w" || e.key === "W")
+  ) {
+    if (activeTabId !== "fleet") {
+      e.preventDefault();
+      closeTab(activeTabId);
+    }
   }
 });
 
@@ -617,7 +632,8 @@ function buildFleetRow(proj) {
   row.setAttribute("tabindex", "0");
   row.title =
     (STATUS_LABEL[proj.status] || proj.status) +
-    (proj.pending ? " - " + proj.pending + " pending" : "");
+    (proj.pending ? " - " + proj.pending + " pending" : "") +
+    (proj.deferred ? " - " + proj.deferred + " deferred" : "");
 
   const dot = document.createElement("span");
   dot.className = "rail__dot";
@@ -626,11 +642,22 @@ function buildFleetRow(proj) {
   name.textContent = proj.id;
 
   row.append(dot, name);
+  // gsd-043 — surface pending (active backlog) and deferred (paused) as
+  // distinct numbers on the rail badge. Deferred shows as a faint
+  // suffix and only when > 0, so projects with only active backlog
+  // look unchanged.
   if (proj.pending) {
     const count = document.createElement("span");
     count.className = "rail__count";
     count.textContent = proj.pending;
     row.appendChild(count);
+  }
+  if (proj.deferred) {
+    const def = document.createElement("span");
+    def.className = "rail__count rail__count-defer";
+    def.textContent = "+" + proj.deferred;
+    def.title = proj.deferred + " deferred";
+    row.appendChild(def);
   }
 
   row.addEventListener("click", () => openFleetProject(proj.id));
@@ -717,9 +744,13 @@ function showBriefing() {
   const parkedCount = snapshot.projects.length - activeProjs.length;
   const active = activeProjs.filter((p) => p.status === "active").length;
   const pending = activeProjs.reduce((n, p) => n + p.pending, 0);
+  const deferred = activeProjs.reduce((n, p) => n + (p.deferred || 0), 0);
   const waiting = activeProjs.reduce((n, p) => n + p.interactive_pending, 0);
 
-  // Situation strip — four figures across the top.
+  // Situation strip — figures across the top. gsd-043 added the
+  // Deferred cell so the dashboard distinguishes "active backlog"
+  // (Pending) from "paused-by-design" (Deferred). The Pending cell
+  // now means actively-actionable work only.
   const sitCell = (num, label, cls) =>
     '<div class="sit__cell' +
     (cls ? " " + cls : "") +
@@ -733,6 +764,7 @@ function showBriefing() {
     sitCell(activeProjs.length, "Active projects") +
     sitCell(active, "With open work") +
     sitCell(pending, "Pending tasks") +
+    sitCell(deferred, "Deferred", "is-faint") +
     sitCell(waiting, "Waiting on you", "is-rust") +
     "</div>";
 
@@ -1137,7 +1169,11 @@ async function loadTaskLedger(id) {
           '">Assess</button>' +
           '<button class="task-dispatch" data-id="' +
           escapeHtml(t.id) +
-          '">Dispatch</button>'
+          '">Dispatch</button>' +
+          '<button class="task-defer" data-id="' +
+          escapeHtml(t.id) +
+          '" title="Mark this task deferred with a gated_on phrase">' +
+          "Defer</button>"
         : "") +
       "</div>";
     if (t.status === "deferred" && t.gated_on) {
@@ -1180,6 +1216,81 @@ async function loadTaskLedger(id) {
     if (!task) continue;
     btn.addEventListener("click", () => assessTask(id, task));
   }
+
+  // gsd-043 follow-on — Defer button: flip a pending task to
+  // status=deferred with a gated_on phrase. Saves a hand-edit of
+  // tasks.json when stale work surfaces in dogfood.
+  for (const btn of el.querySelectorAll(".task-defer")) {
+    const task = pending.find((t) => t.id === btn.dataset.id);
+    if (!task) continue;
+    btn.addEventListener("click", () => openDeferModal(id, task));
+  }
+}
+
+// gsd-043 follow-on — open a small modal asking for the gated_on
+// phrase, then flip the task to deferred via the defer_task command.
+// The file watcher re-renders the workbench when tasks.json changes,
+// so no explicit refresh is needed.
+function openDeferModal(projectId, task) {
+  if (!modalOverlay) return;
+  modalOverlay.querySelector(".modal__meta").innerHTML =
+    '<span class="modal__when">Defer task</span>' +
+    "<span>" +
+    escapeHtml(task.id) +
+    "</span>";
+  modalOverlay.querySelector(".modal__body").innerHTML =
+    '<p class="muted defer__title">' +
+    escapeHtml(task.title.length > 200 ? task.title.slice(0, 200) + "…" : task.title) +
+    "</p>" +
+    '<label class="defer__label" for="defer-gated-on">What unblocks this?</label>' +
+    '<textarea id="defer-gated-on" class="defer__input" rows="3" ' +
+    'placeholder="e.g. \'after X ships\', \'when Y is decided\', ' +
+    "'public release scoping'\"></textarea>" +
+    '<div class="defer__actions">' +
+    '<button id="defer-cancel" class="defer__cancel">Cancel</button>' +
+    '<button id="defer-confirm" class="defer__confirm" disabled>Defer</button>' +
+    "</div>" +
+    '<div id="defer-msg" class="defer__msg muted"></div>';
+  modalOverlay.classList.add("is-open");
+  const input = document.getElementById("defer-gated-on");
+  const confirm = document.getElementById("defer-confirm");
+  const cancel = document.getElementById("defer-cancel");
+  const msg = document.getElementById("defer-msg");
+  input.focus();
+  input.addEventListener("input", () => {
+    confirm.disabled = input.value.trim().length === 0;
+  });
+  input.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl+Enter submits.
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!confirm.disabled) confirm.click();
+    }
+  });
+  cancel.addEventListener("click", closeModal);
+  confirm.addEventListener("click", async () => {
+    const gatedOn = input.value.trim();
+    if (!gatedOn) return;
+    confirm.disabled = true;
+    msg.textContent = "Deferring…";
+    try {
+      const r = await invoke("defer_task", {
+        project: projectId,
+        task: task.id,
+        gatedOn,
+      });
+      if (!r.ok) {
+        msg.textContent = r.message || "Defer failed.";
+        confirm.disabled = false;
+        return;
+      }
+      closeModal();
+      loadTaskLedger(projectId);
+    } catch (e) {
+      msg.textContent = "Defer failed: " + String(e);
+      confirm.disabled = false;
+    }
+  });
 }
 
 // The autonomy preamble every click-launched dispatch (task or ping)

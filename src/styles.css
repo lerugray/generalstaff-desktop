@@ -486,7 +486,11 @@ body.theme-night, body.theme-carbon {
 .view { position: absolute; inset: 0; }
 .view-hidden { display: none; }
 .view-fleet { overflow: hidden; }
-.view-session { padding: 8px; background: #1f1a11; }
+/* The terminal frame matches the active palette — xterm.js sets its own
+   background per termTheme(), but the 8px padding around it would show
+   the page bg otherwise. Pinning it to var(--paper) keeps the chrome
+   continuous on every theme. */
+.view-session { padding: 8px; background: var(--paper); }
 .term-host { width: 100%; height: 100%; overflow: hidden; }
 
 /* -----------------------------------------------------------
@@ -1471,7 +1475,9 @@ body.theme-carbon .task-dispatch:hover { color: var(--paper-2); }
 body.popout {
   height: 100%;
   overflow: hidden;
-  background: #1f1a11;
+  /* Matches the popout's xterm theme — term.js adds a `theme-<id>` class
+     on load and updates it on storage events from the main window. */
+  background: var(--paper);
 }
 .popout-host {
   width: 100vw;

@@ -18,30 +18,51 @@ const { listen } = window.__TAURI__.event;
 
 const STATUS_LABEL = { active: "open work", clear: "clear" };
 
-// xterm.js theme — warm ink-on-dark, in the Kriegspiel paper family.
-const TERM_THEME = {
-  background: "#1f1a11",
-  foreground: "#e8dcc0",
-  cursor: "#d98b4a",
-  cursorAccent: "#1f1a11",
-  selectionBackground: "#4a4131",
-  black: "#2a2418",
-  red: "#b5532e",
-  green: "#7a8a4a",
-  yellow: "#c98a3e",
-  blue: "#5a7a8a",
-  magenta: "#9a6a7a",
-  cyan: "#6a9a9a",
-  white: "#e8dcc0",
-  brightBlack: "#8a7f66",
-  brightRed: "#d98b4a",
-  brightGreen: "#9aaa6a",
-  brightYellow: "#e0a850",
-  brightBlue: "#7a9aaa",
-  brightMagenta: "#ba8a9a",
-  brightCyan: "#8abab0",
-  brightWhite: "#f1e7d3",
-};
+// xterm.js theme — derived from the active GSD theme's CSS variables, so
+// the terminal chrome (background, foreground, cursor, ANSI palette)
+// follows whichever Kriegspiel palette is selected in the rail. A light
+// theme gets a light terminal; a dark theme gets a dark one. Pulled out
+// of the CSS rather than duplicated as six hardcoded objects so a
+// future theme tweak (or a seventh palette) propagates automatically.
+function termTheme() {
+  const cs = getComputedStyle(document.body);
+  const v = (k) => cs.getPropertyValue(k).trim();
+  const paper = v("--paper");
+  const ink = v("--ink");
+  const rust = v("--rust");
+  const rustDeep = v("--rust-deep");
+  const prussian = v("--prussian");
+  const prussianDeep = v("--prussian-deep");
+  return {
+    background: paper,
+    foreground: ink,
+    cursor: rust,
+    cursorAccent: paper,
+    selectionBackground: v("--rule-soft"),
+    // ANSI 16-palette — the GSD token set doesn't define greens / yellows
+    // directly, so the mapping is best-effort: ink/ink-soft for the
+    // grays, rust for red/yellow/magenta family, prussian for blue/cyan
+    // family, prussian for green-ish (closest cool we have). Most CC TUI
+    // colour use is gray-on-paper plus a rust accent; this stays
+    // legible on every theme.
+    black: ink,
+    red: rust,
+    green: prussian,
+    yellow: rustDeep,
+    blue: prussian,
+    magenta: rustDeep,
+    cyan: prussianDeep,
+    white: v("--ink-soft"),
+    brightBlack: v("--ink-faint"),
+    brightRed: rustDeep,
+    brightGreen: prussianDeep,
+    brightYellow: rust,
+    brightBlue: prussianDeep,
+    brightMagenta: rust,
+    brightCyan: prussian,
+    brightWhite: ink,
+  };
+}
 
 const fleetList = document.getElementById("fleet-list");
 const tabbar = document.getElementById("tabbar");
@@ -104,6 +125,17 @@ function applyTheme(id) {
     for (const sw of railThemes.querySelectorAll(".rail__theme")) {
       sw.classList.toggle("is-active", sw.dataset.t === id);
     }
+  }
+  // Repaint every live terminal in the new palette. termTheme() reads
+  // CSS vars from the just-set body class, so each session picks up the
+  // matching chrome the instant the swap lands. Popped-out windows
+  // (term.html in their own JS context) listen on `storage` for the
+  // THEME_KEY write above and update themselves the same way.
+  const next = termTheme();
+  for (const s of sessions.values()) {
+    try {
+      s.term.options.theme = next;
+    } catch (e) {}
   }
 }
 
@@ -362,7 +394,7 @@ function createTerminal(host, sessionId) {
   const term = new window.Terminal({
     fontFamily: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
     fontSize: 13,
-    theme: TERM_THEME,
+    theme: termTheme(),
     cursorBlink: true,
     scrollback: 8000,
     allowProposedApi: true,
@@ -1318,66 +1350,130 @@ const NON_PROGRAMMER_PREAMBLE =
 // project's own repo, seeded with the task — the project-task analogue
 // of a ping's Dispatch button. The GS-Task trailer (gsd-039) gives the
 // Reconcile-state pass an explicit signal to close the task against.
+//
+// No-code projects (spotify-royalties, mission-employment, etc. — work
+// is correspondence / research / outreach, no commits to ship) have no
+// sibling code repo, so the dispatch falls back to generalstaff-private
+// the same way a no-repo ping dispatch does. The prompt drops the
+// commit/push directives and frames the task as no-code work.
 function dispatchTask(projectId, task) {
   const msg = document.getElementById("task-msg");
   const proj = (snapshot.projects || []).find((p) => p.id === projectId);
-  if (!proj || !proj.repo_path) {
-    if (msg) msg.textContent = "No code repo found for " + projectId + ".";
+  if (!proj) {
+    if (msg) msg.textContent = "Project " + projectId + " not found.";
     return;
   }
-  const prompt =
-    NON_PROGRAMMER_PREAMBLE +
-    "\n\nA task from the " +
-    projectId +
-    " project task ledger (generalstaff-private/state/" +
-    projectId +
-    "/tasks.json):\n\n" +
-    task.id +
-    " — " +
-    task.title +
-    "\n\nThis session is open in the " +
-    projectId +
-    " repo. Handle the task: make the change, commit it, and push. If " +
-    "the task turns out to be already done, or should not be done, say " +
-    "so rather than forcing it — and skip the trailer if you did not " +
-    "do the work." +
-    "\n\nWhen you commit, put this exact line in the commit message " +
-    "body so the Reconcile pass can close the task ledger entry:" +
-    "\n\n    GS-Task: " +
-    task.id;
-  startSession("claude", proj.repo_path, prompt, msg);
+  const taskLine = task.id + " — " + task.title;
+  const ledgerRef =
+    "generalstaff-private/state/" + projectId + "/tasks.json";
+  let cwd, prompt;
+  if (proj.repo_path) {
+    cwd = proj.repo_path;
+    prompt =
+      NON_PROGRAMMER_PREAMBLE +
+      "\n\nA task from the " +
+      projectId +
+      " project task ledger (" +
+      ledgerRef +
+      "):\n\n" +
+      taskLine +
+      "\n\nThis session is open in the " +
+      projectId +
+      " repo. Handle the task: make the change, commit it, and push. If " +
+      "the task turns out to be already done, or should not be done, say " +
+      "so rather than forcing it — and skip the trailer if you did not " +
+      "do the work." +
+      "\n\nWhen you commit, put this exact line in the commit message " +
+      "body so the Reconcile pass can close the task ledger entry:" +
+      "\n\n    GS-Task: " +
+      task.id;
+  } else {
+    cwd = snapshot.generalstaff_path;
+    prompt =
+      "A task from the " +
+      projectId +
+      " project task ledger (" +
+      ledgerRef +
+      "):\n\n" +
+      taskLine +
+      "\n\nThis project has no code repo of its own — the work is " +
+      "correspondence, research, outreach, or planning rather than " +
+      "commits. This session is open in generalstaff-private so you can " +
+      "read the project's MISSION.md and any drafts under state/" +
+      projectId +
+      "/. Handle the task: draft the letter / do the research / write " +
+      "the plan / register the account, and report back what you " +
+      "produced. If your work belongs in a file (a draft letter, a " +
+      "research note), put it under state/" +
+      projectId +
+      "/drafts/ in generalstaff-private and commit it there. When you " +
+      "do commit, put this line in the message body so Reconcile can " +
+      "close the ledger entry:\n\n    GS-Task: " +
+      task.id +
+      "\n\nIf the task turns out to be already done, or should not be " +
+      "done, say so rather than forcing it.";
+  }
+  startSession("claude", cwd, prompt, msg);
 }
 
 // gsd-040 — assess a project task: open a claude session in the
 // project's repo seeded with an assessment-only prompt. The pre-flight
 // counterpart of dispatchTask — it scopes the task and reports whether
 // the work is still needed, and changes nothing.
+//
+// No-code projects fall back to generalstaff-private the same way
+// dispatchTask does.
 function assessTask(projectId, task) {
   const msg = document.getElementById("task-msg");
   const proj = (snapshot.projects || []).find((p) => p.id === projectId);
-  if (!proj || !proj.repo_path) {
-    if (msg) msg.textContent = "No code repo found for " + projectId + ".";
+  if (!proj) {
+    if (msg) msg.textContent = "Project " + projectId + " not found.";
     return;
   }
-  const prompt =
-    "This is an assessment pass — make no changes and do not commit.\n\n" +
-    "A task from the " +
-    projectId +
-    " project task ledger (generalstaff-private/state/" +
-    projectId +
-    "/tasks.json):\n\n" +
-    task.id +
-    " — " +
-    task.title +
-    "\n\nThis session is open in the " +
-    projectId +
-    " repo. Read the git log and the current project state, then tell " +
-    "me plainly: is this task still real and needed, already done, " +
-    "obsolete, or in need of rescoping? If it is real, what would it " +
-    "actually take to do? Give a one-paragraph verdict with a short " +
-    "rationale — and change nothing. A pending ledger entry is not " +
-    "proof the work is needed.";
-  startSession("claude", proj.repo_path, prompt, msg);
+  const taskLine = task.id + " — " + task.title;
+  const ledgerRef =
+    "generalstaff-private/state/" + projectId + "/tasks.json";
+  let cwd, prompt;
+  if (proj.repo_path) {
+    cwd = proj.repo_path;
+    prompt =
+      "This is an assessment pass — make no changes and do not commit.\n\n" +
+      "A task from the " +
+      projectId +
+      " project task ledger (" +
+      ledgerRef +
+      "):\n\n" +
+      taskLine +
+      "\n\nThis session is open in the " +
+      projectId +
+      " repo. Read the git log and the current project state, then tell " +
+      "me plainly: is this task still real and needed, already done, " +
+      "obsolete, or in need of rescoping? If it is real, what would it " +
+      "actually take to do? Give a one-paragraph verdict with a short " +
+      "rationale — and change nothing. A pending ledger entry is not " +
+      "proof the work is needed.";
+  } else {
+    cwd = snapshot.generalstaff_path;
+    prompt =
+      "This is an assessment pass — make no changes and do not commit.\n\n" +
+      "A task from the " +
+      projectId +
+      " project task ledger (" +
+      ledgerRef +
+      "):\n\n" +
+      taskLine +
+      "\n\nThis project has no code repo of its own — the work is " +
+      "correspondence, research, outreach, or planning. This session " +
+      "is open in generalstaff-private; read MISSION.md and anything " +
+      "under state/" +
+      projectId +
+      "/, then tell me plainly: is this task still real and needed, " +
+      "already done, obsolete, or in need of rescoping? If it is real, " +
+      "what would it actually take to do? Give a one-paragraph verdict " +
+      "with a short rationale — and change nothing. A pending ledger " +
+      "entry is not proof the work is needed.";
+  }
+  startSession("claude", cwd, prompt, msg);
 }
 
 // ---------------------------------------------------------------------

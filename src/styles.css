@@ -252,7 +252,18 @@ body.theme-night, body.theme-carbon {
 /* -----------------------------------------------------------
  * App shell
  * ----------------------------------------------------------- */
-#app { display: flex; min-height: 0; }
+#app {
+  display: flex;
+  min-height: 0;
+  /* Window-edge delineation. macOS draws a faint hairline below its
+     title bar but it disappears against warm cream paper on the light
+     themes — the title bar visually melts into the rail-head and
+     tabbar. Paint our own 1px rule along the top so light themes get
+     a clear OS-chrome/app-chrome boundary. Dark themes already have
+     plenty of contrast against the title bar; the same line stays
+     subtle there. */
+  border-top: 1px solid var(--rule);
+}
 
 /* -----------------------------------------------------------
  * Left rail — the fleet

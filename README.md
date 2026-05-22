@@ -3,7 +3,7 @@
 <!-- TODO: GSD cockpit screenshot -->
 ![GSD cockpit screenshot](docs/images/screenshot.png)
 
-A Tauri 2 macOS desktop console for [GeneralStaff](https://github.com/lerugray/generalstaff) — the local-first autonomous dev-fleet orchestrator.
+A Tauri 2 desktop console for [GeneralStaff](https://github.com/lerugray/generalstaff) — the local-first autonomous dev-fleet orchestrator. Targets macOS and Windows.
 
 GSD gives the full fleet a permanent home outside the terminal: a dashboard of every registered project with its open task queue and recent cycle history, a per-project workbench (file tree, file viewer, pings inbox), and embedded terminal sessions that run real `claude` / `cursor-agent` CLI processes under a PTY — rendered in xterm.js and themed to match the rest of the UI.
 
@@ -11,10 +11,11 @@ It is strictly a **viewer/controller**: it reads GeneralStaff's file-based state
 
 ## Prerequisites
 
-- macOS (only platform currently supported)
+- macOS or Windows (Linux is untested but the Rust code is otherwise portable)
 - [Rust](https://rustup.rs/) (stable, 1.77.2+)
 - [Bun](https://bun.sh/) 1.2+
 - [Tauri CLI v2](https://tauri.app/start/prerequisites/) (`cargo install tauri-cli --version "^2"` or via Bun — `bun add -D @tauri-apps/cli`)
+  - Windows: also requires the [WebView2 runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (ships with Windows 11; downloadable for Windows 10)
 - A GeneralStaff checkout (public or private)
 
 ## Two-repo layout
@@ -40,13 +41,17 @@ bun tauri dev       # development — hot-reload frontend, debug Rust
 bun tauri build     # release build (unsigned; see Signing below)
 ```
 
-The `scripts/install.sh` path is the operator's install flow — it builds a release bundle, copies the `gs-mcp` sidecar binary into `GeneralStaff.app/Contents/MacOS/`, re-signs inside-out with a stable identity, and drops the result in `/Applications`. Contributors building locally do not need it.
+The `scripts/install.sh` path is the macOS operator install flow — it builds a release bundle, copies the `gs-mcp` sidecar binary into `GeneralStaff.app/Contents/MacOS/`, re-signs inside-out with a stable identity, and drops the result in `/Applications`. Contributors building locally do not need it.
+
+On Windows the sidecar (`gs-mcp.exe`) is placed beside the main executable by Tauri's bundler — no separate copy step is needed.
 
 ### The gs-mcp sidecar
 
 `src/bin/gs-mcp.rs` is a second binary in the Cargo workspace — a stdio MCP server the dispatcher uses to communicate with the desktop. `scripts/install.sh` handles copying it into the bundle. During `bun tauri dev` the sidecar is not required; it only matters for the installed-app dispatcher flow.
 
 ## Signing (operators only)
+
+### macOS
 
 To keep macOS TCC permissions (Desktop folder, Screen Recording, Accessibility) stable across rebuilds, the installed app is signed with a consistent identity. The signing identity lives in a gitignored local override that Tauri 2 merges at build time:
 

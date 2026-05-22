@@ -17,7 +17,7 @@ use std::sync::Mutex;
 
 use base64::Engine;
 use notify::{RecursiveMode, Watcher};
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -28,12 +28,20 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// One live child session. The PTY master (for resize) and the input
 /// writer live here; the child handle and the output reader are owned
 /// by the per-session reader thread, which reaps the child on exit.
+///
+/// `killer` is a cloned cross-platform handle for sending a kill signal
+/// to the child without needing the raw PID — avoids Unix-only
+/// `libc::kill` and works on Windows via portable-pty's ConPTY path.
 struct Session {
     id: String,
     agent: String,
     cwd: String,
     mode: String,
+    /// Raw process id — kept for diagnostics / future use; kill goes
+    /// through `killer` instead (cross-platform).
+    #[allow(dead_code)]
     pid: Option<u32>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
 }
@@ -90,20 +98,44 @@ fn resolve_agent_binary(agent: &str) -> Result<PathBuf, String> {
         "cursor-agent" => "cursor-agent",
         other => return Err(format!("unknown agent: {other}")),
     };
+    // On Windows, executables have a .exe extension.
+    #[cfg(windows)]
+    let exe_name = format!("{exe}.exe");
+    #[cfg(unix)]
+    let exe_name = exe.to_string();
+
     if let Some(home) = home_dir() {
-        let local = home.join(".local").join("bin").join(exe);
+        let local = home.join(".local").join("bin").join(&exe_name);
         if local.exists() {
             return Ok(local);
         }
     }
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
-        let p = PathBuf::from(dir).join(exe);
-        if p.exists() {
-            return Ok(p);
+    #[cfg(unix)]
+    {
+        for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+            let p = PathBuf::from(dir).join(&exe_name);
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        // cursor-agent's Windows installer lands in %LOCALAPPDATA%\Programs\
+        // or %LOCALAPPDATA%\cursor-agent\; Anthropic's Windows CLI may land
+        // in %LOCALAPPDATA%\Programs\ or be on PATH via npm.
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let lad = std::path::Path::new(&local_app_data);
+            for subdir in ["Programs", "cursor-agent"] {
+                let p = lad.join(subdir).join(&exe_name);
+                if p.exists() {
+                    return Ok(p);
+                }
+            }
         }
     }
     // Last resort: bare name, resolved against the PATH set below.
-    Ok(PathBuf::from(exe))
+    Ok(PathBuf::from(&exe_name))
 }
 
 /// A known-good PATH for spawned agents — explicit dirs first, then the
@@ -113,13 +145,34 @@ fn agent_path() -> String {
     if let Some(home) = home_dir() {
         parts.push(home.join(".local").join("bin").display().to_string());
     }
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
-        parts.push(dir.to_string());
+    #[cfg(unix)]
+    {
+        for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            parts.push(dir.to_string());
+        }
     }
+    #[cfg(windows)]
+    {
+        // Windows-standard install locations for claude / cursor-agent.
+        // %LOCALAPPDATA%\Programs\ is where cursor-agent's Windows installer
+        // places the binary; %LOCALAPPDATA%\cursor-agent\ is also used.
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let lad = std::path::Path::new(&local_app_data);
+            parts.push(lad.join("Programs").display().to_string());
+            parts.push(lad.join("cursor-agent").display().to_string());
+        }
+        // Anthropic's Windows CLI installer typically lands in AppData\Local\Programs
+        // or %APPDATA%\npm (if installed via npm/npx). Include both.
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let ad = std::path::Path::new(&appdata);
+            parts.push(ad.join("npm").display().to_string());
+        }
+    }
+    let sep = if cfg!(windows) { ";" } else { ":" };
     if let Ok(existing) = std::env::var("PATH") {
         parts.push(existing);
     }
-    parts.join(":")
+    parts.join(sep)
 }
 
 /// ~/.generalstaff-desktop/requests/ — the spawn-request drop directory.
@@ -173,30 +226,45 @@ fn gs_mcp_path() -> Option<PathBuf> {
 /// (one that opens child tabs via the gs-mcp tool) keeps its context
 /// window lean. Resolved from two locations, in order:
 ///   1. The Tauri resource dir — where `tauri.conf.json`'s
-///      `bundle.resources` places it in the installed app. On macOS
-///      that is `Contents/Resources/`, a sibling of `Contents/MacOS/`
-///      (which holds the executable), so we look there relative to the
-///      running exe.
+///      `bundle.resources` places it in the installed app.
+///        macOS: `Contents/Resources/`, a sibling of `Contents/MacOS/`
+///               (which holds the executable).
+///        Windows: resources are placed beside the `.exe` by Tauri.
 ///   2. The dev-tree source path (`src-tauri/resources/…` via
 ///      `CARGO_MANIFEST_DIR`) — the unbundled `cargo run` / `tauri dev`
-///      loop, where there is no Resources dir.
+///      loop, where there is no bundled resources dir.
 /// Returns None if neither exists; the caller then simply omits the
 /// flag rather than failing the spawn.
 fn orchestration_instruction_path() -> Option<PathBuf> {
     const NAME: &str = "orchestration-discipline.md";
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(macos_dir) = exe.parent() {
-            // …/Contents/MacOS/<exe>  ->  …/Contents/Resources/<NAME>
-            if let Some(contents) = macos_dir.parent() {
-                let bundled = contents.join("Resources").join(NAME);
-                if bundled.is_file() {
-                    return Some(bundled);
+        if let Some(exe_dir) = exe.parent() {
+            #[cfg(target_os = "macos")]
+            {
+                // …/Contents/MacOS/<exe>  ->  …/Contents/Resources/<NAME>
+                if let Some(contents) = exe_dir.parent() {
+                    let bundled = contents.join("Resources").join(NAME);
+                    if bundled.is_file() {
+                        return Some(bundled);
+                    }
                 }
             }
-            // Some non-macOS bundles place resources next to the exe.
-            let beside = macos_dir.join(NAME);
-            if beside.is_file() {
-                return Some(beside);
+            #[cfg(windows)]
+            {
+                // Tauri on Windows places bundled resources beside the .exe.
+                let beside = exe_dir.join(NAME);
+                if beside.is_file() {
+                    return Some(beside);
+                }
+            }
+            // Fallback for non-macOS Unix (Linux) and any layout where
+            // resources land beside the executable.
+            #[cfg(not(any(target_os = "macos", windows)))]
+            {
+                let beside = exe_dir.join(NAME);
+                if beside.is_file() {
+                    return Some(beside);
+                }
             }
         }
     }
@@ -505,6 +573,9 @@ fn do_spawn(
     drop(pair.slave);
 
     let pid = child.process_id();
+    // Clone a cross-platform kill handle *before* the child moves into the
+    // reader thread. Used by kill_session_id on both Unix and Windows.
+    let killer = child.clone_killer();
     let writer = pair
         .master
         .take_writer()
@@ -563,6 +634,7 @@ fn do_spawn(
             cwd,
             mode,
             pid,
+            killer,
             master: pair.master,
             writer,
         },
@@ -633,18 +705,19 @@ pub fn resize_session(
     Ok(())
 }
 
-/// Terminate a session by id: SIGHUP the child (a terminal hangup),
-/// then drop our PTY handles. The reader thread reaps the child and
-/// emits exit. Shared by the kill_session command and the popped-out
-/// window's close handler.
+/// Terminate a session by id: signal the child via the portable-pty
+/// `ChildKiller` handle (cross-platform — SIGHUP on Unix, TerminateProcess
+/// on Windows via ConPTY), then drop our PTY handles. The reader thread
+/// reaps the child and emits exit. Shared by the kill_session command and
+/// the popped-out window's close handler.
 pub fn kill_session_id(mgr: &SessionManager, id: &str) {
     let mut sessions = mgr.sessions.lock().unwrap();
-    if let Some(s) = sessions.remove(id) {
-        if let Some(pid) = s.pid {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGHUP);
-            }
-        }
+    if let Some(mut s) = sessions.remove(id) {
+        // portable-pty's ChildKiller::kill() is cross-platform:
+        //   Unix  — sends SIGHUP to the process group
+        //   Windows — calls TerminateProcess via the ConPTY path
+        // Errors are ignored: if the child already exited the kill is a no-op.
+        let _ = s.killer.kill();
         // s (master + writer) drops here.
     }
 }

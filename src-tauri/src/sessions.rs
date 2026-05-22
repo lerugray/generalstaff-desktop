@@ -246,24 +246,61 @@ fn claude_effort() -> String {
     }
 }
 
-/// All persisted app settings, for the settings UI. Currently just the
-/// effort level; an object so future settings extend it without a new
-/// command. Always returns a value — defaults fill any missing field.
+/// All persisted app settings, for the settings UI. Currently effort
+/// level + the autonomous-mode consent flag. An object so future
+/// settings extend it without a new command. Always returns a value —
+/// defaults fill any missing field.
 #[derive(Serialize)]
 pub struct AppSettings {
     claude_effort: String,
     /// The real `--effort` levels — lets the UI build the control
     /// without hardcoding (and drifting from) the list.
     effort_levels: Vec<String>,
+    /// True once the operator has acknowledged the autonomous-mode
+    /// security warning (no sandbox, no per-action approval).
+    autonomous_consent_given: bool,
 }
 
 /// Read the persisted app settings (gsd-036).
 #[tauri::command]
 pub fn get_settings() -> AppSettings {
+    let obj = std::fs::read_to_string(settings_file())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    let autonomous_consent_given = obj
+        .as_ref()
+        .and_then(|v| v.get("autonomous_consent_given"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
     AppSettings {
         claude_effort: claude_effort(),
         effort_levels: CLAUDE_EFFORT_LEVELS.iter().map(|s| s.to_string()).collect(),
+        autonomous_consent_given,
     }
+}
+
+/// Record that the operator has explicitly acknowledged the autonomous-mode
+/// security warning. Persists `autonomous_consent_given: true` to
+/// settings.json — the consent modal is then suppressed for all future
+/// sessions on this machine.
+#[tauri::command]
+pub fn set_autonomous_consent() -> Result<(), String> {
+    let path = settings_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    // Preserve any other keys already in the file.
+    let mut obj = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok())
+        .unwrap_or_default();
+    obj.insert(
+        "autonomous_consent_given".into(),
+        serde_json::Value::Bool(true),
+    );
+    let json =
+        serde_json::to_string_pretty(&serde_json::Value::Object(obj)).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
 }
 
 /// Persist the Claude effort level (gsd-036). Rejects a value outside
@@ -535,6 +572,19 @@ fn do_spawn(
     Ok(info)
 }
 
+/// Validate that `cwd` is an existing, absolute directory — required
+/// before passing it to `do_spawn`. Returns an error string if not.
+fn validate_cwd(cwd: &str) -> Result<(), String> {
+    let path = std::path::Path::new(cwd);
+    if !path.is_absolute() {
+        return Err(format!("cwd must be an absolute path: {cwd}"));
+    }
+    if !path.is_dir() {
+        return Err(format!("cwd does not exist or is not a directory: {cwd}"));
+    }
+    Ok(())
+}
+
 /// Spawn a child agent session under a PTY. Output arrives via
 /// `pty-output` events; the new tab opens on the `session-spawned` event.
 #[tauri::command]
@@ -546,6 +596,7 @@ pub fn spawn_session(
     mode: String,
     resume: bool,
 ) -> Result<SessionInfo, String> {
+    validate_cwd(&cwd)?;
     do_spawn(&app, agent, cwd, prompt, mode, resume)
 }
 
@@ -689,6 +740,10 @@ fn handle_request(app: &AppHandle, path: &Path) {
         },
         (None, None) => return,
     };
+    // Validate that cwd is an existing, absolute directory before spawning.
+    if validate_cwd(&cwd).is_err() {
+        return;
+    }
     let _ = do_spawn(
         app,
         req.agent,

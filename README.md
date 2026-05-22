@@ -64,6 +64,21 @@ To keep macOS TCC permissions (Desktop folder, Screen Recording, Accessibility) 
 
 Set `signingIdentity` to the name of your certificate in Keychain. Contributors without a cert build and run fine without this file — `bun tauri dev` and `bun tauri build` both work unsigned.
 
+## Security
+
+### Autonomous mode — no sandbox
+
+GSD supports an **autonomous session mode** where the AI agent is launched with all permission prompts bypassed (`claude --permission-mode bypassPermissions` / `cursor-agent --trust`). In autonomous mode the agent can **read and write any file on your machine and run any shell command without asking for permission**.
+
+This is intentional for trusted operator use on known projects. It is dangerous if used on a hostile or untrusted project.
+
+**Rules of thumb:**
+- Only use autonomous mode on projects and prompts you fully trust.
+- Do not open a GeneralStaff session (dispatcher or otherwise) in a project repository that could have been tampered with.
+- GSD shows an explicit consent modal the first time you trigger an autonomous session. Once you confirm, the flag persists to `~/.generalstaff-desktop/settings.json` and the modal is not shown again.
+
+The MCP-originated spawn path (a dispatcher session calling the `spawn_session` tool with `"mode": "autonomous"`) does **not** require the same consent gate — it is trusted operator-to-operator communication. Do not point the MCP tool at untrusted dispatcher sessions.
+
 ## Stack
 
 Tauri 2 · Rust backend · vanilla-JS frontend (no bundler) · xterm.js for embedded terminal sessions.

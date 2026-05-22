@@ -25,6 +25,12 @@ Thumbs.db
 .env
 .env.local
 
+# Tauri local config override — contains machine-specific signing identity.
+# Operator keeps src-tauri/tauri.local.conf.json locally; it is merged by
+# Tauri 2 at build time and must NOT be committed (contributors build fine
+# without it; they just won't have a signing identity, which is correct).
+src-tauri/tauri.local.conf.json
+
 # Claude Design — gsd-006 CD bundle extract. The design is integrated
 # into src/; this is the raw claude.ai/design output kept for reference.
 claude-design-output/

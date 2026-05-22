@@ -2,7 +2,6 @@
   "name": "generalstaff-desktop",
   "version": "0.0.1",
   "description": "Desktop command console for GeneralStaff",
-  "private": true,
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

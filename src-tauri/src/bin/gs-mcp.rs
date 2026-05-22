@@ -14,7 +14,11 @@ use std::io::{BufRead, Write};
 use serde_json::{json, Value};
 
 fn requests_dir() -> std::path::PathBuf {
+    // On Unix, HOME is the standard; on Windows, HOME is typically unset
+    // and USERPROFILE is the equivalent. Mirror the pattern in lib.rs's
+    // home_dir() so both platforms resolve correctly.
     let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
     home.join(".generalstaff-desktop").join("requests")

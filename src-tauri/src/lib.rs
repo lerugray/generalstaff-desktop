@@ -1333,8 +1333,6 @@ fn surface_main(app: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().build())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .manage(sessions::SessionManager::default())
         .invoke_handler(tauri::generate_handler![
@@ -1361,7 +1359,8 @@ pub fn run() {
             sessions::load_session_layout,
             sessions::set_theme_kind,
             sessions::get_settings,
-            sessions::set_claude_effort
+            sessions::set_claude_effort,
+            sessions::set_autonomous_consent
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

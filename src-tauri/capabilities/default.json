@@ -13,8 +13,6 @@
     "core:window:allow-unminimize",
     "core:webview:allow-create-webview-window",
     "log:default",
-    "shell:default",
-    "fs:default",
     "notification:default"
   ]
 }

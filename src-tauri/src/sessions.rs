@@ -168,8 +168,144 @@ fn gs_mcp_path() -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
+/// The bundled orchestration-discipline instruction — appended to a
+/// spawned `claude` session's system prompt so a dispatcher session
+/// (one that opens child tabs via the gs-mcp tool) keeps its context
+/// window lean. Resolved from two locations, in order:
+///   1. The Tauri resource dir — where `tauri.conf.json`'s
+///      `bundle.resources` places it in the installed app. On macOS
+///      that is `Contents/Resources/`, a sibling of `Contents/MacOS/`
+///      (which holds the executable), so we look there relative to the
+///      running exe.
+///   2. The dev-tree source path (`src-tauri/resources/…` via
+///      `CARGO_MANIFEST_DIR`) — the unbundled `cargo run` / `tauri dev`
+///      loop, where there is no Resources dir.
+/// Returns None if neither exists; the caller then simply omits the
+/// flag rather than failing the spawn.
+fn orchestration_instruction_path() -> Option<PathBuf> {
+    const NAME: &str = "orchestration-discipline.md";
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(macos_dir) = exe.parent() {
+            // …/Contents/MacOS/<exe>  ->  …/Contents/Resources/<NAME>
+            if let Some(contents) = macos_dir.parent() {
+                let bundled = contents.join("Resources").join(NAME);
+                if bundled.is_file() {
+                    return Some(bundled);
+                }
+            }
+            // Some non-macOS bundles place resources next to the exe.
+            let beside = macos_dir.join(NAME);
+            if beside.is_file() {
+                return Some(beside);
+            }
+        }
+    }
+    // Dev tree: src-tauri/resources/<NAME>.
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join(NAME);
+    dev.is_file().then_some(dev)
+}
+
+/// ~/.generalstaff-desktop/settings.json — persisted app settings (a
+/// flat JSON object). Parallels `sessions.json` and `theme-kind`;
+/// distinct from the user-hand-edited `config.json` (path config), so a
+/// settings write can never clobber `generalstaff_path`.
+fn settings_file() -> PathBuf {
+    home_dir()
+        .unwrap_or_default()
+        .join(".generalstaff-desktop")
+        .join("settings.json")
+}
+
+/// Claude Code's real `--effort` levels (from `claude --help`). The
+/// frontend control offers exactly these; `claude_effort()` validates
+/// against this list so a stale or hand-edited settings.json can never
+/// feed `claude` an unknown value.
+const CLAUDE_EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Default Claude effort — `max`. Spawning a session with no persisted
+/// setting (or an invalid one) keeps the pre-gsd-036 behaviour exactly.
+const DEFAULT_CLAUDE_EFFORT: &str = "max";
+
+/// The configured `claude --effort` level (gsd-036). Reads
+/// `settings.json` -> `claude_effort`; falls back to `max` if the file
+/// is absent, unparseable, or holds a value not in CLAUDE_EFFORT_LEVELS.
+fn claude_effort() -> String {
+    let parsed = std::fs::read_to_string(settings_file())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| {
+            v.get("claude_effort")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        });
+    match parsed {
+        Some(e) if CLAUDE_EFFORT_LEVELS.contains(&e.as_str()) => e,
+        _ => DEFAULT_CLAUDE_EFFORT.to_string(),
+    }
+}
+
+/// All persisted app settings, for the settings UI. Currently just the
+/// effort level; an object so future settings extend it without a new
+/// command. Always returns a value — defaults fill any missing field.
+#[derive(Serialize)]
+pub struct AppSettings {
+    claude_effort: String,
+    /// The real `--effort` levels — lets the UI build the control
+    /// without hardcoding (and drifting from) the list.
+    effort_levels: Vec<String>,
+}
+
+/// Read the persisted app settings (gsd-036).
+#[tauri::command]
+pub fn get_settings() -> AppSettings {
+    AppSettings {
+        claude_effort: claude_effort(),
+        effort_levels: CLAUDE_EFFORT_LEVELS.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// Persist the Claude effort level (gsd-036). Rejects a value outside
+/// CLAUDE_EFFORT_LEVELS so the UI cannot write a level `claude` would
+/// reject. Read-modify-writes settings.json to preserve other keys.
+#[tauri::command]
+pub fn set_claude_effort(effort: String) -> Result<(), String> {
+    if !CLAUDE_EFFORT_LEVELS.contains(&effort.as_str()) {
+        return Err(format!("unknown effort level: {effort}"));
+    }
+    let path = settings_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    // Preserve any other keys already in the file.
+    let mut obj = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok())
+        .unwrap_or_default();
+    obj.insert(
+        "claude_effort".into(),
+        serde_json::Value::String(effort),
+    );
+    let json =
+        serde_json::to_string_pretty(&serde_json::Value::Object(obj)).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
 /// Build the agent command — explicit environment, cwd, the dispatcher
 /// MCP tool (claude only), and the args for the requested mode.
+///
+/// gsd-022 — argument-construction discipline. `claude`'s arg parser
+/// makes ordering load-bearing, so the args are emitted in three strict
+/// phases and the positional prompt is emitted in exactly ONE place:
+///   Phase 1 — fixed-arity flags + their values (each consumes exactly
+///             one following token, so they are order-independent among
+///             themselves and safe to place before the prompt).
+///   Phase 2 — the positional seed prompt (at most one bare argument).
+///   Phase 3 — variadic `--mcp-config` (consumes EVERY following bare
+///             argument), therefore strictly last.
+/// A flag added in the wrong phase is the failure class this structure
+/// exists to prevent — keep new flags in Phase 1.
 fn build_command(
     agent: &str,
     cwd: &str,
@@ -201,12 +337,17 @@ fn build_command(
         cmd.env("FORCE_COLOR", "1");
     }
 
-    // A claude session runs at max effort — Ray's standing preference,
-    // he trusts the reasoning. (The gs-mcp dispatcher tool is wired in
-    // last, below — see the --mcp-config note.)
+    // ---- Phase 1: fixed-arity flags + values ------------------------
+    // Every flag below consumes exactly one following token, so they
+    // are safe to emit in any order here and never swallow the prompt.
+
     if agent == "claude" {
+        // Effort level (gsd-036) — was hardcoded `max`; now read from
+        // settings.json, still defaulting to `max`. `--effort` takes
+        // exactly one value (an enum: low|medium|high|xhigh|max).
         cmd.arg("--effort");
-        cmd.arg("max");
+        cmd.arg(claude_effort());
+
         // gsd-046 follow-on to gsd-045 — force claude's `*-ansi` theme so
         // its UI sticks to the 16-color ANSI palette (which our xterm
         // theme controls) instead of imposing a hardcoded light/dark
@@ -223,48 +364,65 @@ fn build_command(
         };
         cmd.arg("--settings");
         cmd.arg(format!("{{\"theme\":\"{}\"}}", theme));
+
+        // gsd-052 — carry the orchestration-discipline instruction into
+        // every spawned claude session via `--append-system-prompt` (a
+        // fixed-arity flag — one value). A dispatcher session that opens
+        // child tabs is exactly the long-lived orchestrator the
+        // instruction targets. Omitted (not fatal) if the resource file
+        // is missing. cursor-agent has no equivalent flag — left as-is.
+        if let Some(p) = orchestration_instruction_path() {
+            if let Ok(text) = std::fs::read_to_string(&p) {
+                let text = text.trim();
+                if !text.is_empty() {
+                    cmd.arg("--append-system-prompt");
+                    cmd.arg(text);
+                }
+            }
+        }
     }
 
     // Restore path: resume the agent's prior conversation in this repo
     // rather than starting fresh. `claude --continue` reopens the latest
     // session in the cwd — no session id needed, so no terminal-stream
-    // parsing (the audit's prohibition holds). cursor-agent has no
-    // id-free resume flag, so a restored cursor session starts fresh.
+    // parsing (the audit's prohibition holds). `--continue` is a bare
+    // flag (no value), safe in Phase 1. cursor-agent has no id-free
+    // resume flag, so a restored cursor session starts fresh.
     if resume && agent == "claude" {
         cmd.arg("--continue");
     }
 
+    // Autonomous mode flags. `-p` / `--trust` are bare; `--permission-
+    // mode` takes exactly one value — all fixed-arity, all Phase 1, so
+    // the seed prompt (Phase 2, below) is never swallowed by them.
     match (agent, mode) {
         ("claude", "autonomous") => {
             cmd.arg("-p");
             cmd.arg("--permission-mode");
             cmd.arg("bypassPermissions");
-            if let Some(p) = prompt {
-                cmd.arg(p);
-            }
         }
         ("cursor-agent", "autonomous") => {
             cmd.arg("-p");
             cmd.arg("--trust");
-            if let Some(p) = prompt {
-                cmd.arg(p);
-            }
         }
-        // interactive (default) — a seed prompt becomes the first message.
-        (_, _) => {
-            if let Some(p) = prompt {
-                cmd.arg(p);
-            }
-        }
+        // interactive (default) — no extra flags; the seed prompt below
+        // becomes the first message.
+        (_, _) => {}
     }
 
-    // The gs-mcp dispatcher tool (claude only) — wired in LAST, after the
-    // prompt. `--mcp-config` is variadic (`--mcp-config <configs...>`):
-    // any bare argument after it is swallowed as another config, so a
-    // seed prompt placed after it makes claude try to open the prompt as
-    // a file and die with ENAMETOOLONG. Keeping it last bounds it to its
-    // one value. This is what lets a claude session open child session
-    // tabs straight from chat.
+    // ---- Phase 2: the positional seed prompt ------------------------
+    // Emitted in exactly one place for all (agent, mode) combinations.
+    if let Some(p) = prompt {
+        cmd.arg(p);
+    }
+
+    // ---- Phase 3: variadic `--mcp-config` (claude only) -------------
+    // The gs-mcp dispatcher tool. `--mcp-config` is variadic
+    // (`--mcp-config <configs...>`): any bare argument after it is
+    // swallowed as another config, so a seed prompt placed after it
+    // makes claude try to open the prompt as a file and die with
+    // ENAMETOOLONG. It MUST be last. This is what lets a claude session
+    // open child session tabs straight from chat.
     if agent == "claude" {
         if let Some(mcp) = gs_mcp_path() {
             let cfg = serde_json::json!({
@@ -565,5 +723,404 @@ pub fn start_request_watcher(app: &AppHandle) {
         }
         // Keep the watcher (and its background thread) alive for the app's life.
         Box::leak(Box::new(watcher));
+    }
+}
+
+// ---------------------------------------------------------------------
+// gsd-022 — integration tests for `build_command`.
+//
+// `build_command`'s argument construction was never integration-tested
+// and was treated as fragile. These tests exercise every spawn case
+// (new claude session, --continue, autonomous, with --mcp-config, each
+// effort value, cursor-agent) and assert the produced command — program
+// path, arg order, and the three load-bearing invariants:
+//   • `--mcp-config` is strictly last (it is variadic — a bare arg
+//     after it is swallowed as another config file);
+//   • the positional prompt is emitted exactly once, and never after
+//     `--mcp-config`;
+//   • each fixed-arity flag is immediately followed by its one value.
+// One test also actually executes the resolved agent binary to confirm
+// the program the spawn path selected is real and launchable.
+// ---------------------------------------------------------------------
+#[cfg(test)]
+mod build_command_tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::sync::Mutex;
+
+    // The effort tests read and write the real
+    // ~/.generalstaff-desktop/settings.json (claude_effort() has no
+    // injection seam). Serialize them and restore the file so the
+    // suite never leaves a machine's settings mutated.
+    static SETTINGS_GUARD: Mutex<()> = Mutex::new(());
+
+    /// The CLI args (everything after argv[0], the program path).
+    fn args_of(cmd: &CommandBuilder) -> Vec<String> {
+        cmd.get_argv()
+            .iter()
+            .skip(1)
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Index of the first occurrence of `flag` in `args`, if present.
+    fn pos(args: &[String], flag: &str) -> Option<usize> {
+        args.iter().position(|a| a == flag)
+    }
+
+    /// Run `f` with settings.json set to `effort` (or removed if None),
+    /// then restore whatever was there before. Holds SETTINGS_GUARD.
+    fn with_effort_setting<F: FnOnce()>(effort: Option<&str>, f: F) {
+        let _g = SETTINGS_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let path = settings_file();
+        let original = std::fs::read_to_string(&path).ok();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match effort {
+            Some(e) => {
+                let body = serde_json::json!({ "claude_effort": e }).to_string();
+                std::fs::write(&path, body).expect("write test settings.json");
+            }
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        f();
+        // Restore.
+        match original {
+            Some(text) => std::fs::write(&path, text).expect("restore settings.json"),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    /// The three gsd-022 invariants, asserted on any built command.
+    fn assert_arg_invariants(args: &[String]) {
+        // Invariant 1: at most one `--mcp-config`, and if present it is
+        // the second-to-last token (flag) with its single value last.
+        let mcp_count = args.iter().filter(|a| *a == "--mcp-config").count();
+        assert!(mcp_count <= 1, "--mcp-config must appear at most once");
+        if let Some(i) = pos(args, "--mcp-config") {
+            assert_eq!(
+                i,
+                args.len() - 2,
+                "--mcp-config must be the last flag (got args: {args:?})"
+            );
+        }
+        // Invariant 2: every fixed-arity flag is followed by a value
+        // that is not itself another flag. (`--mcp-config` and `-p`
+        // handled separately: `-p` is bare; `--mcp-config` value is a
+        // JSON blob, checked above.)
+        for flag in ["--effort", "--settings", "--append-system-prompt", "--permission-mode"] {
+            if let Some(i) = pos(args, flag) {
+                let val = args
+                    .get(i + 1)
+                    .unwrap_or_else(|| panic!("{flag} has no value (args: {args:?})"));
+                assert!(
+                    !val.starts_with("--"),
+                    "{flag}'s value looks like a flag: {val:?}"
+                );
+            }
+        }
+    }
+
+    /// Walk `args` the way Claude Code's parser does — consume each
+    /// known flag with its values — and return every leftover token
+    /// (the positionals). This models the real parser, so it catches a
+    /// flag-value being mistaken for the prompt, or the prompt being
+    /// swallowed by the variadic `--mcp-config`. Returns (positionals,
+    /// index-of-each-positional).
+    fn positionals(args: &[String]) -> Vec<(usize, String)> {
+        // Fixed-arity flags that consume exactly one following token.
+        const ONE_VALUE: [&str; 4] =
+            ["--effort", "--settings", "--append-system-prompt", "--permission-mode"];
+        // Bare flags that consume nothing (claude + cursor-agent).
+        const BARE: [&str; 3] = ["-p", "--continue", "--trust"];
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < args.len() {
+            let a = &args[i];
+            if a == "--mcp-config" {
+                // Variadic — swallows itself + every remaining token.
+                break;
+            } else if ONE_VALUE.contains(&a.as_str()) {
+                i += 2; // skip flag + its value
+            } else if BARE.contains(&a.as_str()) {
+                i += 1; // skip the bare flag
+            } else {
+                out.push((i, a.clone()));
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// The seed prompt is emitted in exactly ONE place (Phase 2): it is
+    /// the sole positional, and it always precedes `--mcp-config`. When
+    /// no prompt is passed there must be zero positionals — proving no
+    /// flag-value leaked out as a stray bare argument.
+    fn assert_prompt_position(args: &[String], prompt: Option<&str>) {
+        let pos_tokens = positionals(args);
+        match prompt {
+            None => assert!(
+                pos_tokens.is_empty(),
+                "no prompt was passed yet a positional appeared: {pos_tokens:?} (args: {args:?})"
+            ),
+            Some(p) => {
+                assert_eq!(
+                    pos_tokens.len(),
+                    1,
+                    "exactly one positional (the prompt) expected: {pos_tokens:?}"
+                );
+                assert_eq!(pos_tokens[0].1, p, "the positional is the seed prompt");
+                // The prompt must come before --mcp-config (Phase 2 < 3).
+                if let Some(mi) = pos(args, "--mcp-config") {
+                    assert!(
+                        pos_tokens[0].0 < mi,
+                        "prompt must precede --mcp-config: {args:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn new_claude_interactive_session() {
+        with_effort_setting(None, || {
+            let cmd = build_command("claude", "/tmp", None, "interactive", false)
+                .expect("build_command claude interactive");
+            let args = args_of(&cmd);
+            // Default effort is `max` when nothing is persisted.
+            let ei = pos(&args, "--effort").expect("--effort present");
+            assert_eq!(args[ei + 1], "max", "default effort is max");
+            // The carryover instruction is appended.
+            assert!(
+                pos(&args, "--append-system-prompt").is_some(),
+                "claude session gets --append-system-prompt"
+            );
+            assert_arg_invariants(&args);
+            assert_prompt_position(&args, None);
+        });
+    }
+
+    #[test]
+    fn claude_session_with_seed_prompt() {
+        with_effort_setting(None, || {
+            let prompt = "do the thing";
+            let cmd = build_command("claude", "/tmp", Some(prompt), "interactive", false)
+                .expect("build_command claude with prompt");
+            let args = args_of(&cmd);
+            assert!(args.iter().any(|a| a == prompt), "prompt is in argv");
+            assert_arg_invariants(&args);
+            assert_prompt_position(&args, Some(prompt));
+        });
+    }
+
+    #[test]
+    fn claude_continue_session() {
+        with_effort_setting(None, || {
+            let cmd = build_command("claude", "/tmp", None, "interactive", true)
+                .expect("build_command claude --continue");
+            let args = args_of(&cmd);
+            assert!(
+                args.iter().any(|a| a == "--continue"),
+                "resume=true adds --continue"
+            );
+            assert_arg_invariants(&args);
+        });
+    }
+
+    #[test]
+    fn claude_autonomous_session() {
+        with_effort_setting(None, || {
+            let prompt = "ship it";
+            let cmd = build_command("claude", "/tmp", Some(prompt), "autonomous", false)
+                .expect("build_command claude autonomous");
+            let args = args_of(&cmd);
+            assert!(args.iter().any(|a| a == "-p"), "autonomous adds -p");
+            let pmi = pos(&args, "--permission-mode").expect("--permission-mode present");
+            assert_eq!(
+                args[pmi + 1], "bypassPermissions",
+                "autonomous uses bypassPermissions"
+            );
+            // `-p` is bare — the very next token must NOT be the prompt.
+            let pi = pos(&args, "-p").unwrap();
+            assert_ne!(
+                args.get(pi + 1).map(String::as_str),
+                Some(prompt),
+                "-p must not swallow the prompt"
+            );
+            assert_arg_invariants(&args);
+            assert_prompt_position(&args, Some(prompt));
+        });
+    }
+
+    #[test]
+    fn claude_continue_autonomous_with_prompt() {
+        // The densest case: resume + autonomous + prompt + mcp-config
+        // all at once — the combination most likely to mis-order.
+        with_effort_setting(None, || {
+            let prompt = "resume and continue working";
+            let cmd = build_command("claude", "/tmp", Some(prompt), "autonomous", true)
+                .expect("build_command claude continue+autonomous");
+            let args = args_of(&cmd);
+            assert!(args.iter().any(|a| a == "--continue"));
+            assert!(args.iter().any(|a| a == "-p"));
+            assert!(args.iter().any(|a| a == prompt));
+            assert_arg_invariants(&args);
+            assert_prompt_position(&args, Some(prompt));
+        });
+    }
+
+    #[test]
+    fn every_effort_level_flows_through() {
+        // gsd-036 — each real --effort value, when persisted, reaches
+        // the built command; default (no setting) stays `max`.
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            with_effort_setting(Some(level), || {
+                let cmd = build_command("claude", "/tmp", None, "interactive", false)
+                    .expect("build_command per-effort");
+                let args = args_of(&cmd);
+                let ei = pos(&args, "--effort").expect("--effort present");
+                assert_eq!(args[ei + 1], level, "effort {level} flows through");
+                assert_arg_invariants(&args);
+            });
+        }
+    }
+
+    #[test]
+    fn invalid_persisted_effort_falls_back_to_max() {
+        // A stale or hand-corrupted settings.json must not feed claude
+        // an unknown --effort value.
+        with_effort_setting(Some("ludicrous"), || {
+            assert_eq!(claude_effort(), "max", "bad effort falls back to max");
+            let cmd = build_command("claude", "/tmp", None, "interactive", false)
+                .expect("build_command bad-effort");
+            let args = args_of(&cmd);
+            let ei = pos(&args, "--effort").unwrap();
+            assert_eq!(args[ei + 1], "max");
+        });
+    }
+
+    #[test]
+    fn set_claude_effort_rejects_unknown_value() {
+        let _g = SETTINGS_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let path = settings_file();
+        let original = std::fs::read_to_string(&path).ok();
+        assert!(
+            set_claude_effort("turbo".into()).is_err(),
+            "set_claude_effort must reject an unknown level"
+        );
+        // A valid level round-trips through get_settings().
+        set_claude_effort("high".into()).expect("set valid effort");
+        assert_eq!(get_settings().claude_effort, "high");
+        // effort_levels exposes exactly Claude Code's real values.
+        assert_eq!(
+            get_settings().effort_levels,
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+        match original {
+            Some(text) => std::fs::write(&path, text).expect("restore"),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    #[test]
+    fn cursor_agent_is_untouched_by_claude_only_flags() {
+        // cursor-agent must get NONE of the claude-only flags: no
+        // --effort, no --settings, no --append-system-prompt, no
+        // --mcp-config, no --continue.
+        let cmd = build_command("cursor-agent", "/tmp", Some("hi"), "interactive", true)
+            .expect("build_command cursor-agent");
+        let args = args_of(&cmd);
+        for forbidden in [
+            "--effort",
+            "--settings",
+            "--append-system-prompt",
+            "--mcp-config",
+            "--continue",
+        ] {
+            assert!(
+                !args.iter().any(|a| a == forbidden),
+                "cursor-agent must not get {forbidden} (args: {args:?})"
+            );
+        }
+        // cursor-agent autonomous still gets -p and --trust.
+        let auto = build_command("cursor-agent", "/tmp", Some("go"), "autonomous", false)
+            .expect("build_command cursor-agent autonomous");
+        let aargs = args_of(&auto);
+        assert!(aargs.iter().any(|a| a == "-p"));
+        assert!(aargs.iter().any(|a| a == "--trust"));
+        // cursor-agent gets FORCE_COLOR=1 (gsd-047).
+        assert_eq!(
+            cmd.get_env("FORCE_COLOR"),
+            Some(OsString::from("1").as_os_str()),
+            "cursor-agent gets FORCE_COLOR=1"
+        );
+    }
+
+    #[test]
+    fn unknown_agent_is_rejected() {
+        assert!(build_command("gpt", "/tmp", None, "interactive", false).is_err());
+    }
+
+    #[test]
+    fn environment_and_cwd_are_set() {
+        let cmd = build_command("claude", "/some/repo", None, "interactive", false)
+            .expect("build_command env check");
+        assert_eq!(cmd.get_cwd().map(|c| c.to_string_lossy().into_owned()), Some("/some/repo".into()));
+        assert!(cmd.get_env("PATH").is_some(), "PATH is set explicitly");
+        assert_eq!(
+            cmd.get_env("TERM"),
+            Some(OsString::from("xterm-256color").as_os_str()),
+            "TERM is forced to xterm-256color"
+        );
+    }
+
+    #[test]
+    fn orchestration_instruction_resource_resolves() {
+        // The bundled carryover instruction must be findable in the dev
+        // tree (deliverable 1 + 2a). If this fails the resource file or
+        // its path is wrong and --append-system-prompt would be omitted.
+        let p = orchestration_instruction_path()
+            .expect("orchestration-discipline.md must resolve");
+        let text = std::fs::read_to_string(&p).expect("read instruction");
+        assert!(
+            text.contains("Orchestration context discipline"),
+            "instruction file has unexpected content"
+        );
+    }
+
+    #[test]
+    fn produced_command_program_is_real_and_launchable() {
+        // Actually execute the program the spawn path resolved for
+        // `claude`, to confirm a real, runnable binary was selected.
+        // We invoke it as `<program> --version` directly rather than
+        // running the full built argv — the built command starts an
+        // interactive/agent session (no clean non-interactive exit
+        // without burning an API turn). A successful --version proves
+        // resolve_agent_binary picked a launchable executable, which is
+        // the spawn path's first failure point.
+        let cmd = build_command("claude", "/tmp", None, "interactive", false)
+            .expect("build_command for exec smoke");
+        let program = cmd.get_argv()[0].clone();
+        let out = std::process::Command::new(&program)
+            .arg("--version")
+            .output();
+        match out {
+            Ok(o) => assert!(
+                o.status.success(),
+                "`{} --version` exited non-zero",
+                program.to_string_lossy()
+            ),
+            Err(e) => panic!(
+                "could not execute resolved claude binary {}: {e}",
+                program.to_string_lossy()
+            ),
+        }
     }
 }

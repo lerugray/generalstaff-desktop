@@ -87,6 +87,7 @@ const fleetView = document.getElementById("fleet-view");
 const railHead = document.getElementById("rail-head");
 const footText = document.getElementById("fleet-status-text");
 const railThemes = document.getElementById("rail-themes");
+const railSettings = document.getElementById("rail-settings");
 
 let snapshot = { ok: false, projects: [] };
 let selectedId = null; // selected project in the Fleet view
@@ -1387,6 +1388,62 @@ function openDeferModal(projectId, task) {
   });
 }
 
+// gsd-036 — the Settings modal. Reuses the .modal scaffold. Currently
+// one control: the Claude Code effort level used for every spawned
+// `claude` session (see sessions.rs::build_command). The level list is
+// pulled from the Rust side (get_settings.effort_levels) so the UI
+// never drifts from Claude Code's real --effort values. The choice
+// persists to ~/.generalstaff-desktop/settings.json via set_claude_effort.
+async function openSettingsModal() {
+  if (!modalOverlay) return;
+  let settings;
+  try {
+    settings = await invoke("get_settings");
+  } catch (e) {
+    settings = { claude_effort: "max", effort_levels: ["max"] };
+  }
+  modalOverlay.querySelector(".modal__meta").innerHTML =
+    '<span class="modal__when">Settings</span>';
+  const options = (settings.effort_levels || ["max"])
+    .map(
+      (lvl) =>
+        '<option value="' +
+        escapeHtml(lvl) +
+        '"' +
+        (lvl === settings.claude_effort ? " selected" : "") +
+        ">" +
+        escapeHtml(lvl) +
+        "</option>",
+    )
+    .join("");
+  modalOverlay.querySelector(".modal__body").innerHTML =
+    '<div class="settings__group">' +
+    '<label class="settings__label" for="settings-effort">Claude effort level</label>' +
+    '<select id="settings-effort" class="settings__select">' +
+    options +
+    "</select>" +
+    '<p class="settings__hint">Reasoning effort for every Claude session ' +
+    "GeneralStaff spawns. <strong>max</strong> is the default; lower " +
+    "levels trade depth for speed.</p>" +
+    "</div>" +
+    '<div id="settings-msg" class="settings__msg muted"></div>';
+  modalOverlay.classList.add("is-open");
+  const select = document.getElementById("settings-effort");
+  const msg = document.getElementById("settings-msg");
+  select.focus();
+  select.addEventListener("change", async () => {
+    const effort = select.value;
+    msg.textContent = "Saving…";
+    try {
+      await invoke("set_claude_effort", { effort });
+      msg.textContent =
+        "Saved — applies to the next Claude session you start.";
+    } catch (e) {
+      msg.textContent = "Save failed: " + String(e);
+    }
+  });
+}
+
 // The autonomy preamble every click-launched dispatch (task or ping)
 // shares. Ray operates GSD as a non-programmer — he can't read diffs
 // and doesn't want to. Routine commits + pushes are pre-authorized so
@@ -2295,6 +2352,11 @@ railHead.addEventListener("keydown", (e) => {
     openFleetBriefing();
   }
 });
+
+// gsd-036 — the rail-foot settings gear opens the Settings modal.
+if (railSettings) {
+  railSettings.addEventListener("click", openSettingsModal);
+}
 
 let resizeTimer = null;
 window.addEventListener("resize", () => {

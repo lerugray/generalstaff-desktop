@@ -1359,7 +1359,9 @@ pub fn run() {
             sessions::list_sessions,
             sessions::save_session_layout,
             sessions::load_session_layout,
-            sessions::set_theme_kind
+            sessions::set_theme_kind,
+            sessions::get_settings,
+            sessions::set_claude_effort
         ])
         .setup(|app| {
             // Tray icon — a persistent menu-bar presence.

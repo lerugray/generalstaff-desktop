@@ -365,10 +365,29 @@ body.theme-night, body.theme-carbon {
   color: var(--ink-faint);
   border-top: 1px solid var(--rule-faint);
 }
-.rail__themes {
-  display: flex; gap: 6px;
+/* gsd-036 — the footer swatch row now also carries the settings gear,
+   so the swatches and the gear sit on one line with the gear pushed to
+   the trailing edge. The 10px top margin moved here from .rail__themes. */
+.rail__footrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 10px;
 }
+.rail__themes {
+  display: flex; gap: 6px;
+}
+.rail__settings {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 0 8px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-faint);
+}
+.rail__settings:hover { color: var(--rust); }
+.rail__settings:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
 .rail__theme {
   width: 18px; height: 18px;
   border-radius: 50%;
@@ -1481,6 +1500,44 @@ body.theme-carbon .task-dispatch:hover { color: var(--paper-2); }
   cursor: default;
 }
 .defer__msg { margin-top: 8px; font-size: 11px; min-height: 1em; }
+
+/* gsd-036 — Settings modal. Reuses the .modal scaffold; just the body
+   needs styling. The effort control is a native <select> so it inherits
+   the form register the Defer modal already established. */
+.settings__group { margin-bottom: 14px; }
+.settings__group:last-of-type { margin-bottom: 4px; }
+.settings__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.settings__select {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.settings__select:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.settings__hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+.settings__msg { margin-top: 8px; font-size: 11px; min-height: 1em; }
 
 /* -----------------------------------------------------------
  * Tab pop-out control (gsd-035) — alongside the close ×.

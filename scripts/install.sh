@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# macOS ONLY. Requires an Apple Developer certificate or a self-signed
+# signing certificate named "GS Dev Signing" (or whatever signingIdentity
+# is set to in src-tauri/tauri.local.conf.json on this machine).
+# Contributors building from source without a signing cert can run
+# `bun tauri dev` or `bun tauri build` directly — those paths skip this
+# script and do not require a cert.
+#
 # Build GeneralStaff Desktop and install it to /Applications.
 #
 # Handles two things plain `cargo tauri build` does not:

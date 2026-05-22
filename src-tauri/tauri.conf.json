@@ -30,9 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "macOS": {
-      "signingIdentity": "GS Dev Signing"
-    },
+    "macOS": {},
     "resources": ["resources/orchestration-discipline.md"],
     "targets": "all",
     "icon": [

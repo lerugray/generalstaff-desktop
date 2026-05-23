@@ -47,6 +47,10 @@ cp "$ROOT/src-tauri/target/release/gs-mcp" "$APP_SRC/Contents/MacOS/gs-mcp"
 
 echo "==> Re-signing the bundle with GS Dev Signing (inside-out)…"
 SIGN_ID="GS Dev Signing"
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$SIGN_ID\""; then
+  echo "WARNING: GS Dev Signing cert not found, falling back to ad-hoc — macOS will forget permissions on reinstall" >&2
+  SIGN_ID="-"
+fi
 codesign --force --sign "$SIGN_ID" "$APP_SRC/Contents/MacOS/gs-mcp"
 codesign --force --sign "$SIGN_ID" "$APP_SRC/Contents/MacOS/generalstaff-desktop"
 codesign --force --sign "$SIGN_ID" "$APP_SRC"

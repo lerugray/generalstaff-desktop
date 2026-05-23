@@ -1275,6 +1275,42 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
 }
 .task-section:first-child { margin-top: 0; }
 
+/* gsd-039 — task-staleness hint on a ledger row (suggested, not done). */
+.task-row.suggested {
+  border-left: 3px solid color-mix(in oklab, var(--rust) 35%, var(--paper-edge));
+  padding-left: 6px;
+}
+.task-hint {
+  flex-shrink: 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--rust);
+  border: 1px solid color-mix(in oklab, var(--rust) 55%, transparent);
+  border-radius: 2px;
+  padding: 0 4px;
+  cursor: help;
+}
+.task-hints-banner {
+  display: block;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: color-mix(in oklab, var(--rust) 8%, var(--paper));
+  border: 1px solid color-mix(in oklab, var(--rust) 25%, var(--rule-soft));
+  border-radius: 3px;
+  cursor: pointer;
+}
+.task-hints-banner:hover {
+  color: var(--ink);
+  border-color: var(--rust);
+}
+.dash > .task-hints-banner {
+  margin: 0 0 14px;
+}
+
 /* -----------------------------------------------------------
  * Scrollbar — quiet, paper-matched
  * ----------------------------------------------------------- */

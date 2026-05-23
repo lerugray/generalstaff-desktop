@@ -96,6 +96,8 @@ let currentRepoPath = null; // code-repo path of the selected project
 // re-render can restore them; resolving a ping or adding one otherwise
 // snaps the dashboard back to the top.
 let scrollToRestore = null;
+// gsd-039 — fleet-wide task-staleness hints from task_hints (read-side).
+let taskHints = [];
 
 // tabs: [{ id, kind: 'fleet'|'session', label, sessionId? }]
 let tabs = [{ id: "fleet", kind: "fleet", label: "Fleet" }];
@@ -935,6 +937,16 @@ function showBriefing() {
     sitCell(waiting, "Waiting on you", "is-rust") +
     "</div>";
 
+  const taskHintsBanner =
+    taskHints.length > 0
+      ? '<button type="button" class="task-hints-banner" id="task-hints-banner">' +
+        "&#128269; " +
+        taskHints.length +
+        " task" +
+        (taskHints.length === 1 ? " looks" : "s look") +
+        " done &mdash; Reconcile?</button>"
+      : "";
+
   // Attention — projects with work waiting, ranked, against viability.
   const ranked = activeProjs
     .filter((p) => p.interactive_pending > 0)
@@ -1038,6 +1050,7 @@ function showBriefing() {
     '<div class="dash__breadcrumb">' +
     bc +
     "</div></div>" +
+    taskHintsBanner +
     '<div class="dash__grid">' +
     situation +
     '<div class="dash__main">' +
@@ -1071,7 +1084,14 @@ function showBriefing() {
   if (genNote) genNote.addEventListener("click", generateSessionNote);
 
   const recon = document.getElementById("reconcile-go");
-  if (recon) recon.addEventListener("click", reconcileState);
+  if (recon) recon.addEventListener("click", () => reconcileState());
+
+  const hintsBanner = document.getElementById("task-hints-banner");
+  if (hintsBanner) {
+    hintsBanner.addEventListener("click", () => {
+      reconcileState(taskHints.map((h) => h.project + "/" + h.task_id));
+    });
+  }
 
   const composeAdd = document.getElementById("ping-compose-add");
   if (composeAdd) composeAdd.addEventListener("click", addPing);
@@ -1169,11 +1189,19 @@ async function selectProject(id) {
     "</div></div>" +
     '<div class="panel"><div class="panel__head">' +
     '<h2 class="panel__title">Task ledger</h2></div><div class="panel__body">' +
+    taskHintsBannerHtml(id) +
     '<div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>' +
     '<div id="task-msg" class="spawn-msg"></div>' +
     "</div></div></div>";
 
   loadTaskLedger(id);
+
+  const wbHintsBanner = document.getElementById("task-hints-banner-wb");
+  if (wbHintsBanner) {
+    wbHintsBanner.addEventListener("click", () => {
+      reconcileState(taskHints.map((h) => h.project + "/" + h.task_id));
+    });
+  }
 
   // Load the project's code-repo file tree (git ls-files).
   let fl;
@@ -1315,8 +1343,30 @@ async function loadTaskLedger(id) {
     el.innerHTML = '<p class="muted">No tasks.</p>';
     return;
   }
+  const hintFor = (taskId) =>
+    taskHints.find((h) => h.project === id && h.task_id === taskId);
+
   const rowHtml = (t) => {
-    const cls = "task-row" + (t.status === "deferred" ? " deferred" : "");
+    const hint = hintFor(t.id);
+    let cls = "task-row";
+    if (t.status === "deferred") cls += " deferred";
+    if (hint) cls += " suggested";
+    let hintBadge = "";
+    if (hint) {
+      const shortSha = hint.commit_sha.slice(0, 7);
+      const tip =
+        "Suggested: looks shipped (" +
+        shortSha +
+        " on " +
+        hint.default_branch +
+        ", " +
+        hint.commit_date +
+        "). Verify before reconciling.";
+      hintBadge =
+        '<span class="task-hint" title="' +
+        escapeHtml(tip) +
+        '">&#10003;?</span>';
+    }
     const row =
       '<div class="' +
       cls +
@@ -1327,6 +1377,7 @@ async function loadTaskLedger(id) {
       '</span><span class="task-title">' +
       escapeHtml(t.title) +
       "</span>" +
+      hintBadge +
       (t.interactive_only
         ? '<span class="task-flag" title="waiting on you">&#9679;</span>'
         : "") +
@@ -2277,6 +2328,20 @@ async function generateSessionNote() {
   startSession("claude", snapshot.generalstaff_path, prompt, msg);
 }
 
+// gsd-039 — HTML for the staleness banner above a task ledger (workbench).
+function taskHintsBannerHtml(projectId) {
+  const n = taskHints.filter((h) => h.project === projectId).length;
+  if (!n) return "";
+  return (
+    '<button type="button" class="task-hints-banner" id="task-hints-banner-wb">' +
+    "&#128269; " +
+    n +
+    " task" +
+    (n === 1 ? " looks" : "s look") +
+    " done &mdash; Reconcile?</button>"
+  );
+}
+
 // gsd-027 — the decoupled state-reconciliation pass. Spawns a claude
 // session in generalstaff-private seeded to check the open pings AND
 // every project's task ledger against what has shipped in the project
@@ -2291,9 +2356,22 @@ async function generateSessionNote() {
 // went uncaught — e.g. asciigpt asci-003 stayed pending after commit
 // 1738cc1 explicitly named it. The pass now walks both directions:
 // pings → shipped AND tasks → shipped.
-function reconcileState() {
+//
+// gsd-039 — optional `focusTaskKeys` (`project/task-id` strings) from the
+// staleness banner pre-filters Pass 2 to the hinted subset.
+function reconcileState(focusTaskKeys) {
   const msg = document.getElementById("gen-note-msg");
   if (msg) msg.textContent = "Opening a session to reconcile state…";
+  let focusBlock = "";
+  if (focusTaskKeys && focusTaskKeys.length) {
+    focusBlock =
+      "\n\n=== Focus (gsd-039 task-staleness nudge) ===\n" +
+      "Ray clicked the staleness banner — in Pass 2, prioritize reconciling " +
+      "ONLY these ledger entries (other open tasks can wait unless evidence " +
+      "is trivial):\n" +
+      focusTaskKeys.map((k) => "- " + k).join("\n") +
+      "\n";
+  }
   const prompt =
     "Reconcile the GeneralStaff ping inbox AND every project's task " +
     "ledger against what has actually shipped. Work in generalstaff-" +
@@ -2337,7 +2415,8 @@ function reconcileState() {
     "reconciliation and push it himself.\n" +
     "9. End with a short summary in two sections: pings " +
     "(resolved / left open) and tasks (closed / left open), each with " +
-    "one-line why.";
+    "one-line why." +
+    focusBlock;
   startSession("claude", snapshot.generalstaff_path, prompt, msg);
 }
 
@@ -2399,6 +2478,15 @@ function renderAgentUsage() {
 // Reload + init
 // ---------------------------------------------------------------------
 
+// gsd-039 — refresh task-staleness hints (on-demand; no TTL cache in v1).
+async function loadTaskHints() {
+  try {
+    taskHints = await invoke("task_hints");
+  } catch (e) {
+    taskHints = [];
+  }
+}
+
 async function reload() {
   // gsd-025 — capture fleet scroll before the rebuild so a ping resolve
   // (or any fleet-updated event) doesn't snap the dashboard to the top.
@@ -2414,6 +2502,7 @@ async function reload() {
   } catch (e) {
     snapshot = { ok: false, message: String(e), projects: [] };
   }
+  await loadTaskHints();
   renderRail();
   if (
     selectedId &&

@@ -970,6 +970,166 @@ fn ping_hints(probes: Vec<PingProbe>) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------
+// Task staleness hints (gsd-039) — read-side nudge for dispatched work.
+// ---------------------------------------------------------------------
+
+#[derive(Clone, Serialize)]
+struct TaskHint {
+    task_id: String,
+    project: String,
+    commit_sha: String,
+    commit_date: String,
+    /// Default branch searched (`main` or `master`) — shown in the UI tooltip.
+    default_branch: String,
+    suggested: bool,
+}
+
+/// Default branch for branch-reachability-bounded git log: prefer
+/// `origin/HEAD`, else `main`, else `master` (Ray's convention).
+fn repo_default_branch(repo: &str) -> String {
+    let sym = std::process::Command::new("git")
+        .args(["-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output();
+    if let Ok(o) = sym {
+        if o.status.success() {
+            let refname = String::from_utf8_lossy(&o.stdout);
+            if let Some(short) = refname.trim().rsplit('/').next() {
+                if git_ref_exists(repo, short) {
+                    return short.to_string();
+                }
+            }
+        }
+    }
+    for candidate in ["main", "master"] {
+        if git_ref_exists(repo, candidate) {
+            return candidate.to_string();
+        }
+    }
+    "master".to_string()
+}
+
+fn git_ref_exists(repo: &str, branch: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["-C", repo, "rev-parse", "--verify", branch])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// First commit on `default_branch` in the last 30 days whose message
+/// carries the explicit `GS-Task: <id>` trailer (gsd-042 dispatch only).
+/// Dead feature branches and detached refs are excluded by scoping to the
+/// default branch — not `git log --all`.
+fn task_trailer_on_default_branch(
+    repo: &str,
+    task_id: &str,
+) -> Option<(String, String, String)> {
+    let branch = repo_default_branch(repo);
+    let trailer = format!("GS-Task: {task_id}");
+    let out = std::process::Command::new("git")
+        .args([
+            "-C",
+            repo,
+            "log",
+            &format!("--grep={trailer}"),
+            "--since=30 days",
+            &branch,
+            "-1",
+            "--format=%H%x09%ci",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if line.is_empty() {
+        return None;
+    }
+    let mut parts = line.split('\t');
+    let sha = parts.next()?.to_string();
+    let date_raw = parts.next()?;
+    // %ci is ISO-like; keep the date portion for the UI.
+    let date = date_raw
+        .split_whitespace()
+        .next()
+        .unwrap_or(date_raw)
+        .to_string();
+    Some((sha, date, branch))
+}
+
+/// gsd-039 — task-staleness read-side. For each pending or in_progress
+/// ledger entry fleet-wide, look for a `GS-Task: <id>` trailer on the
+/// project's default branch (last 30 days). Returns suggested-done hints
+/// with commit evidence.
+///
+/// Caveat: only catches work shipped through GSD's dispatch flow, which
+/// appends the GS-Task trailer (gsd-042). Manually-shipped tasks are not
+/// detected here — the manual Reconcile button remains the catch-all.
+///
+/// Branch-reachability gate: `git log` is scoped to the default branch
+/// (`main` / `master` via `origin/HEAD`), so commits on dead feature
+/// branches, reverted PRs, or detached refs do not count.
+///
+/// On-demand scan; no cache. Per audit (2026-05-22): false staleness on
+/// rapid task-close was higher-risk than 1.7s cold scan; revisit if UI
+/// jank becomes an actual problem.
+#[tauri::command]
+fn task_hints() -> Vec<TaskHint> {
+    scan_task_hints()
+}
+
+fn scan_task_hints() -> Vec<TaskHint> {
+    let root = generalstaff_root();
+    let state_dir = root.join("state");
+    if !state_dir.is_dir() {
+        return vec![];
+    }
+    let repo_map = sibling_repo_map();
+    let mut projects = Vec::new();
+    let mut seen = HashSet::new();
+    collect_projects(&state_dir, &mut projects, &mut seen, &repo_map);
+    if let Some(public) = public_gs_root() {
+        collect_projects(&public.join("state"), &mut projects, &mut seen, &repo_map);
+    }
+
+    let mut hints = Vec::new();
+    for proj in projects {
+        let Some(repo_path) = proj.repo_path else { continue };
+        let tasks_path = match project_state_dir(&proj.id) {
+            Some(d) => d.join("tasks.json"),
+            None => continue,
+        };
+        let Some(arr) = read_json(&tasks_path).and_then(|v| v.as_array().cloned()) else {
+            continue;
+        };
+        for t in arr {
+            let status = t.get("status").and_then(|s| s.as_str()).unwrap_or("");
+            if status != "pending" && status != "in_progress" {
+                continue;
+            }
+            let task_id = t.get("id").and_then(|x| x.as_str()).unwrap_or("");
+            if task_id.is_empty() {
+                continue;
+            }
+            if let Some((commit_sha, commit_date, default_branch)) =
+                task_trailer_on_default_branch(&repo_path, task_id)
+            {
+                hints.push(TaskHint {
+                    task_id: task_id.to_string(),
+                    project: proj.id.clone(),
+                    commit_sha,
+                    commit_date,
+                    default_branch,
+                    suggested: true,
+                });
+            }
+        }
+    }
+    hints
+}
+
+// ---------------------------------------------------------------------
 // Agent usage — Claude Code token volume from the local transcripts
 // under ~/.claude/projects/ (gsd-028).
 // ---------------------------------------------------------------------
@@ -1345,6 +1505,7 @@ pub fn run() {
             resolve_ping,
             append_ping,
             ping_hints,
+            task_hints,
             agent_usage,
             recent_session_notes,
             recent_commits,

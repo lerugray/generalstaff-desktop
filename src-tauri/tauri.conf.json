@@ -30,7 +30,9 @@
   },
   "bundle": {
     "active": true,
-    "macOS": {},
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Raymond Weiss (9WX8DXKZQ2)"
+    },
     "resources": ["resources/orchestration-discipline.md"],
     "targets": "all",
     "icon": [

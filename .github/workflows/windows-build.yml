@@ -1,0 +1,55 @@
+name: Windows build (GSD)
+
+# Builds the GeneralStaff Desktop Windows installer on a real Windows runner
+# (Tauri can't cross-compile a clean Windows .exe from macOS). The installer
+# is uploaded as a downloadable artifact. No Windows code-signing cert yet, so
+# the NSIS/MSI is unsigned — SmartScreen warns on first run; users can bypass.
+#
+# Trigger: Actions tab > "Windows build (GSD)" > Run workflow, or push a v* tag.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build (Tauri release — frontend + Rust + Windows bundle)
+        run: npm run build
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./src-tauri/tauri.conf.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: generalstaff-desktop-windows-${{ steps.version.outputs.version }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14

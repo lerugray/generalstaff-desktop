@@ -63,6 +63,30 @@ manage tabs.
    rendered in a tab so the run is watchable, marked done on process
    exit.
 
+6. **Repo-structure orientation on the seed prompt
+   (`feat/repo-context-dispatch`, 2026-05-28).** When a session is
+   spawned WITH a seed prompt, `do_spawn` prepends a ranked structural
+   map of the target repo to the top of that prompt and tells the agent
+   to form its own plan and proceed without human plan-approval. The map
+   is built by shelling out to the public GeneralStaff repo's
+   `scripts/gen-repo-context.sh <cwd>` (resolved via `public_gs_root()`),
+   which runs `aider --show-repo-map`. This matches the dispatcher's two
+   shell paths so a GSD-spawned engineer gets the same orientation as a
+   `generalstaff cycle`-spawned one.
+   - **Safe fallback:** `repo_context_block` returns `None` whenever the
+     script is missing, the spawn fails, it exits non-zero, or stdout is
+     empty — the seed prompt is then passed through unchanged. A
+     no-prompt spawn is never given a bare map (a map with no task is
+     useless).
+   - **The existing `--append-system-prompt` (orchestration-discipline.md)
+     is untouched.** The orientation rides in the positional seed prompt,
+     not the system prompt — the two are orthogonal.
+   - **Coverage varies:** aider's tree-sitter coverage doesn't include
+     every language (Godot/GDScript can be empty); the fallback handles
+     it. Full rationale + the A/B falsification method (compare
+     cycles-to-first-meaningful-edit + verification-pass-rate with the map
+     on vs off) in the public GeneralStaff repo's `DESIGN.md §v9`.
+
 ## Audit constraints (Hammerstein, 2026-05-16 — folded in)
 
 - **Phase 0 is a hard go/no-go gate.** Before any tab/spawn code,

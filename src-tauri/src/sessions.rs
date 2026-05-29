@@ -21,7 +21,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{home_dir, resolve_project_repo};
+use crate::{home_dir, public_gs_root, resolve_project_repo};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -542,6 +542,42 @@ fn build_command(
     Ok(cmd)
 }
 
+/// Best-effort repo-structure orientation for a freshly-spawned agent
+/// (feat/repo-context-dispatch). Shells out to the public GeneralStaff
+/// repo's `scripts/gen-repo-context.sh`, passing the target repo dir; the
+/// script runs `aider --show-repo-map` and prints an orientation block on
+/// success + a non-empty map, or NOTHING on any failure/timeout.
+///
+/// SAFE FALLBACK: returns None whenever the script is missing, the spawn
+/// fails, it exits non-zero, or stdout is empty/whitespace. The caller then
+/// prepends nothing — the seed prompt is dispatched exactly as before. This
+/// must NEVER block or fail a spawn, so all errors collapse to None.
+fn repo_context_block(repo_dir: &str) -> Option<String> {
+    let script = public_gs_root()?.join("scripts").join("gen-repo-context.sh");
+    if !script.is_file() {
+        return None;
+    }
+    // `bash <script> <repo_dir>` — same invocation as the dispatcher's two
+    // shell sites. The script owns its own timeout + safe-fallback, so a
+    // plain blocking call is fine; aider's repo-map is ~2-3s and the script
+    // caps itself at 30s.
+    let out = std::process::Command::new("bash")
+        .arg(&script)
+        .arg(repo_dir)
+        .env("PATH", agent_path()) // ensure `aider` (in ~/.local/bin) resolves
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let block = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if block.is_empty() {
+        None
+    } else {
+        Some(block)
+    }
+}
+
 /// Spawn a session under a PTY — the shared path for the spawn command
 /// and the request-file watcher. Starts the reader thread and emits
 /// `session-spawned` so the frontend opens a tab.
@@ -563,7 +599,27 @@ fn do_spawn(
         })
         .map_err(|e| format!("openpty: {e}"))?;
 
-    let cmd = build_command(&agent, &cwd, prompt.as_deref(), &mode, resume)?;
+    // feat/repo-context-dispatch: prepend a best-effort repo-structure
+    // orientation to the seed prompt so the spawned agent gets instant
+    // structure (which files matter, in what shape) without reading the
+    // whole tree, and is told to form its own plan and proceed without
+    // human plan-approval. The existing --append-system-prompt
+    // (orchestration-discipline.md) is left untouched — this rides in the
+    // positional seed prompt, not the system prompt.
+    //
+    // SAFE FALLBACK: if there is no seed prompt, or the map comes back
+    // empty/failed, the prompt is passed through exactly as before. The
+    // orientation only ever rides ON TOP of an existing prompt; it never
+    // manufactures one (a bare map with no task would be useless).
+    let effective_prompt: Option<String> = match prompt.as_deref() {
+        Some(p) => match repo_context_block(&cwd) {
+            Some(block) => Some(format!("{block}\n\n{p}")),
+            None => Some(p.to_string()),
+        },
+        None => None,
+    };
+
+    let cmd = build_command(&agent, &cwd, effective_prompt.as_deref(), &mode, resume)?;
     let child = pair
         .slave
         .spawn_command(cmd)

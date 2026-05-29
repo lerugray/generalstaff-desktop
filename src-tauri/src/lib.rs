@@ -65,8 +65,11 @@ fn generalstaff_root() -> PathBuf {
 
 /// The public GeneralStaff repo — a sibling of generalstaff-private
 /// named `generalstaff` (case-insensitive). Public-state projects keep
-/// their state there rather than in the private repo.
-fn public_gs_root() -> Option<PathBuf> {
+/// their state there rather than in the private repo. Also where
+/// `scripts/gen-repo-context.sh` lives — sessions.rs shells out to it to
+/// build the repo-structure orientation prepended to a spawned agent's
+/// seed prompt (feat/repo-context-dispatch).
+pub(crate) fn public_gs_root() -> Option<PathBuf> {
     let parent = generalstaff_root().parent()?.to_path_buf();
     for entry in std::fs::read_dir(&parent).ok()?.flatten() {
         if entry.path().is_dir()

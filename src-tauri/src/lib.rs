@@ -22,14 +22,11 @@ use std::time::{Duration, Instant};
 
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 
 mod sessions;
+mod tray;
 
 // ---------------------------------------------------------------------
 // Locating GeneralStaff (the private working repo)
@@ -266,6 +263,23 @@ fn collect_projects(
     }
 }
 
+/// One full portfolio scan — private-state projects first, then the
+/// public repo's (merged by id; private wins). Shared by read_fleet,
+/// the task-staleness scan, and the tray's attention summary.
+pub(crate) fn scan_fleet_projects() -> Vec<ProjectState> {
+    let state_dir = generalstaff_root().join("state");
+    let repo_map = sibling_repo_map();
+    let mut projects: Vec<ProjectState> = vec![];
+    let mut seen: HashSet<String> = HashSet::new();
+    collect_projects(&state_dir, &mut projects, &mut seen, &repo_map);
+    // Public-state projects (generalstaff, bookfinder-general,
+    // wargame-design-book, devforge-website) live only in the public repo.
+    if let Some(public) = public_gs_root() {
+        collect_projects(&public.join("state"), &mut projects, &mut seen, &repo_map);
+    }
+    projects
+}
+
 /// Read the whole project portfolio — private-state projects from
 /// generalstaff-private/state/, then public-state projects from the
 /// public GeneralStaff repo's state/ (merged by id; private wins).
@@ -286,15 +300,7 @@ fn read_fleet() -> FleetSnapshot {
         };
     }
 
-    let repo_map = sibling_repo_map();
-    let mut projects: Vec<ProjectState> = vec![];
-    let mut seen: HashSet<String> = HashSet::new();
-    collect_projects(&state_dir, &mut projects, &mut seen, &repo_map);
-    // Public-state projects (generalstaff, bookfinder-general,
-    // wargame-design-book, devforge-website) live only in the public repo.
-    if let Some(public) = public_gs_root() {
-        collect_projects(&public.join("state"), &mut projects, &mut seen, &repo_map);
-    }
+    let mut projects = scan_fleet_projects();
 
     // Projects with open work first, alphabetical within each group.
     projects.sort_by(|a, b| {
@@ -698,22 +704,17 @@ fn classify_ping(body: &str) -> &'static str {
     "other"
 }
 
-/// Parse state/pings/inbox.md and return the open pings. The inbox is a
-/// sequence of `## ` blocks; a block headed `<date> <time> <actor>` is a
-/// ping, and one headed `resolved …` resolves the ping just before it.
-#[tauri::command]
-fn read_pings() -> PingList {
-    let path = generalstaff_root()
+fn pings_inbox_path() -> PathBuf {
+    generalstaff_root()
         .join("state")
         .join("pings")
-        .join("inbox.md");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return PingList {
-            ok: false,
-            pings: vec![],
-        };
-    };
+        .join("inbox.md")
+}
 
+/// Parse inbox.md text into its open pings, oldest first. The inbox is a
+/// sequence of `## ` blocks; a block headed `<date> <time> <actor>` is a
+/// ping, and one headed `resolved …` resolves the ping just before it.
+fn parse_open_pings(text: &str) -> Vec<Ping> {
     // Split into (heading, body) blocks on `## ` lines.
     let mut blocks: Vec<(String, String)> = vec![];
     let mut heading: Option<String> = None;
@@ -770,8 +771,29 @@ fn read_pings() -> PingList {
             body: body.clone(),
         });
     }
+    pings
+}
+
+/// Parse state/pings/inbox.md and return the open pings, newest first.
+#[tauri::command]
+fn read_pings() -> PingList {
+    let Ok(text) = std::fs::read_to_string(pings_inbox_path()) else {
+        return PingList {
+            ok: false,
+            pings: vec![],
+        };
+    };
+    let mut pings = parse_open_pings(&text);
     pings.reverse(); // newest first
     PingList { ok: true, pings }
+}
+
+/// Open-ping count for the tray's situation line — the same parse
+/// read_pings uses, count only.
+pub(crate) fn open_ping_count() -> usize {
+    std::fs::read_to_string(pings_inbox_path())
+        .map(|t| parse_open_pings(&t).len())
+        .unwrap_or(0)
 }
 
 /// Resolve a ping — insert a `## resolved` block immediately after the
@@ -787,10 +809,7 @@ fn resolve_ping(
     body: String,
     date: String,
 ) -> Result<(), String> {
-    let path = generalstaff_root()
-        .join("state")
-        .join("pings")
-        .join("inbox.md");
+    let path = pings_inbox_path();
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read pings inbox: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
@@ -870,10 +889,7 @@ fn append_ping(when: String, actor: String, body: String) -> Result<(), String> 
     if !dated || actor.is_empty() {
         return Err("ping heading must be 'YYYY-MM-DD HH:MM <actor>'".into());
     }
-    let path = generalstaff_root()
-        .join("state")
-        .join("pings")
-        .join("inbox.md");
+    let path = pings_inbox_path();
     let mut text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read pings inbox: {e}"))?;
     // One blank line between the prior block and the new one.
@@ -1083,18 +1099,7 @@ fn task_hints() -> Vec<TaskHint> {
 }
 
 fn scan_task_hints() -> Vec<TaskHint> {
-    let root = generalstaff_root();
-    let state_dir = root.join("state");
-    if !state_dir.is_dir() {
-        return vec![];
-    }
-    let repo_map = sibling_repo_map();
-    let mut projects = Vec::new();
-    let mut seen = HashSet::new();
-    collect_projects(&state_dir, &mut projects, &mut seen, &repo_map);
-    if let Some(public) = public_gs_root() {
-        collect_projects(&public.join("state"), &mut projects, &mut seen, &repo_map);
-    }
+    let projects = scan_fleet_projects();
 
     let mut hints = Vec::new();
     for proj in projects {
@@ -1133,8 +1138,8 @@ fn scan_task_hints() -> Vec<TaskHint> {
 }
 
 // ---------------------------------------------------------------------
-// Agent usage — Claude Code token volume from the local transcripts
-// under ~/.claude/projects/ (gsd-028).
+// Timestamp helpers — ISO-8601 to epoch seconds, no chrono dependency.
+// Used by the bot-cycle verdict windowing below.
 // ---------------------------------------------------------------------
 
 /// Days since the Unix epoch for a civil (proleptic Gregorian) date —
@@ -1163,134 +1168,6 @@ fn iso_to_epoch(s: &str) -> Option<i64> {
             + num(14, 16)? * 60
             + num(17, 19)?,
     )
-}
-
-/// The token counts on one transcript line's `message.usage` object.
-/// Serde ignores the rest (server_tool_use, iterations, service_tier…).
-#[derive(Deserialize)]
-struct CcUsage {
-    #[serde(default)]
-    input_tokens: u64,
-    #[serde(default)]
-    output_tokens: u64,
-    #[serde(default)]
-    cache_creation_input_tokens: u64,
-    #[serde(default)]
-    cache_read_input_tokens: u64,
-}
-
-#[derive(Deserialize)]
-struct CcMessage {
-    usage: Option<CcUsage>,
-}
-
-/// One transcript line — only the fields the usage roll-up needs.
-#[derive(Deserialize)]
-struct CcLine {
-    timestamp: Option<String>,
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    message: Option<CcMessage>,
-}
-
-/// Claude Code usage figures for the desktop's usage panel.
-#[derive(Serialize)]
-struct AgentUsage {
-    /// True once ~/.claude/projects/ was found and scanned.
-    cc_ok: bool,
-    cc_tokens_24h: u64,
-    cc_tokens_7d: u64,
-    cc_sessions_7d: u64,
-}
-
-/// Roll up Claude Code token usage from the local JSONL transcripts
-/// under ~/.claude/projects/ (gsd-028). Each assistant line carries a
-/// `message.usage` block; tokens = input + output + cache read + cache
-/// creation, bucketed into the last 24h and 7d by the line timestamp.
-/// Files untouched for over 9 days are skipped — they cannot hold a
-/// line inside the window. ~1s over a busy ~/.claude; the desktop
-/// caches the result and refreshes it only every few minutes.
-#[tauri::command]
-fn agent_usage() -> AgentUsage {
-    let mut u = AgentUsage {
-        cc_ok: false,
-        cc_tokens_24h: 0,
-        cc_tokens_7d: 0,
-        cc_sessions_7d: 0,
-    };
-    let Some(home) = home_dir() else {
-        return u;
-    };
-    let Ok(projects) = std::fs::read_dir(home.join(".claude").join("projects")) else {
-        return u;
-    };
-    u.cc_ok = true;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let cut_24h = now - 86_400;
-    let cut_7d = now - 7 * 86_400;
-    let mtime_floor = now - 9 * 86_400;
-    let mut sessions: HashSet<String> = HashSet::new();
-
-    for proj in projects.flatten() {
-        let Ok(files) = std::fs::read_dir(proj.path()) else {
-            continue;
-        };
-        for f in files.flatten() {
-            let path = f.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            // Skip files untouched for over 9 days — out of the window.
-            let fresh = f
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64 >= mtime_floor)
-                .unwrap_or(true);
-            if !fresh {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            for line in text.lines() {
-                // Cheap pre-filter — only assistant lines carry usage.
-                if !line.contains("\"usage\"") {
-                    continue;
-                }
-                let Ok(parsed) = serde_json::from_str::<CcLine>(line) else {
-                    continue;
-                };
-                let Some(usage) = parsed.message.and_then(|m| m.usage) else {
-                    continue;
-                };
-                let Some(ts) = parsed.timestamp.as_deref().and_then(iso_to_epoch) else {
-                    continue;
-                };
-                if ts < cut_7d {
-                    continue;
-                }
-                let tokens = usage.input_tokens
-                    + usage.output_tokens
-                    + usage.cache_creation_input_tokens
-                    + usage.cache_read_input_tokens;
-                u.cc_tokens_7d += tokens;
-                if let Some(sid) = parsed.session_id {
-                    sessions.insert(sid);
-                }
-                if ts >= cut_24h {
-                    u.cc_tokens_24h += tokens;
-                }
-            }
-        }
-    }
-    u.cc_sessions_7d = sessions.len() as u64;
-    u
 }
 
 // ---------------------------------------------------------------------
@@ -1402,6 +1279,150 @@ fn recent_commits() -> Vec<Commit> {
 }
 
 // ---------------------------------------------------------------------
+// Bot cycle verdicts — PROGRESS.jsonl, the GS dispatcher's append-only
+// event log (gsd-054). Read-only: this is the file that records what
+// the bot actually did; GSD surfaces it on the workbench, the briefing,
+// and the tray.
+// ---------------------------------------------------------------------
+
+/// One cycle_end record from a project's PROGRESS.jsonl.
+#[derive(Serialize, Clone)]
+struct CycleSummary {
+    project_id: String,
+    cycle_id: String,
+    timestamp: String,
+    outcome: String,
+    reason: String,
+    duration_seconds: u64,
+}
+
+/// A project's PROGRESS.jsonl. Private-state projects keep tasks.json in
+/// generalstaff-private, but the dispatcher runs against the public repo
+/// and appends PROGRESS there — so when the preferred state dir has no
+/// file, fall back to the public root's state/<id>/.
+fn progress_path(id: &str) -> Option<PathBuf> {
+    if let Some(dir) = project_state_dir(id) {
+        let p = dir.join("PROGRESS.jsonl");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let p = public_gs_root()?
+        .join("state")
+        .join(id)
+        .join("PROGRESS.jsonl");
+    p.is_file().then_some(p)
+}
+
+/// Parse one JSONL line; Some only for a well-formed cycle_end event.
+fn parse_cycle_end(line: &str, project_id: &str) -> Option<CycleSummary> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("event")?.as_str()? != "cycle_end" {
+        return None;
+    }
+    let data = v.get("data")?;
+    Some(CycleSummary {
+        project_id: project_id.to_string(),
+        cycle_id: v.get("cycle_id")?.as_str()?.to_string(),
+        timestamp: v.get("timestamp")?.as_str()?.to_string(),
+        outcome: data
+            .get("outcome")
+            .and_then(|x| x.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        reason: data
+            .get("reason")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        duration_seconds: data
+            .get("duration_seconds")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
+    })
+}
+
+/// Newest-first cycle_end records for one project. Lines append
+/// chronologically, so the reverse walk stops at the first record older
+/// than `min_epoch` (when given). Malformed lines are skipped; a missing
+/// PROGRESS.jsonl is empty, not an error — most projects have no bot
+/// cycles.
+fn project_cycle_ends(id: &str, limit: usize, min_epoch: Option<i64>) -> Vec<CycleSummary> {
+    let Some(path) = progress_path(id) else {
+        return vec![];
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return vec![];
+    };
+    let mut out = vec![];
+    for line in text.lines().rev() {
+        let Some(c) = parse_cycle_end(line, id) else {
+            continue;
+        };
+        if let Some(min) = min_epoch {
+            match iso_to_epoch(&c.timestamp) {
+                Some(t) if t < min => break,
+                None => continue,
+                _ => {}
+            }
+        }
+        out.push(c);
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
+/// The last `limit` bot-cycle verdicts for one project — the workbench
+/// "Bot cycles" panel.
+#[tauri::command]
+fn read_progress_cycles(project_id: String, limit: usize) -> Vec<CycleSummary> {
+    project_cycle_ends(&project_id, limit, None)
+}
+
+/// Cross-project cycle activity within a recency window.
+#[derive(Serialize)]
+struct FleetProgress {
+    /// outcome -> count of cycle_end events in the window.
+    counts: HashMap<String, u64>,
+    /// The window's cycle_end records, newest first.
+    cycles: Vec<CycleSummary>,
+}
+
+pub(crate) fn epoch_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Scan every fleet project's PROGRESS.jsonl for cycle_end events in the
+/// last `hours`. Shared by the briefing panel, the frontend's new-verdict
+/// notification diff, and the tray's recent-verdict lines.
+pub(crate) fn fleet_cycle_ends(hours: u64) -> FleetProgress {
+    let min_epoch = epoch_now() - hours as i64 * 3600;
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    let mut cycles: Vec<CycleSummary> = vec![];
+    for p in scan_fleet_projects() {
+        // 200 is far past any real per-project daily cycle volume; the
+        // window cutoff is the operative bound.
+        cycles.extend(project_cycle_ends(&p.id, 200, Some(min_epoch)));
+    }
+    // ISO8601 Z timestamps sort lexicographically; newest first.
+    cycles.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    for c in &cycles {
+        *counts.entry(c.outcome.clone()).or_insert(0) += 1;
+    }
+    FleetProgress { counts, cycles }
+}
+
+#[tauri::command]
+fn fleet_progress_recent(hours: u64) -> FleetProgress {
+    fleet_cycle_ends(hours)
+}
+
+// ---------------------------------------------------------------------
 // Desktop UX — native notifications + session pop-out windows.
 // ---------------------------------------------------------------------
 
@@ -1484,7 +1505,7 @@ fn start_fleet_watcher(app: &tauri::AppHandle) {
 // ---------------------------------------------------------------------
 
 /// Show, un-minimize, and focus the main window — used by the tray.
-fn surface_main(app: &tauri::AppHandle) {
+pub(crate) fn surface_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -1497,6 +1518,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(sessions::SessionManager::default())
         .invoke_handler(tauri::generate_handler![
             read_fleet,
@@ -1509,11 +1534,13 @@ pub fn run() {
             append_ping,
             ping_hints,
             task_hints,
-            agent_usage,
             recent_session_notes,
             recent_commits,
+            read_progress_cycles,
+            fleet_progress_recent,
             notify,
             popout_session,
+            tray::refresh_tray,
             sessions::spawn_session,
             sessions::write_session,
             sessions::resize_session,
@@ -1527,20 +1554,22 @@ pub fn run() {
             sessions::set_autonomous_consent
         ])
         .setup(|app| {
-            // Tray icon — a persistent menu-bar presence.
-            let show = MenuItem::with_id(app, "show", "Show GeneralStaff", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-            TrayIconBuilder::with_id("gs-tray")
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("GeneralStaff")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => surface_main(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .build(app)?;
+            // Ambient fleet tray (gsd-053) — attention badge + situation menu.
+            tray::init(app.handle())?;
+
+            // The inversion is ambient-always-on: register launch-at-login
+            // by default. Release builds only — a dev binary registered as
+            // a LaunchAgent would point into target/debug. Best-effort; a
+            // failure must never block startup.
+            if !cfg!(debug_assertions) {
+                use tauri_plugin_autostart::ManagerExt;
+                let autostart = app.autolaunch();
+                if !autostart.is_enabled().unwrap_or(false) {
+                    if let Err(e) = autostart.enable() {
+                        log::warn!("autostart enable failed: {e}");
+                    }
+                }
+            }
 
             // Live portfolio — watch generalstaff-private's state dir.
             start_fleet_watcher(app.handle());

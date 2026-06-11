@@ -576,13 +576,13 @@ body.theme-night, body.theme-carbon {
 }
 .dash__situation { grid-column: 1 / -1; }
 .dash__pings     { min-height: 0; }
-/* Left column, row 2: Open pings (top, a touch taller) + Attention (below).
-   Each panel scrolls its own body. gsd-038 layout — Attention moved here off
-   the side column so Recent-activity can take the whole right column. */
+/* Left column, row 2: Attention (top — "what is waiting on me" lands
+   first, gsd-055) + Open pings (below, a touch taller as the main
+   scroller). Each panel scrolls its own body. */
 .dash__main {
   grid-column: 1; grid-row: 2;
   display: grid;
-  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 14px;
   min-height: 0;
 }
@@ -594,32 +594,6 @@ body.theme-night, body.theme-carbon {
   gap: 14px;
   min-height: 0;
 }
-.usage {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.usage__cell {
-  text-align: center;
-  padding: 7px 4px;
-  border: 1px solid var(--rule-faint);
-  border-radius: 3px;
-}
-.usage__num {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ink);
-}
-.usage__label {
-  margin-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
 /* -----------------------------------------------------------
  * Panel — shared chrome
  * ----------------------------------------------------------- */
@@ -1123,6 +1097,50 @@ body.theme-carbon .ping__act.act-dispatch:hover { color: var(--paper-2); }
   color: var(--ink-faint);
   word-break: break-word;
 }
+
+/* gsd-054 — bot-cycle verdict rows (workbench panel + briefing). */
+.cyc__row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--rule-faint);
+  font-size: 12px;
+  min-width: 0;
+}
+.cyc__row:first-of-type { border-top: none; }
+.cyc__when {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.cyc__proj { flex: none; font-weight: 600; color: var(--ink-soft); }
+.cyc__outcome {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cyc__outcome.is-ok { color: var(--live); }
+.cyc__outcome.is-weak { color: var(--ink-soft); }
+.cyc__outcome.is-bad { color: var(--warn); }
+.cyc__reason {
+  flex: 1 1 auto; min-width: 0;
+  color: var(--ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cyc__dur {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.cyc__headline {
+  padding-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.cyc__quiet { font-size: 12px; }
 
 /* -----------------------------------------------------------
  * Workbench — project drill-in (file tree, viewer, task ledger)

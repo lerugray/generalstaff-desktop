@@ -1053,13 +1053,17 @@ function showBriefing() {
     taskHintsBanner +
     '<div class="dash__grid">' +
     situation +
+    // gsd-055 — the landing answers "what is waiting on me": Attention
+    // and Open pings lead the main flow, ahead of dispatcher/recent.
     '<div class="dash__main">' +
-    pingsPanel +
     attention +
+    pingsPanel +
     "</div>" +
     '<div class="dash__side">' +
     dispatcher +
     recent +
+    // gsd-054 — "What the bot did today" fills in async (loadFleetProgress).
+    '<div id="bot-progress"></div>' +
     "</div></div></div>";
 
   // gsd-025 — restore the dashboard scroll after the rebuild.
@@ -1067,6 +1071,7 @@ function showBriefing() {
 
   loadPings();
   loadRecentActivity();
+  loadFleetProgress();
 
   const dgo = document.getElementById("dispatch-go");
   if (dgo) {
@@ -1192,9 +1197,14 @@ async function selectProject(id) {
     taskHintsBannerHtml(id) +
     '<div id="task-ledger" class="task-ledger muted">Loading task ledger...</div>' +
     '<div id="task-msg" class="spawn-msg"></div>' +
-    "</div></div></div>";
+    "</div></div>" +
+    '<div class="panel" id="cycles-panel" hidden><div class="panel__head">' +
+    '<h2 class="panel__title">Bot cycles</h2>' +
+    '<span class="panel__meta">latest verdicts</span></div>' +
+    '<div class="panel__body" id="cycles-body"></div></div></div>';
 
   loadTaskLedger(id);
+  loadBotCycles(id);
 
   const wbHintsBanner = document.getElementById("task-hints-banner-wb");
   if (wbHintsBanner) {
@@ -1442,6 +1452,168 @@ async function loadTaskLedger(id) {
     const task = pending.find((t) => t.id === btn.dataset.id);
     if (!task) continue;
     btn.addEventListener("click", () => openDeferModal(id, task));
+  }
+}
+
+// ---------------------------------------------------------------------
+// Bot cycle verdicts — PROGRESS.jsonl, what the GS bot actually did
+// (gsd-054). Rendered on the workbench (per project) and the briefing
+// (fleet-wide); reload() diffs for new verdicts and notifies.
+// ---------------------------------------------------------------------
+
+// Relative time for verdict rows: "5m ago" / "2h ago" / "3d ago".
+function relTime(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+
+// Compact cycle duration: 45 -> "45s", 824 -> "14m", 5400 -> "1.5h".
+function fmtDuration(s) {
+  if (!s) return "";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  return (s / 3600).toFixed(1) + "h";
+}
+
+// Outcome -> tone class, matching the dashboard's status palette
+// (prussian = good, rust = warn).
+function outcomeClass(o) {
+  if (o === "verified") return "is-ok";
+  if (o === "verified_weak") return "is-weak";
+  if (o === "rejected" || o === "verification_failed") return "is-bad";
+  return "";
+}
+
+function outcomeLabel(o) {
+  return String(o).replace(/_/g, " ");
+}
+
+// One compact verdict row. withProject adds the project id (the
+// fleet-wide briefing list); the workbench omits it.
+function cycleRowHtml(c, withProject) {
+  const reason =
+    c.reason.length > 72 ? c.reason.slice(0, 71) + "…" : c.reason;
+  return (
+    '<div class="cyc__row" title="' +
+    escapeHtml(c.reason) +
+    '"><span class="cyc__when">' +
+    escapeHtml(relTime(c.timestamp)) +
+    "</span>" +
+    (withProject
+      ? '<span class="cyc__proj">' + escapeHtml(c.project_id) + "</span>"
+      : "") +
+    '<span class="cyc__outcome ' +
+    outcomeClass(c.outcome) +
+    '">' +
+    escapeHtml(outcomeLabel(c.outcome)) +
+    "</span>" +
+    '<span class="cyc__reason">' +
+    escapeHtml(reason) +
+    "</span>" +
+    (c.duration_seconds
+      ? '<span class="cyc__dur">' +
+        escapeHtml(fmtDuration(c.duration_seconds)) +
+        "</span>"
+      : "") +
+    "</div>"
+  );
+}
+
+// Workbench panel — the project's last bot-cycle verdicts. Most projects
+// have no PROGRESS.jsonl; the panel stays hidden for them.
+async function loadBotCycles(id) {
+  let cycles = [];
+  try {
+    cycles = await invoke("read_progress_cycles", { projectId: id, limit: 10 });
+  } catch (e) {
+    cycles = [];
+  }
+  const panel = document.getElementById("cycles-panel");
+  if (!panel || selectedId !== id || !cycles.length) return;
+  panel.hidden = false;
+  document.getElementById("cycles-body").innerHTML = cycles
+    .map((c) => cycleRowHtml(c, false))
+    .join("");
+}
+
+// Briefing panel — "What the bot did today", fleet-wide, last 24h.
+// Quiet single line when nothing ran; no empty panel chrome.
+async function loadFleetProgress() {
+  let fp;
+  try {
+    fp = await invoke("fleet_progress_recent", { hours: 24 });
+  } catch (e) {
+    fp = null;
+  }
+  const slot = document.getElementById("bot-progress");
+  if (!slot) return;
+  if (!fp || !fp.cycles.length) {
+    slot.innerHTML =
+      '<p class="muted cyc__quiet">No bot cycles in the last 24h.</p>';
+    return;
+  }
+  const order = ["verified", "verified_weak", "rejected", "verification_failed"];
+  const keys = order
+    .filter((k) => fp.counts[k])
+    .concat(
+      Object.keys(fp.counts)
+        .filter((k) => !order.includes(k))
+        .sort()
+    );
+  const headline = keys
+    .map((k) => fp.counts[k] + " " + outcomeLabel(k))
+    .join(", ");
+  slot.innerHTML =
+    '<div class="panel"><div class="panel__head">' +
+    '<h2 class="panel__title">What the bot did today</h2>' +
+    '<span class="panel__meta">last 24h</span></div>' +
+    '<div class="panel__body">' +
+    '<div class="cyc__headline">' +
+    escapeHtml(headline) +
+    "</div>" +
+    fp.cycles
+      .slice(0, 8)
+      .map((c) => cycleRowHtml(c, true))
+      .join("") +
+    "</div></div>";
+}
+
+// Notify on newly-landed verdicts: diff this pass's cycle ids against
+// the set recorded in localStorage. First run records quietly (no
+// notification storm on a fresh install); max 3 notifications per pass.
+const SEEN_CYCLES_KEY = "gsd-seen-cycles";
+async function checkNewCycleVerdicts() {
+  let fp;
+  try {
+    fp = await invoke("fleet_progress_recent", { hours: 24 });
+  } catch (e) {
+    return;
+  }
+  let seen = null;
+  try {
+    seen = JSON.parse(localStorage.getItem(SEEN_CYCLES_KEY));
+  } catch (e) {
+    seen = null;
+  }
+  localStorage.setItem(
+    SEEN_CYCLES_KEY,
+    JSON.stringify(fp.cycles.map((c) => c.cycle_id))
+  );
+  if (!Array.isArray(seen)) return; // first run — record only
+  const seenSet = new Set(seen);
+  let fired = 0;
+  for (const c of fp.cycles) {
+    if (seenSet.has(c.cycle_id) || fired >= 3) continue;
+    fired++;
+    notifyDesktop(
+      "GS bot: " + outcomeLabel(c.outcome) + " on " + c.project_id,
+      c.reason || ""
+    );
   }
 }
 
@@ -2421,60 +2593,6 @@ function reconcileState(focusTaskKeys) {
 }
 
 // ---------------------------------------------------------------------
-// Agent usage — Claude Code token volume (gsd-028)
-// ---------------------------------------------------------------------
-
-// Aggregating the local ~/.claude transcripts is a ~1s parse, so the
-// result is cached and recomputed only when stale — a fleet-updated
-// re-render draws from the cache instead of re-parsing.
-let agentUsageCache = null;
-let agentUsageAt = 0;
-const AGENT_USAGE_TTL = 5 * 60 * 1000;
-
-async function loadAgentUsage() {
-  const fresh =
-    agentUsageCache && Date.now() - agentUsageAt < AGENT_USAGE_TTL;
-  if (!fresh) {
-    try {
-      agentUsageCache = await invoke("agent_usage");
-      agentUsageAt = Date.now();
-    } catch (e) {
-      agentUsageCache = null;
-    }
-  }
-  renderAgentUsage();
-}
-
-// Compact count — 1234567 -> "1.2M", 8400 -> "8.4k".
-function fmtCount(n) {
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "k";
-  return String(n);
-}
-
-function renderAgentUsage() {
-  const el = document.getElementById("usage-body");
-  if (!el) return;
-  const u = agentUsageCache;
-  if (!u || !u.cc_ok) {
-    el.className = "muted";
-    el.innerHTML = "<p>Claude Code transcripts not found.</p>";
-    return;
-  }
-  el.className = "usage";
-  const cell = (num, label) =>
-    '<div class="usage__cell"><div class="usage__num">' +
-    escapeHtml(String(num)) +
-    '</div><div class="usage__label">' +
-    label +
-    "</div></div>";
-  el.innerHTML =
-    cell(fmtCount(u.cc_tokens_24h), "tokens 24h") +
-    cell(fmtCount(u.cc_tokens_7d), "tokens 7d") +
-    cell(u.cc_sessions_7d, "sessions 7d");
-}
-
-// ---------------------------------------------------------------------
 // Reload + init
 // ---------------------------------------------------------------------
 
@@ -2502,6 +2620,10 @@ async function reload() {
   } catch (e) {
     snapshot = { ok: false, message: String(e), projects: [] };
   }
+  // gsd-053 — the tray badge + menu track the same reload cadence.
+  invoke("refresh_tray").catch(() => {});
+  // gsd-054 — new bot verdicts since the last pass earn a notification.
+  checkNewCycleVerdicts();
   await loadTaskHints();
   renderRail();
   if (
@@ -2576,6 +2698,12 @@ setInterval(() => {
 }, 3000);
 
 listen("fleet-updated", reload);
+
+// gsd-053 — tray menu actions land here. The backend has already
+// surfaced the window; route the dashboard to the right view.
+listen("tray-open-project", (e) => openFleetProject(e.payload));
+listen("tray-open-briefing", openFleetBriefing);
+
 renderTabbar();
 reload();
 restoreLayout();

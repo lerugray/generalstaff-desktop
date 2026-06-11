@@ -5,7 +5,17 @@
 
 A Tauri 2 desktop console for [GeneralStaff](https://github.com/lerugray/generalstaff) — the local-first autonomous dev-fleet orchestrator. Targets macOS and Windows.
 
+**v0.1.0**
+
 GSD gives the full fleet a permanent home outside the terminal: a dashboard of every registered project with its open task queue and recent cycle history, a per-project workbench (file tree, file viewer, pings inbox), and embedded terminal sessions that run real `claude` / `cursor-agent` CLI processes under a PTY — rendered in xterm.js and themed to match the rest of the UI.
+
+v0.1.0 adds the **ambient inversion**: GSD moves from a pull-open tool to a background presence that surfaces the fleet's state without requiring the terminal to be open.
+
+- **System tray** with an attention badge (unread pings count) and a situation dropdown showing the current active project and its top pending task — visible from any app.
+- **PROGRESS.jsonl feed** in the workbench: cycle verdicts stream in as the bot runs, so you can see what landed without pulling logs.
+- **Briefing panel** on the workbench landing: attention summary + unresolved pings in one glance.
+- **Attention + pings landing**: the default view on open surfaces what needs eyes before anything else.
+- **Launch at login** and **close to hide** (minimize to tray rather than quit) so GSD stays live across reboots.
 
 It is strictly a **viewer/controller**: it reads GeneralStaff's file-based state and writes only to the pings inbox (`state/pings/inbox.md`). It never touches `tasks.json`, `project-meta.yaml`, or any other structured state file directly.
 

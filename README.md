@@ -3,6 +3,10 @@
 <!-- TODO: GSD cockpit screenshot -->
 ![GSD cockpit screenshot](docs/images/screenshot.png)
 
+## In plain English
+
+GeneralStaff Desktop is the app version of GeneralStaff: a window you open instead of commands you type. It shows all your projects at a glance, what each one is working on, what just got done, and anything that needs your attention. It sits quietly in the background with a small badge that lights up when something needs your eyes, so you don't have to keep checking on it. Think of it as a control panel for watching the AI do its work.
+
 A Tauri 2 desktop console for [GeneralStaff](https://github.com/lerugray/generalstaff) — the local-first autonomous dev-fleet orchestrator. Targets macOS and Windows.
 
 **v0.1.0**

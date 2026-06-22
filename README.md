@@ -87,6 +87,8 @@ Set `signingIdentity` to the name of your certificate in Keychain. Contributors 
 
 ### Autonomous mode — no sandbox
 
+> **Not the same as GeneralStaff's "autonomous mode."** Two different things share the name. *Here* (GSD), "autonomous session mode" means launching one agent session with its permission prompts bypassed — a sandbox/trust setting, described below. In the GeneralStaff CLI (v0.8.0+), `gs autonomous` is a self-scoping mode where the dispatcher proposes its own work and gates it. GSD doesn't drive `gs autonomous`; the two are unrelated controls.
+
 GSD supports an **autonomous session mode** where the AI agent is launched with all permission prompts bypassed (`claude --permission-mode bypassPermissions` / `cursor-agent --trust`). In autonomous mode the agent can **read and write any file on your machine and run any shell command without asking for permission**.
 
 This is intentional for trusted operator use on known projects. It is dangerous if used on a hostile or untrusted project.

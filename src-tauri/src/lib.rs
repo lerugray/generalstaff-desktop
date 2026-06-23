@@ -428,32 +428,83 @@ fn read_project_file(id: String, rel: String) -> FileContent {
             }
         }
     };
-    if rel.contains("..") {
+    // Reject "../" and absolute paths. Path::join replaces the base when
+    // `rel` is absolute (repo.join("/etc/passwd") == "/etc/passwd"), so a
+    // bare "no .." check is not enough on its own.
+    if rel.contains("..") || std::path::Path::new(&rel).is_absolute() {
         return FileContent {
             ok: false,
             message: Some("invalid path".into()),
             content: None,
         };
     }
-    let path = repo.join(&rel);
-    match std::fs::metadata(&path) {
+    // Canonicalize the repo root and the joined target, then require the
+    // target to resolve to a location *inside* the repo. canonicalize()
+    // resolves symlinks, so a symlink inside the repo that points outside
+    // (e.g. -> ~/.ssh/id_rsa) is caught by the containment check too. It
+    // also requires the path to exist, so a failure here means "not found".
+    let repo_root = match repo.canonicalize() {
+        Ok(r) => r,
+        Err(_) => {
+            return FileContent {
+                ok: false,
+                message: Some("project repo not found".into()),
+                content: None,
+            }
+        }
+    };
+    let path = match repo_root.join(&rel).canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return FileContent {
+                ok: false,
+                message: Some("file not found".into()),
+                content: None,
+            }
+        }
+    };
+    if !path.starts_with(&repo_root) {
+        return FileContent {
+            ok: false,
+            message: Some("invalid path".into()),
+            content: None,
+        };
+    }
+    // Open once and check size + read through the same handle, so the size
+    // gate and the read see one pinned inode (closes a TOCTOU where the path
+    // is swapped between a metadata() and a separate read()).
+    use std::io::Read;
+    let mut file = match std::fs::File::open(&path) {
+        Ok(f) => f,
+        Err(_) => {
+            return FileContent {
+                ok: false,
+                message: Some("file not found".into()),
+                content: None,
+            }
+        }
+    };
+    match file.metadata() {
         Ok(m) if m.len() > 400_000 => FileContent {
             ok: false,
             message: Some("file too large to preview".into()),
             content: None,
         },
-        Ok(_) => match std::fs::read_to_string(&path) {
-            Ok(text) => FileContent {
-                ok: true,
-                message: None,
-                content: Some(text),
-            },
-            Err(_) => FileContent {
-                ok: false,
-                message: Some("binary or unreadable file".into()),
-                content: None,
-            },
-        },
+        Ok(_) => {
+            let mut text = String::new();
+            match file.read_to_string(&mut text) {
+                Ok(_) => FileContent {
+                    ok: true,
+                    message: None,
+                    content: Some(text),
+                },
+                Err(_) => FileContent {
+                    ok: false,
+                    message: Some("binary or unreadable file".into()),
+                    content: None,
+                },
+            }
+        }
         Err(_) => FileContent {
             ok: false,
             message: Some("file not found".into()),

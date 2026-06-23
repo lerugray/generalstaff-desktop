@@ -405,10 +405,14 @@ pub fn set_claude_effort(effort: String) -> Result<(), String> {
 /// phases and the positional prompt is emitted in exactly ONE place:
 ///   Phase 1 — fixed-arity flags + their values (each consumes exactly
 ///             one following token, so they are order-independent among
-///             themselves and safe to place before the prompt).
-///   Phase 2 — the positional seed prompt (at most one bare argument).
-///   Phase 3 — variadic `--mcp-config` (consumes EVERY following bare
-///             argument), therefore strictly last.
+///             themselves and safe to place first).
+///   Phase 2 — variadic `--mcp-config` (consumes EVERY following bare
+///             argument until a `--` end-of-options marker).
+///   Phase 3 — the seed prompt, emitted as `-- <prompt>` and therefore
+///             strictly last (gsd security fix #2). The `--` marker both
+///             terminates Phase 2's variadic (so `--mcp-config` keeps its
+///             value) AND forces a `-`-leading prompt to be treated as a
+///             positional rather than a flag.
 /// A flag added in the wrong phase is the failure class this structure
 /// exists to prevent — keep new flags in Phase 1.
 fn build_command(
@@ -515,19 +519,14 @@ fn build_command(
         (_, _) => {}
     }
 
-    // ---- Phase 2: the positional seed prompt ------------------------
-    // Emitted in exactly one place for all (agent, mode) combinations.
-    if let Some(p) = prompt {
-        cmd.arg(p);
-    }
-
-    // ---- Phase 3: variadic `--mcp-config` (claude only) -------------
+    // ---- Phase 2: variadic `--mcp-config` (claude only) -------------
     // The gs-mcp dispatcher tool. `--mcp-config` is variadic
     // (`--mcp-config <configs...>`): any bare argument after it is
-    // swallowed as another config, so a seed prompt placed after it
-    // makes claude try to open the prompt as a file and die with
-    // ENAMETOOLONG. It MUST be last. This is what lets a claude session
-    // open child session tabs straight from chat.
+    // swallowed as another config UNLESS a `--` end-of-options marker
+    // intervenes. Emitting it BEFORE the `-- <prompt>` guard below means
+    // its variadic collection stops cleanly at `--`, so both the config
+    // and the prompt survive. This is what lets a claude session open
+    // child session tabs straight from chat.
     if agent == "claude" {
         if let Some(mcp) = gs_mcp_path() {
             let cfg = serde_json::json!({
@@ -537,6 +536,23 @@ fn build_command(
             cmd.arg("--mcp-config");
             cmd.arg(cfg);
         }
+    }
+
+    // ---- Phase 3: the positional seed prompt, `--`-guarded + last ----
+    // gsd security fix #2 — the prompt is emitted as a bare positional,
+    // so a prompt that begins with `-` (e.g. starts with `--model` text)
+    // would be parsed by claude/cursor-agent's commander.js arg parser as
+    // a flag rather than the prompt — corrupting or aborting the spawn.
+    // A leading `--` end-of-options marker forces every following token to
+    // be treated as a positional. It is placed AFTER `--mcp-config` (Phase
+    // 2) on purpose: `--` terminates the variadic, so `--mcp-config` keeps
+    // its already-collected value and the prompt becomes the sole trailing
+    // positional. Both claude and cursor-agent honor `--` (verified). Only
+    // emitted when a prompt is present — a bare `--` with nothing after it
+    // is unnecessary for prompt-less sessions (--continue / fresh).
+    if let Some(p) = prompt {
+        cmd.arg("--");
+        cmd.arg(p);
     }
 
     Ok(cmd)
@@ -852,6 +868,20 @@ pub fn load_session_layout() -> Vec<PersistedSession> {
 // ---------------------------------------------------------------------
 
 /// Handle one spawn-request file: read it, consume it (delete), spawn.
+///
+/// SECURITY / trust model (documented per the 2026-06-23 Fugu review):
+/// this path executes ANY well-formed request file with no further gate —
+/// `mode:"autonomous"` here spawns `claude -p --permission-mode
+/// bypassPermissions` (or `cursor-agent --trust`) in the request's cwd with
+/// no sandbox and no per-action approval. The frontend one-time consent
+/// modal (`checkAutonomousConsent` in app.js) does NOT cover this path; it
+/// only guards UI-initiated autonomous spawns. The implicit trust boundary
+/// is therefore "anything able to write a file into
+/// ~/.generalstaff-desktop/requests/ == local code already running as the
+/// user." The residual risk (accepted, not yet mitigated): indirect prompt
+/// injection from an untrusted repo that can induce a request-file write
+/// could reach RCE. Mitigations deferred by design choice: sandbox
+/// autonomous runs and/or require consent on the request-file path too.
 fn handle_request(app: &AppHandle, path: &Path) {
     let Ok(text) = std::fs::read_to_string(path) else {
         return;
@@ -918,9 +948,11 @@ pub fn start_request_watcher(app: &AppHandle) {
 // (new claude session, --continue, autonomous, with --mcp-config, each
 // effort value, cursor-agent) and assert the produced command — program
 // path, arg order, and the three load-bearing invariants:
-//   • `--mcp-config` is strictly last (it is variadic — a bare arg
-//     after it is swallowed as another config file);
-//   • the positional prompt is emitted exactly once, and never after
+//   • `--mcp-config` precedes the `-- <prompt>` guard (it is variadic;
+//     the `--` terminates it so both its value and the prompt survive —
+//     gsd security fix #2);
+//   • the seed prompt is emitted exactly once, as the sole trailing
+//     positional after a `--` end-of-options marker, and always after
 //     `--mcp-config`;
 //   • each fixed-arity flag is immediately followed by its one value.
 // One test also actually executes the resolved agent binary to confirm
@@ -982,15 +1014,27 @@ mod build_command_tests {
 
     /// The three gsd-022 invariants, asserted on any built command.
     fn assert_arg_invariants(args: &[String]) {
-        // Invariant 1: at most one `--mcp-config`, and if present it is
-        // the second-to-last token (flag) with its single value last.
+        // Invariant 1: at most one `--mcp-config`; its single JSON value
+        // immediately follows it; and anything after that value is only
+        // the `-- <prompt>` tail (gsd security fix #2 — the prompt is now
+        // emitted last, guarded by `--`, so `--mcp-config` precedes it).
         let mcp_count = args.iter().filter(|a| *a == "--mcp-config").count();
         assert!(mcp_count <= 1, "--mcp-config must appear at most once");
         if let Some(i) = pos(args, "--mcp-config") {
-            assert_eq!(
-                i,
-                args.len() - 2,
-                "--mcp-config must be the last flag (got args: {args:?})"
+            // Its value is the very next token, and is not itself a flag.
+            let val = args
+                .get(i + 1)
+                .unwrap_or_else(|| panic!("--mcp-config has no value (args: {args:?})"));
+            assert!(
+                !val.starts_with("--"),
+                "--mcp-config's value looks like a flag: {val:?}"
+            );
+            // Everything past the value must be exactly `-- <prompt>` or
+            // nothing — never a stray bare token the variadic could eat.
+            let tail = &args[i + 2..];
+            assert!(
+                tail.is_empty() || (tail.len() == 2 && tail[0] == "--"),
+                "after --mcp-config <cfg> only `-- <prompt>` may follow: {tail:?}"
             );
         }
         // Invariant 2: every fixed-arity flag is followed by a value
@@ -1010,9 +1054,10 @@ mod build_command_tests {
         }
     }
 
-    /// Walk `args` the way Claude Code's parser does — consume each
-    /// known flag with its values — and return every leftover token
-    /// (the positionals). This models the real parser, so it catches a
+    /// Walk `args` the way Claude Code's commander.js parser does —
+    /// consume each known flag with its values, honor `--` as the
+    /// end-of-options marker — and return every leftover token (the
+    /// positionals). This models the real parser, so it catches a
     /// flag-value being mistaken for the prompt, or the prompt being
     /// swallowed by the variadic `--mcp-config`. Returns (positionals,
     /// index-of-each-positional).
@@ -1026,9 +1071,18 @@ mod build_command_tests {
         let mut i = 0;
         while i < args.len() {
             let a = &args[i];
-            if a == "--mcp-config" {
-                // Variadic — swallows itself + every remaining token.
+            if a == "--" {
+                // End-of-options: every following token is a positional,
+                // even one that begins with `-` (gsd security fix #2).
+                for (j, rest) in args.iter().enumerate().skip(i + 1) {
+                    out.push((j, rest.clone()));
+                }
                 break;
+            } else if a == "--mcp-config" {
+                // Variadic — but its value is a single JSON blob here, and
+                // a `--` (handled above) terminates its collection, so it
+                // consumes exactly itself + the one following value.
+                i += 2;
             } else if ONE_VALUE.contains(&a.as_str()) {
                 i += 2; // skip flag + its value
             } else if BARE.contains(&a.as_str()) {
@@ -1041,17 +1095,25 @@ mod build_command_tests {
         out
     }
 
-    /// The seed prompt is emitted in exactly ONE place (Phase 2): it is
-    /// the sole positional, and it always precedes `--mcp-config`. When
-    /// no prompt is passed there must be zero positionals — proving no
-    /// flag-value leaked out as a stray bare argument.
+    /// The seed prompt is emitted in exactly ONE place (Phase 3): it is
+    /// the sole positional, sits after a `--` end-of-options marker, and
+    /// always follows `--mcp-config` (gsd security fix #2). When no prompt
+    /// is passed there must be zero positionals AND no trailing `--` —
+    /// proving no flag-value leaked out as a stray bare argument and no
+    /// empty guard was emitted.
     fn assert_prompt_position(args: &[String], prompt: Option<&str>) {
         let pos_tokens = positionals(args);
         match prompt {
-            None => assert!(
-                pos_tokens.is_empty(),
-                "no prompt was passed yet a positional appeared: {pos_tokens:?} (args: {args:?})"
-            ),
+            None => {
+                assert!(
+                    pos_tokens.is_empty(),
+                    "no prompt was passed yet a positional appeared: {pos_tokens:?} (args: {args:?})"
+                );
+                assert!(
+                    !args.iter().any(|a| a == "--"),
+                    "no `--` guard should be emitted without a prompt: {args:?}"
+                );
+            }
             Some(p) => {
                 assert_eq!(
                     pos_tokens.len(),
@@ -1059,11 +1121,16 @@ mod build_command_tests {
                     "exactly one positional (the prompt) expected: {pos_tokens:?}"
                 );
                 assert_eq!(pos_tokens[0].1, p, "the positional is the seed prompt");
-                // The prompt must come before --mcp-config (Phase 2 < 3).
+                // The prompt is `--`-guarded (gsd security fix #2): a `--`
+                // immediately precedes it so a `-`-leading prompt stays a
+                // positional.
+                let pi = pos_tokens[0].0;
+                assert!(pi >= 1 && args[pi - 1] == "--", "prompt must be `--`-guarded: {args:?}");
+                // The prompt must come AFTER --mcp-config (Phase 3 > 2).
                 if let Some(mi) = pos(args, "--mcp-config") {
                     assert!(
-                        pos_tokens[0].0 < mi,
-                        "prompt must precede --mcp-config: {args:?}"
+                        pi > mi,
+                        "prompt must follow --mcp-config: {args:?}"
                     );
                 }
             }

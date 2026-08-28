@@ -166,21 +166,24 @@ export async function resolveGeneralStaffRoot(
   configured: string | undefined,
   workspaceRoot?: string,
 ): Promise<string> {
-  if (configured?.trim()) {
-    return path.resolve(configured.trim());
+  const environmentRoot = process.env.GENERALSTAFF_ROOT?.trim();
+  if (await hasStateDirectory(environmentRoot)) {
+    return path.resolve(environmentRoot as string);
+  }
+
+  const configuredRoot = configured?.trim();
+  if (await hasStateDirectory(configuredRoot)) {
+    return path.resolve(configuredRoot as string);
   }
 
   const legacy = await readJson<{ generalstaff_path?: string }>(
     path.join(os.homedir(), '.generalstaff-desktop', 'config.json'),
   );
-  if (legacy?.generalstaff_path) {
-    return path.resolve(legacy.generalstaff_path);
+  const legacyRoot = legacy?.generalstaff_path;
+  if (await hasStateDirectory(legacyRoot)) {
+    return path.resolve(legacyRoot as string);
   }
 
-  const environmentRoot = process.env.GENERALSTAFF_ROOT?.trim();
-  if (await hasStateDirectory(environmentRoot)) {
-    return path.resolve(environmentRoot as string);
-  }
   if (await hasStateDirectory(workspaceRoot)) {
     return path.resolve(workspaceRoot as string);
   }

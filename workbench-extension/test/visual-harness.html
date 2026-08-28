@@ -82,12 +82,12 @@
       const mode = params.get('mode');
       if (mode === 'error') {
         conversations = [{
-          id: 'error-conversation', title: 'Verify the release candidate', projectId: 'generalstaff', laneId: 'cursor', seat: 'verify', effort: 'default', permission: 'read', context: [], decisions: [], createdAt: now - 90000, updatedAt: now,
+          id: 'error-conversation', title: 'Verify the release candidate', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'cursor', seat: 'verify', effort: 'default', permission: 'read', context: [], decisions: [], createdAt: now - 90000, updatedAt: now,
           messages: [
             { id: 'error-user', role: 'user', text: 'Verify the release candidate.', status: 'complete', createdAt: now - 90000 },
             { id: 'error-assistant', role: 'assistant', text: 'Cursor could not complete the verification because its authenticated session is unavailable. No project files were changed.', status: 'error', createdAt: now - 85000 },
           ],
-          receipt: { laneId: 'cursor', laneName: 'Cursor Agent', seat: 'verify', effort: 'default', projectId: 'generalstaff', modelLabel: 'Cursor Agent · auto', startedAt: now - 90000, finishedAt: now - 85000, exitCode: 1, stopped: false, permission: 'read', workingDirectory: '/fleet/generalstaff', continuity: 'native', evidence: ['stderr: authentication unavailable'] },
+          receipt: { laneId: 'cursor', laneName: 'Cursor Agent', seat: 'verify', effort: 'default', target: { kind: 'project', projectId: 'generalstaff' }, modelLabel: 'Cursor Agent · auto', startedAt: now - 90000, finishedAt: now - 85000, exitCode: 1, stopped: false, permission: 'read', workingDirectory: '/fleet/generalstaff', continuity: 'native', evidence: ['stderr: authentication unavailable'] },
         }];
         persisted.activeConversationId = 'error-conversation';
         persisted.selectedProjectId = 'generalstaff';
@@ -95,7 +95,7 @@
         persisted.selectedSeat = 'verify';
       } else if (mode === 'decision') {
         conversations = [{
-          id: 'decision-conversation', title: 'Choose the next playable slice', projectId: 'snesos', laneId: 'codex', seat: 'orchestrate', effort: 'high', permission: 'read', context: [], createdAt: now - 120000, updatedAt: now,
+          id: 'decision-conversation', title: 'Choose the next playable slice', target: { kind: 'project', projectId: 'snesos' }, laneId: 'codex', seat: 'orchestrate', effort: 'high', permission: 'read', context: [], createdAt: now - 120000, updatedAt: now,
           messages: [
             { id: 'decision-user', role: 'user', text: 'Prepare the next bounded playable slice.', status: 'complete', createdAt: now - 120000 },
             { id: 'decision-assistant', role: 'assistant', text: 'Both routes are grounded and bounded. I need your call before assigning implementation.', status: 'complete', createdAt: now - 90000 },
@@ -107,7 +107,7 @@
               { id: 'option-import', label: 'Import path', description: 'Prioritize bringing existing project data into the restored system.' },
             ],
           }],
-          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'orchestrate', effort: 'high', projectId: 'snesos', modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 120000, finishedAt: now - 90000, exitCode: 0, stopped: false, permission: 'read', workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: decision returned'] },
+          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'orchestrate', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 120000, finishedAt: now - 90000, exitCode: 0, stopped: false, permission: 'read', workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: decision returned'] },
         }];
         persisted.activeConversationId = 'decision-conversation';
         persisted.selectedProjectId = 'snesos';
@@ -115,7 +115,7 @@
         persisted.selectedSeat = 'orchestrate';
       } else if (mode === 'active') {
         conversations = [{
-          id: 'active-conversation', title: 'Reconcile the release evidence', projectId: 'generalstaff', laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
+          id: 'active-conversation', title: 'Reconcile the release evidence', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
           messages: [
             { id: 'active-user', role: 'user', text: 'Reconcile every release claim with primary evidence.', status: 'complete', createdAt: now - 45000 },
             { id: 'active-assistant', role: 'assistant', text: '', status: 'streaming', createdAt: now - 43000 },
@@ -137,7 +137,7 @@
             }
           }
           if (message.type === 'new-conversation') {
-            const conversation = { id: `c-${Date.now()}`, title: 'New command', projectId: message.projectId, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
+            const conversation = { id: `c-${Date.now()}`, title: 'New command', target: message.target, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
             conversations = [conversation, ...conversations];
             setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation }, '*'), 10);
           }
@@ -147,7 +147,7 @@
             conversation.title = message.text.slice(0, 54);
             conversation.messages.push({ id: 'user-1', role: 'user', text: message.text, status: 'complete', createdAt: Date.now() });
             conversation.messages.push({ id: 'assistant-1', role: 'assistant', text: 'I have the seat. I will inspect the governing context, keep the scope bounded, and return a verified receipt.', status: 'complete', createdAt: Date.now() + 1 });
-            conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, projectId: conversation.projectId, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: '/fleet/generalstaff', continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'] };
+            conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, target: conversation.target, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: conversation.target.kind === 'general' ? '/fleet' : `/fleet/${conversation.target.projectId}`, continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'] };
             setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 80);
           }
           if (message.type === 'update-routing') {

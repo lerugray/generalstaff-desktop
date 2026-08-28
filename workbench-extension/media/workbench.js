@@ -18,7 +18,8 @@
     snapshot: null,
     conversations: [],
     notes: {},
-    activeConversationId: saved.activeConversationId || null,
+    activeConversationId: null,
+    selectedTargetKind: 'general',
     selectedProjectId: saved.selectedProjectId || null,
     selectedLaneId: saved.selectedLaneId || 'codex',
     selectedSeat: saved.selectedSeat || 'orchestrate',
@@ -86,6 +87,7 @@
   function remember() {
     vscode.setState({
       activeConversationId: state.activeConversationId,
+      selectedTargetKind: state.selectedTargetKind,
       selectedProjectId: state.selectedProjectId,
       selectedLaneId: state.selectedLaneId,
       selectedSeat: state.selectedSeat,
@@ -97,7 +99,19 @@
   }
 
   function currentProject() {
+    if (state.selectedTargetKind !== 'project') return undefined;
     return state.snapshot?.projects.find((project) => project.id === state.selectedProjectId);
+  }
+
+  function currentTarget() {
+    const project = currentProject();
+    return project ? { kind: 'project', projectId: project.id } : { kind: 'general' };
+  }
+
+  function conversationProject(conversation) {
+    return conversation?.target?.kind === 'project'
+      ? state.snapshot?.projects.find((project) => project.id === conversation.target.projectId)
+      : undefined;
   }
 
   function currentConversation() {
@@ -113,8 +127,8 @@
 
   function ensureSelections() {
     const projects = state.snapshot?.projects || [];
-    if (!projects.some((project) => project.id === state.selectedProjectId)) {
-      state.selectedProjectId = projects[0]?.id || null;
+    if (state.selectedTargetKind === 'project' && !projects.some((project) => project.id === state.selectedProjectId)) {
+      state.selectedTargetKind = 'general';
     }
     const lanes = compatibleLanes();
     if (!lanes.some((lane) => lane.id === state.selectedLaneId)) {
@@ -156,19 +170,21 @@
       <aside class="rail">
         <div class="brand">
           <div class="brand-mark"><span>G</span><span>S</span></div>
-          <div><strong>GeneralStaff</strong><small>Workbench 2.3</small></div>
+          <div><strong>GeneralStaff</strong><small>Workbench 2.4</small></div>
         </div>
         <button class="new-command" data-action="new-command"><span>+</span> New command <kbd>⌘ N</kbd></button>
+        <button class="general-command-target ${state.selectedTargetKind === 'general' && !state.activeConversationId ? 'selected' : ''}" data-action="general-command">
+          <span class="general-command-mark">GS</span>
+          <span><strong>General Staff</strong><small>Orchestrator · private root</small></span>
+          <span class="pinned-label">Pinned</span>
+        </button>
         <nav class="rail-nav" aria-label="Workbench">
-          <button class="nav-item ${state.activeConversationId ? '' : 'selected'}" data-action="dashboard">
-            <span class="nav-icon">⌁</span><span>Command Deck</span>
-          </button>
           <div class="rail-label"><span>Projects</span><span>${projects.length}</span></div>
           <div class="project-list">
             ${projects
               .map(
                 (project) => `
-                  <button class="project-item ${project.id === state.selectedProjectId ? 'selected' : ''}" data-project-id="${escapeHtml(project.id)}">
+                  <button class="project-item ${state.selectedTargetKind === 'project' && project.id === state.selectedProjectId && !state.activeConversationId ? 'selected' : ''}" data-project-id="${escapeHtml(project.id)}">
                     <span class="project-status ${projectDot(project)}"></span>
                     <span class="project-copy"><strong>${escapeHtml(project.name)}</strong><small>${project.inProgress ? `${project.inProgress} active` : project.pending ? `${project.pending} queued` : 'standing by'}</small></span>
                     ${project.needsReview ? `<span class="project-count">${project.needsReview}</span>` : ''}
@@ -282,6 +298,7 @@
 
   function renderComposer(compact = false) {
     const project = currentProject();
+    const general = state.selectedTargetKind === 'general';
     const seat = seatCopy[state.selectedSeat];
     const active = currentConversation();
     const running = Boolean(active && state.runStatus[active.id]);
@@ -289,17 +306,17 @@
       <section class="composer ${compact ? 'compact' : ''}">
         <div class="composer-heading">
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
-          <div><strong>Command ${escapeHtml(project?.name || 'your fleet')}</strong><small>${escapeHtml(seat?.[1] || '')}</small></div>
+          <div><strong>${general ? 'General Command' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${general ? 'Runs from the private GeneralStaff root with its orchestrator context.' : escapeHtml(seat?.[1] || '')}</small></div>
         </div>
         ${!compact ? `<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>` : ''}
-        ${state.selectedPermission === 'write' ? '<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the discovered project repository. Consent is recorded with the run.</span></div>' : ''}
+        ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
         <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="Tell GeneralStaff what outcome you want…" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
           <div class="composer-selects">${renderSeatSelect()}${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
-          <button class="send-button" data-action="send" ${!project || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
+          <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
             <span>Issue command</span><span class="send-arrow">↑</span>
           </button>
         </div>
@@ -407,19 +424,20 @@
 
   function renderDashboard() {
     const project = currentProject();
+    const general = state.selectedTargetKind === 'general';
     const projects = state.snapshot?.projects || [];
     const totalActive = projects.reduce((sum, item) => sum + item.inProgress, 0);
     const totalQueued = projects.reduce((sum, item) => sum + item.pending, 0);
     const totalReview = projects.reduce((sum, item) => sum + item.needsReview, 0);
     return `
       <main class="main">
-        ${renderTopbar('Command Deck', 'GENERAL STAFF · FLEET VIEW')}
+        ${renderTopbar(general ? 'General Command' : project?.name || 'Project Command', general ? 'GENERAL STAFF · ORCHESTRATOR SEAT' : 'GENERAL STAFF · PROJECT SEAT')}
         <div class="content">
           <section class="hero">
             <div class="hero-copy">
-              <span class="hero-kicker"><span></span> The fleet is listening</span>
-              <h2>State the outcome.<br><em>Keep command.</em></h2>
-              <p>${escapeHtml(project?.mission || 'Select a project, choose the right seat, and direct the next useful outcome in plain English.')}</p>
+              <span class="hero-kicker"><span></span> ${general ? 'The orchestrator is listening' : 'The project seat is listening'}</span>
+              <h2>${general ? 'Command the fleet.' : 'State the outcome.'}<br><em>Keep command.</em></h2>
+              <p>${escapeHtml(general ? 'Catch up, route, dispatch, and ask fleet-wide questions from the private GeneralStaff root. Choose a project only when the work belongs in one repository.' : project?.mission || 'Direct the next useful project outcome in plain English.')}</p>
               <div class="hero-stats">
                 <div><strong>${totalActive}</strong><span>active</span></div>
                 <div><strong>${totalQueued}</strong><span>queued</span></div>
@@ -429,7 +447,7 @@
             ${renderComposer(false)}
           </section>
           <div class="dashboard-grid">${renderAttention()}${renderActivity()}</div>
-          ${renderProjectContext()}
+          ${general ? '' : renderProjectContext()}
           ${renderLanes()}
         </div>
       </main>`;
@@ -520,22 +538,23 @@
   function renderConversation() {
     const conversation = currentConversation();
     if (!conversation) return renderDashboard();
-    const project = state.snapshot?.projects.find((item) => item.id === conversation.projectId);
+    const project = conversationProject(conversation);
+    const general = conversation.target?.kind === 'general';
     const lane = state.snapshot?.lanes.find((item) => item.id === conversation.laneId);
     const run = state.runStatus[conversation.id];
     const contextItems = conversation.context || [];
     return `
       <main class="main conversation-main">
-        ${renderTopbar(conversation.title, `${escapeHtml(project?.name || conversation.projectId)} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
+        ${renderTopbar(conversation.title, `${escapeHtml(general ? 'General Staff — orchestrator' : project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
         <div class="conversation-shell">
           <div class="conversation-meta">
-            <button class="back-button" data-action="dashboard">← Command Deck</button>
+            <button class="back-button" data-action="dashboard">← ${general ? 'General Command' : 'Project Command'}</button>
             <div class="meta-chips">
               <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
               <span>${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
-              <button data-action="open-project">Open project ↗</button>
+              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">Private root</span>'}
             </div>
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
@@ -549,7 +568,7 @@
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
               )
-              .join('') || '<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>What outcome are we commanding?</h2><p>The selected lane receives the project, seat, and your plain-English request.</p></div>'}
+              .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>What outcome are we commanding?</h2><p>The selected lane runs from ${general ? 'the private GeneralStaff root' : 'the project repository'} with the chosen seat and your plain-English request.</p></div>`}
             ${renderReceipt(conversation)}
             ${renderRecovery(conversation, Boolean(run))}
           </section>
@@ -577,7 +596,7 @@
     const selectionStart = oldPrompt?.selectionStart;
     const selectionEnd = oldPrompt?.selectionEnd;
     ensureSelections();
-    const content = state.snapshot.projects.length ? renderConversation() : renderSetup();
+    const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
     app.innerHTML = `<div class="workbench">${renderRail()}${content}${renderNotice()}</div>`;
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
@@ -600,7 +619,7 @@
   function issueCommand() {
     const prompt = document.getElementById('prompt');
     const text = prompt?.value.trim();
-    if (!text || !state.selectedProjectId || !state.selectedLaneId) return;
+    if (!text || !state.snapshot?.rootPath || !state.selectedLaneId) return;
     const conversation = currentConversation();
     if (conversation) {
       if (state.runStatus[conversation.id] || state.pendingSend) return;
@@ -614,7 +633,7 @@
     state.pendingPrompt = text;
     vscode.postMessage({
       type: 'new-conversation',
-      projectId: state.selectedProjectId,
+      target: currentTarget(),
       laneId: state.selectedLaneId,
       seat: state.selectedSeat,
       effort: state.selectedEffort,
@@ -656,6 +675,7 @@
     } else if (filePath) {
       vscode.postMessage({ type: 'open-file', path: filePath });
     } else if (projectId) {
+      state.selectedTargetKind = 'project';
       state.selectedProjectId = projectId;
       state.activeConversationId = null;
       state.selectedPermission = 'read';
@@ -668,7 +688,8 @@
       const conversation = state.conversations.find((item) => item.id === conversationId);
       state.activeConversationId = conversationId;
       if (conversation) {
-        state.selectedProjectId = conversation.projectId;
+        state.selectedTargetKind = conversation.target?.kind || 'project';
+        state.selectedProjectId = conversation.target?.projectId || null;
         state.selectedLaneId = conversation.laneId;
         state.selectedSeat = conversation.seat;
         state.selectedEffort = conversation.effort || 'default';
@@ -678,10 +699,19 @@
       render();
     } else if (action === 'dashboard') {
       state.activeConversationId = null;
+      state.selectedTargetKind = 'general';
       state.selectedPermission = 'read';
       render();
+    } else if (action === 'general-command') {
+      state.activeConversationId = null;
+      state.selectedTargetKind = 'general';
+      state.pendingContext = [];
+      state.selectedPermission = 'read';
+      render();
+      requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     } else if (action === 'new-command') {
       state.activeConversationId = null;
+      state.selectedTargetKind = 'general';
       state.pendingContext = [];
       state.selectedPermission = 'read';
       state.draft = '';
@@ -692,9 +722,10 @@
     } else if (action === 'refresh') {
       vscode.postMessage({ type: 'refresh' });
     } else if (action === 'open-terminal') {
-      vscode.postMessage({ type: 'open-terminal', projectId: state.selectedProjectId || undefined });
+      vscode.postMessage({ type: 'open-terminal', target: currentConversation()?.target || currentTarget() });
     } else if (action === 'open-project') {
-      const id = currentConversation()?.projectId || state.selectedProjectId;
+      const conversation = currentConversation();
+      const id = conversation?.target?.kind === 'project' ? conversation.target.projectId : currentProject()?.id;
       if (id) vscode.postMessage({ type: 'open-project', projectId: id });
     } else if (action === 'stop-run') {
       const id = currentConversation()?.id;
@@ -733,7 +764,7 @@
         vscode.postMessage({ type: 'save-note', projectId: state.selectedProjectId, text: note.value });
       }
     } else if (action === 'pick-context') {
-      if (state.selectedProjectId) vscode.postMessage({ type: 'pick-context', projectId: state.selectedProjectId });
+      vscode.postMessage({ type: 'pick-context', target: currentConversation()?.target || currentTarget() });
     } else if (action === 'choose-root') {
       vscode.postMessage({ type: 'choose-root' });
     }
@@ -831,7 +862,8 @@
     } else if (message.type === 'conversation-selected') {
       state.creatingConversation = false;
       state.activeConversationId = message.conversation.id;
-      state.selectedProjectId = message.conversation.projectId;
+      state.selectedTargetKind = message.conversation.target?.kind || 'project';
+      state.selectedProjectId = message.conversation.target?.projectId || null;
       state.selectedLaneId = message.conversation.laneId;
       state.selectedSeat = message.conversation.seat;
       state.selectedEffort = message.conversation.effort || 'default';
@@ -898,6 +930,7 @@
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     } else if (message.type === 'focus-composer') {
       state.activeConversationId = null;
+      state.selectedTargetKind = 'general';
       state.selectedPermission = 'read';
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
@@ -908,6 +941,7 @@
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
       event.preventDefault();
       state.activeConversationId = null;
+      state.selectedTargetKind = 'general';
       state.selectedPermission = 'read';
       state.draft = '';
       render();

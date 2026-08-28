@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   const run = runCliAdapter(
     {
       conversationId: 'manual-probe',
-      projectId: 'manual-probe',
+      target: { kind: 'general' },
       cwd,
       lane,
       seat: 'assist',

@@ -3,13 +3,14 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { runCliAdapter, supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
-import type { ConversationContextItem, ConversationMessage, FleetSnapshot, RunContinuity } from './domain.js';
+import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, RunContinuity } from './domain.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
-  projectSupportsPermission,
+  resolveCommandTarget,
   resolveOpenFilePath,
   supportsRouting,
+  targetSupportsPermission,
   writeConsentPrompt,
 } from './extensionPolicy.js';
 import { requireAllowedPath } from './security/paths.js';
@@ -139,11 +140,11 @@ class CommandDeckPanel {
 
     switch (message.type) {
       case 'new-conversation': {
-        const project = this.snapshot.projects.find((item) => item.id === message.projectId);
+        const target = resolveCommandTarget(message.target, this.snapshot);
         const lane = this.snapshot.lanes.find((item) => item.id === message.laneId);
         const skill = message.skillId ? this.snapshot.skills.find((item) => item.id === message.skillId) : undefined;
-        if (!project || !lane || lane.state !== 'available') {
-          await this.notice('Choose a registered project and an available model lane first.', 'error');
+        if (!target || !lane || lane.state !== 'available') {
+          await this.notice('Choose a command target and an available model lane first.', 'error');
           return;
         }
         if (message.skillId && !skill) {
@@ -154,21 +155,21 @@ class CommandDeckPanel {
           await this.notice(`${lane.name} is not configured for the ${message.seat} seat.`, 'error');
           return;
         }
-        if (!projectSupportsPermission(message.permission, project.repoPath)) {
-          await this.notice('Edit access requires a discovered project repository. This project is state-only.', 'error');
+        if (!targetSupportsPermission(message.permission, target)) {
+          await this.notice('Edit access requires a repository-backed command target. This project is state-only.', 'error');
           return;
         }
         if (!(await authorizeWriteAccess(
           message.permission,
           false,
-          () => this.confirmWrite(project.name, lane.name),
+          () => this.confirmWrite(target.name, lane.name),
         ))) {
           await this.notice('Edit access was not enabled.', 'error');
           return;
         }
-        const contextItems = await this.contextItems(project.id, message.contextPaths);
+        const contextItems = await this.contextItems(message.target, message.contextPaths);
         const conversation = await this.store.create(
-          message.projectId,
+          message.target,
           message.laneId,
           message.seat,
           message.effort,
@@ -186,25 +187,25 @@ class CommandDeckPanel {
           return;
         }
         const conversation = this.store.get(message.conversationId);
-        const project = this.snapshot.projects.find((item) => item.id === conversation?.projectId);
+        const target = conversation ? resolveCommandTarget(conversation.target, this.snapshot) : undefined;
         const lane = this.snapshot.lanes.find((item) => item.id === message.laneId);
         const skill = message.skillId ? this.snapshot.skills.find((item) => item.id === message.skillId) : undefined;
         if (
-          !conversation || !project || !lane ||
+          !conversation || !target || !lane ||
           !supportsRouting(lane, message.seat, message.permission, message.effort) ||
           (message.skillId !== undefined && !skill)
         ) {
           await this.notice('That routing combination is not available for this conversation.', 'error');
           return;
         }
-        if (!projectSupportsPermission(message.permission, project.repoPath)) {
-          await this.notice('Edit access requires a discovered project repository. This project is state-only.', 'error');
+        if (!targetSupportsPermission(message.permission, target)) {
+          await this.notice('Edit access requires a repository-backed command target. This project is state-only.', 'error');
           return;
         }
         if (!(await authorizeWriteAccess(
           message.permission,
           conversation.permission === 'write',
-          () => this.confirmWrite(project.name, lane.name),
+          () => this.confirmWrite(target.name, lane.name),
         ))) {
           await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
           await this.notice('Edit access remains off.', 'error');
@@ -243,13 +244,13 @@ class CommandDeckPanel {
         await this.openProject(message.projectId);
         return;
       case 'open-terminal':
-        this.openTerminal(message.projectId);
+        this.openTerminal(message.target);
         return;
       case 'open-file':
         await this.openFile(message.path);
         return;
       case 'pick-context':
-        await this.pickContext(message.projectId);
+        await this.pickContext(message.target);
         return;
       case 'choose-root':
         await this.chooseRoot();
@@ -274,12 +275,12 @@ class CommandDeckPanel {
       return;
     }
 
-    const project = this.snapshot.projects.find((item) => item.id === conversation.projectId);
+    const target = resolveCommandTarget(conversation.target, this.snapshot);
     const lane = this.snapshot.lanes.find((item) => item.id === conversation.laneId);
     const invocation = resolveSkillInvocation(rawText, this.snapshot.skills);
     const text = invocation.operatorText;
-    if (!project || !lane || !text) {
-      await this.notice('The project, lane, or command is no longer available.', 'error', conversationId);
+    if (!target || !lane || !text) {
+      await this.notice('The command target, lane, or command is no longer available.', 'error', conversationId);
       return;
     }
     if (invocation.unknownSkillId) {
@@ -306,11 +307,11 @@ class CommandDeckPanel {
       return;
     }
 
-    if (conversation.permission === 'write' && !project.repoPath) {
-      await this.notice('This conversation cannot edit because no project repository is available.', 'error', conversationId);
+    if (!targetSupportsPermission(conversation.permission, target)) {
+      await this.notice('This conversation cannot edit because its command target is not repository-backed.', 'error', conversationId);
       return;
     }
-    const cwd = conversation.permission === 'write' ? (project.repoPath as string) : (project.repoPath ?? project.statePath);
+    const cwd = target.workingDirectory;
     const privateRuntime = await discoverPrivateRuntime(this.snapshot.rootPath, this.privateRuntimeOptions());
     const priorContext = conversation.messages
       .filter((message) => message.text.trim() && message.status !== 'streaming')
@@ -400,7 +401,7 @@ class CommandDeckPanel {
       const run = runCliAdapter(
         {
           conversationId,
-          projectId: project.id,
+          target: conversation.target,
           cwd,
           lane,
           seat: conversation.seat,
@@ -444,7 +445,7 @@ class CommandDeckPanel {
             output = receipt.stopped
               ? 'This run was stopped.'
               : receipt.exitCode === 0
-                ? 'The lane completed without a text response. Open the project to inspect its work.'
+                ? 'The lane completed without a text response. Open the command target to inspect its work.'
                 : `The lane exited with code ${receipt.exitCode ?? 'unknown'}.`;
           }
           if (completion.providerSessionId) {
@@ -575,8 +576,8 @@ class CommandDeckPanel {
     }
   }
 
-  private async confirmWrite(projectName: string, laneName: string): Promise<boolean> {
-    const prompt = writeConsentPrompt(projectName, laneName);
+  private async confirmWrite(targetName: string, laneName: string): Promise<boolean> {
+    const prompt = writeConsentPrompt(targetName, laneName);
     const choice = await vscode.window.showWarningMessage(
       prompt.message,
       prompt.options,
@@ -585,22 +586,22 @@ class CommandDeckPanel {
     return choice === prompt.action;
   }
 
-  private openTerminal(projectId?: string): void {
-    const project = this.snapshot?.projects.find((item) => item.id === projectId);
-    const cwd = project?.repoPath ?? project?.statePath ?? this.snapshot?.rootPath;
+  private openTerminal(commandTarget: CommandTarget = { kind: 'general' }): void {
+    const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
+    const cwd = target?.workingDirectory ?? this.snapshot?.rootPath;
     const terminal = vscode.window.createTerminal({
-      name: project ? `${project.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
+      name: target ? `${target.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
       ...(cwd ? { cwd } : {}),
     });
     terminal.show();
   }
 
-  private async pickContext(projectId: string): Promise<void> {
-    const project = this.snapshot?.projects.find((item) => item.id === projectId);
-    if (!project) return;
+  private async pickContext(commandTarget: CommandTarget): Promise<void> {
+    const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
+    if (!target) return;
     const selection = await vscode.window.showOpenDialog({
-      title: `Reference local files in ${project.name}`,
-      defaultUri: vscode.Uri.file(project.repoPath ?? project.statePath),
+      title: `Reference local files in ${target.name}`,
+      defaultUri: vscode.Uri.file(target.workingDirectory),
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: true,
@@ -609,18 +610,17 @@ class CommandDeckPanel {
       },
     });
     if (!selection?.length) return;
-    const items = await this.contextItems(project.id, selection.map((uri) => uri.fsPath));
+    const items = await this.contextItems(commandTarget, selection.map((uri) => uri.fsPath));
     await this.panel.webview.postMessage({ type: 'context-picked', items });
   }
 
-  private async contextItems(projectId: string, candidates: string[]): Promise<ConversationContextItem[]> {
-    const project = this.snapshot?.projects.find((item) => item.id === projectId);
-    if (!project) return [];
-    const roots = [project.statePath, ...(project.repoPath ? [project.repoPath] : [])];
+  private async contextItems(commandTarget: CommandTarget, candidates: string[]): Promise<ConversationContextItem[]> {
+    const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
+    if (!target) return [];
     const items: ConversationContextItem[] = [];
     for (const candidate of candidates.slice(0, 12)) {
       try {
-        const resolved = requireAllowedPath(candidate, roots);
+        const resolved = requireAllowedPath(candidate, target.contextRoots);
         const stat = await vscode.workspace.fs.stat(vscode.Uri.file(resolved));
         if ((stat.type & vscode.FileType.File) === 0) continue;
         const extension = path.extname(resolved).toLowerCase();
@@ -631,7 +631,7 @@ class CommandDeckPanel {
             : 'document';
         items.push({ label: path.basename(resolved), path: resolved, kind });
       } catch {
-        // The picker and bridge may only attach registered local project files.
+        // The picker and bridge may only attach files inside the selected command target.
       }
     }
     return items;

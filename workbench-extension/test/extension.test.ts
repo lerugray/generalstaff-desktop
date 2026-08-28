@@ -4,9 +4,10 @@ import type { LaneSummary } from '../src/domain.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
-  projectSupportsPermission,
+  resolveCommandTarget,
   resolveOpenFilePath,
   supportsRouting,
+  targetSupportsPermission,
   writeConsentPrompt,
 } from '../src/extensionPolicy.js';
 
@@ -37,21 +38,40 @@ test('write access requires the host confirmation callback to approve it', async
     message: 'Enable edit access for Claude in Alpha?',
     options: {
       modal: true,
-      detail: 'The lane may modify files inside the discovered project repository. The consent and working directory will be recorded in the run receipt.',
+      detail: 'The lane may modify files inside the selected command target repository. The consent and working directory will be recorded in the run receipt.',
     },
     action: 'Enable edit access',
   });
 });
 
-test('routing gates lane state, seat, effort, permission, and repository-backed writes', () => {
+test('routing gates lane state, seat, effort, permission, and target-backed writes', () => {
   assert.equal(supportsRouting(lane, 'review', 'read', 'high'), true);
   assert.equal(supportsRouting({ ...lane, state: 'unavailable' }, 'review', 'read', 'high'), false);
   assert.equal(supportsRouting(lane, 'build', 'read', 'high'), false);
   assert.equal(supportsRouting(lane, 'review', 'write', 'high'), false);
   assert.equal(supportsRouting(lane, 'review', 'read', 'low'), false);
-  assert.equal(projectSupportsPermission('read', undefined), true);
-  assert.equal(projectSupportsPermission('write', undefined), false);
-  assert.equal(projectSupportsPermission('write', '/work/repo'), true);
+  const snapshot = {
+    rootPath: '/fleet/private',
+    projects: [{
+      id: 'alpha', name: 'Alpha', statePath: '/fleet/private/state/alpha', mission: '', pending: 0,
+      inProgress: 0, needsReview: 0, completed: 0, artifacts: [], repoPath: '/work/alpha',
+    }],
+  };
+  const general = resolveCommandTarget({ kind: 'general' }, snapshot);
+  const project = resolveCommandTarget({ kind: 'project', projectId: 'alpha' }, snapshot);
+  const { repoPath: _repoPath, ...stateOnlyProject } = snapshot.projects[0]!;
+  const stateOnly = resolveCommandTarget({ kind: 'project', projectId: 'state-only' }, {
+    ...snapshot,
+    projects: [{ ...stateOnlyProject, id: 'state-only' }],
+  });
+  assert.equal(general?.workingDirectory, '/fleet/private');
+  assert.deepEqual(general?.contextRoots, ['/fleet/private']);
+  assert.equal(project?.workingDirectory, '/work/alpha');
+  assert.equal(targetSupportsPermission('write', general as NonNullable<typeof general>), true);
+  assert.equal(targetSupportsPermission('write', project as NonNullable<typeof project>), true);
+  assert.equal(targetSupportsPermission('read', stateOnly as NonNullable<typeof stateOnly>), true);
+  assert.equal(targetSupportsPermission('write', stateOnly as NonNullable<typeof stateOnly>), false);
+  assert.equal(resolveCommandTarget({ kind: 'project', projectId: 'missing' }, snapshot), undefined);
 });
 
 test('open-file resolution refuses paths outside the registered allowlist', () => {

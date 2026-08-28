@@ -6,6 +6,10 @@ export type LaneState = 'available' | 'missing' | 'checking' | 'unavailable';
 
 export type PermissionMode = 'read' | 'write';
 
+export type CommandTarget =
+  | { kind: 'general' }
+  | { kind: 'project'; projectId: string };
+
 export type RunContinuity = 'new' | 'native' | 'transcript';
 
 export type EffortId = 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -128,7 +132,7 @@ export interface ConversationReceipt {
   laneName: string;
   seat: SeatId;
   effort: EffortId;
-  projectId: string;
+  target: CommandTarget;
   modelLabel: string;
   startedAt: number;
   finishedAt: number;
@@ -153,13 +157,13 @@ export interface ConversationContextItem {
 export interface Conversation {
   id: string;
   title: string;
-  projectId: string;
+  target: CommandTarget;
   laneId: LaneId;
   seat: SeatId;
   effort: EffortId;
   skillId?: string;
   permission: PermissionMode;
-  writeConsent?: { at: number; projectId: string };
+  writeConsent?: { at: number; target: CommandTarget };
   context: ConversationContextItem[];
   messages: ConversationMessage[];
   decisions: ConversationDecision[];

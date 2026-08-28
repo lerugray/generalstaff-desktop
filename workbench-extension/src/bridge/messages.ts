@@ -1,18 +1,18 @@
-import type { EffortId, LaneId, PermissionMode, SeatId } from '../domain.js';
+import type { CommandTarget, EffortId, LaneId, PermissionMode, SeatId } from '../domain.js';
 
 export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
-  | { type: 'new-conversation'; projectId: string; laneId: LaneId; seat: SeatId; effort: EffortId; permission: PermissionMode; skillId?: string; contextPaths: string[] }
+  | { type: 'new-conversation'; target: CommandTarget; laneId: LaneId; seat: SeatId; effort: EffortId; permission: PermissionMode; skillId?: string; contextPaths: string[] }
   | { type: 'update-routing'; conversationId: string; laneId: LaneId; seat: SeatId; effort: EffortId; permission: PermissionMode; skillId?: string }
   | { type: 'send-prompt'; conversationId: string; text: string }
   | { type: 'retry-run'; conversationId: string; strategy: 'auto' | 'transcript' }
   | { type: 'answer-decision'; conversationId: string; decisionId: string; optionId: string }
   | { type: 'stop-run'; conversationId: string }
   | { type: 'open-project'; projectId: string }
-  | { type: 'open-terminal'; projectId?: string }
+  | { type: 'open-terminal'; target?: CommandTarget }
   | { type: 'open-file'; path: string }
-  | { type: 'pick-context'; projectId: string }
+  | { type: 'pick-context'; target: CommandTarget }
   | { type: 'choose-root' }
   | { type: 'save-note'; projectId: string; text: string };
 
@@ -34,6 +34,15 @@ function optionalSkillId(value: unknown): string | undefined | false {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value) ? value : false;
 }
 
+function commandTarget(value: unknown): CommandTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === 'general' && Object.keys(value).length === 1) return { kind: 'general' };
+  if (value.kind === 'project' && isShortString(value.projectId, 160) && Object.keys(value).length === 2) {
+    return { kind: 'project', projectId: value.projectId };
+  }
+  return undefined;
+}
+
 export function parseWebviewMessage(value: unknown): WebviewMessage | undefined {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return undefined;
@@ -45,8 +54,9 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
       return { type: value.type };
     case 'new-conversation': {
       const skillId = optionalSkillId(value.skillId);
+      const target = commandTarget(value.target);
       if (
-        isShortString(value.projectId, 160) &&
+        target &&
         typeof value.laneId === 'string' &&
         laneIds.has(value.laneId as LaneId) &&
         typeof value.seat === 'string' &&
@@ -63,7 +73,7 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
         if (Array.isArray(value.contextPaths) && contextPaths.length !== value.contextPaths.length) return undefined;
         return {
           type: value.type,
-          projectId: value.projectId,
+          target,
           laneId: value.laneId as LaneId,
           seat: value.seat as SeatId,
           effort: value.effort as EffortId,
@@ -134,10 +144,10 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
       }
       return undefined;
     case 'open-terminal':
-      if (value.projectId === undefined || isShortString(value.projectId, 160)) {
-        return value.projectId === undefined
+      if (value.target === undefined || commandTarget(value.target)) {
+        return value.target === undefined
           ? { type: value.type }
-          : { type: value.type, projectId: value.projectId };
+          : { type: value.type, target: commandTarget(value.target) as CommandTarget };
       }
       return undefined;
     case 'open-file':
@@ -146,8 +156,8 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
       }
       return undefined;
     case 'pick-context':
-      if (isShortString(value.projectId, 160)) {
-        return { type: value.type, projectId: value.projectId };
+      if (commandTarget(value.target)) {
+        return { type: value.type, target: commandTarget(value.target) as CommandTarget };
       }
       return undefined;
     case 'choose-root':

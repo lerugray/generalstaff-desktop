@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A conversation-first command environment for directing a GeneralStaff fleet.",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -107,6 +107,7 @@
     "check": "npm run typecheck && node --check media/workbench.js && npm run test && npm run compile",
     "probe:codex-resume-boundary": "node --import tsx scripts/probe-codex-resume-boundary.ts",
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
+    "probe:general-command": "node --import tsx scripts/probe-general-command.ts",
     "package": "npx @vscode/vsce package --no-dependencies",
     "package:distribution": "npx @vscode/vsce package --no-dependencies --out ../distribution/generalstaff-workbench.vsix"
   },

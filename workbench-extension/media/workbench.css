@@ -368,6 +368,71 @@ select:focus-visible {
   background: linear-gradient(135deg, rgb(var(--accent-rgb) / 0.21), rgb(var(--accent-rgb) / 0.08));
 }
 
+.general-command-target {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0 14px 8px;
+  padding: 8px 9px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 8px;
+  background: rgb(var(--accent-rgb) / 0.035);
+  color: var(--paper-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.general-command-target:hover,
+.general-command-target.selected {
+  border-color: rgb(var(--accent-rgb) / 0.5);
+  background: rgb(var(--accent-rgb) / 0.09);
+  color: var(--paper);
+}
+
+.general-command-target.selected {
+  box-shadow: inset 2px 0 var(--brass);
+}
+
+.general-command-mark {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid rgb(var(--accent-rgb) / 0.36);
+  border-radius: 7px;
+  color: var(--brass-pale);
+  font-family: Georgia, serif;
+  font-size: 8px;
+}
+
+.general-command-target strong,
+.general-command-target small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.general-command-target strong {
+  font-size: 11px;
+  font-weight: 570;
+}
+
+.general-command-target small {
+  margin-top: 2px;
+  color: var(--paper-faint);
+  font-size: 8px;
+}
+
+.pinned-label {
+  color: var(--brass);
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .rail-nav {
   min-height: 0;
   flex: 1;
@@ -1020,6 +1085,11 @@ select:focus-visible {
 
 .meta-chips .skill-chip {
   border-color: rgb(var(--accent-rgb) / 0.3);
+  color: var(--brass-pale);
+}
+
+.meta-chips .root-chip {
+  border-color: rgb(var(--accent-rgb) / 0.28);
   color: var(--brass-pale);
 }
 

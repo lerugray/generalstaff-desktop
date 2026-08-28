@@ -19,7 +19,7 @@ class MemoryMemento {
 test('conversation state survives a new store instance', async () => {
   const memory = new MemoryMemento();
   const first = new ConversationStore(memory);
-  const conversation = await first.create('generalstaff', 'codex', 'orchestrate', 'default', 'read');
+  const conversation = await first.create({ kind: 'project', projectId: 'generalstaff' }, 'codex', 'orchestrate', 'default', 'read');
   const updated = await first.append(conversation.id, { role: 'user', text: 'Carry this context forward.', status: 'complete' });
   assert.equal(updated?.title, 'Carry this context forward.');
 
@@ -33,7 +33,7 @@ test('conversation state survives a new store instance', async () => {
 test('provider sessions remain host-only and are scoped to lane, runner, permission, and directory', async () => {
   const memory = new MemoryMemento();
   const first = new ConversationStore(memory);
-  const conversation = await first.create('generalstaff', 'codex', 'orchestrate', 'default', 'read');
+  const conversation = await first.create({ kind: 'project', projectId: 'generalstaff' }, 'codex', 'orchestrate', 'default', 'read');
   const sessionId = '01a046d5-26b6-7813-bf9b-9c7321080a0f';
   await first.setProviderSession(conversation.id, 'codex', 'codex', 'read', undefined, '/work/repo', sessionId);
   assert.equal(first.providerSession(conversation.id, 'codex', 'codex', 'read', undefined, '/work/repo'), sessionId);
@@ -70,7 +70,8 @@ test('legacy provider sessions without a runner fail closed to transcript contin
 test('skill routing persists and scopes native provider continuity', async () => {
   const memory = new MemoryMemento();
   const store = new ConversationStore(memory);
-  const conversation = await store.create('generalstaff', 'codex', 'orchestrate', 'high', 'read', 'audit');
+  const conversation = await store.create({ kind: 'general' }, 'codex', 'orchestrate', 'high', 'read', 'audit');
+  assert.deepEqual(conversation.target, { kind: 'general' });
   assert.equal(conversation.skillId, 'audit');
   await store.setProviderSession(conversation.id, 'codex', 'codex', 'read', 'audit', '/work/repo', 'session_audit_1234');
   assert.equal(store.providerSession(conversation.id, 'codex', 'codex', 'read', 'audit', '/work/repo'), 'session_audit_1234');
@@ -95,6 +96,7 @@ test('interrupted streaming messages reopen as explicit recoverable errors', asy
     updatedAt: 1,
   }]);
   const restored = new ConversationStore(memory).get('conversation-one');
+  assert.deepEqual(restored?.target, { kind: 'project', projectId: 'generalstaff' });
   assert.equal(restored?.messages[0]?.status, 'error');
   assert.match(restored?.messages[0]?.text ?? '', /closed before this run completed/);
 });
@@ -102,7 +104,7 @@ test('interrupted streaming messages reopen as explicit recoverable errors', asy
 test('decision answers are validated and persisted once', async () => {
   const memory = new MemoryMemento();
   const store = new ConversationStore(memory);
-  const conversation = await store.create('generalstaff', 'codex', 'orchestrate', 'default', 'read');
+  const conversation = await store.create({ kind: 'project', projectId: 'generalstaff' }, 'codex', 'orchestrate', 'default', 'read');
   await store.addDecisions(conversation.id, [{
     id: 'decision-one',
     messageId: 'assistant-one',

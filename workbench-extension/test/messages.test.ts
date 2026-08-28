@@ -6,7 +6,7 @@ test('accepts a bounded command request', () => {
   assert.deepEqual(
     parseWebviewMessage({
       type: 'new-conversation',
-      projectId: 'generalstaff',
+      target: { kind: 'general' },
       laneId: 'codex',
       seat: 'orchestrate',
       effort: 'high',
@@ -16,7 +16,7 @@ test('accepts a bounded command request', () => {
     }),
     {
       type: 'new-conversation',
-      projectId: 'generalstaff',
+      target: { kind: 'general' },
       laneId: 'codex',
       seat: 'orchestrate',
       effort: 'high',
@@ -29,11 +29,11 @@ test('accepts a bounded command request', () => {
 
 test('rejects unknown lanes, seats, and oversized prompts', () => {
   assert.equal(
-    parseWebviewMessage({ type: 'new-conversation', projectId: 'generalstaff', laneId: 'mystery', seat: 'build', permission: 'read' }),
+    parseWebviewMessage({ type: 'new-conversation', target: { kind: 'general' }, laneId: 'mystery', seat: 'build', permission: 'read' }),
     undefined,
   );
   assert.equal(
-    parseWebviewMessage({ type: 'new-conversation', projectId: 'generalstaff', laneId: 'codex', seat: 'root', permission: 'read' }),
+    parseWebviewMessage({ type: 'new-conversation', target: { kind: 'general' }, laneId: 'codex', seat: 'root', permission: 'read' }),
     undefined,
   );
   assert.equal(
@@ -41,11 +41,34 @@ test('rejects unknown lanes, seats, and oversized prompts', () => {
     undefined,
   );
   assert.equal(
-    parseWebviewMessage({ type: 'new-conversation', projectId: 'generalstaff', laneId: 'codex', seat: 'build', effort: 'infinite', permission: 'read' }),
+    parseWebviewMessage({ type: 'new-conversation', target: { kind: 'general' }, laneId: 'codex', seat: 'build', effort: 'infinite', permission: 'read' }),
     undefined,
   );
   assert.equal(
-    parseWebviewMessage({ type: 'new-conversation', projectId: 'generalstaff', laneId: 'codex', seat: 'build', effort: 'high', permission: 'read', skillId: '../audit' }),
+    parseWebviewMessage({ type: 'new-conversation', target: { kind: 'general' }, laneId: 'codex', seat: 'build', effort: 'high', permission: 'read', skillId: '../audit' }),
+    undefined,
+  );
+});
+
+test('accepts first-class project targets and rejects target-shaped extras', () => {
+  const projectMessage = parseWebviewMessage({
+    type: 'new-conversation',
+    target: { kind: 'project', projectId: 'alpha' },
+    laneId: 'codex',
+    seat: 'build',
+    effort: 'high',
+    permission: 'write',
+    contextPaths: [],
+  });
+  assert.equal(projectMessage?.type, 'new-conversation');
+  assert.deepEqual(projectMessage && 'target' in projectMessage ? projectMessage.target : undefined, {
+    kind: 'project', projectId: 'alpha',
+  });
+  assert.equal(
+    parseWebviewMessage({
+      type: 'new-conversation', target: { kind: 'general', projectId: 'spoof' }, laneId: 'codex',
+      seat: 'orchestrate', effort: 'high', permission: 'read', contextPaths: [],
+    }),
     undefined,
   );
 });

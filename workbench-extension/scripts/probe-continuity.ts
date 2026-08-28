@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     const run = runCliAdapter(
       {
         conversationId: 'continuity-probe',
-        projectId: 'continuity-probe',
+        target: { kind: 'general' },
         cwd,
         lane,
         seat,

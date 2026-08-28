@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as readline from 'node:readline';
 import type {
   ConversationReceipt,
+  CommandTarget,
   EffortId,
   LaneId,
   LaneSummary,
@@ -17,7 +18,7 @@ import { processInvocation } from '../services/processInvocation.js';
 
 export interface RunRequest {
   conversationId: string;
-  projectId: string;
+  target: CommandTarget;
   cwd: string;
   lane: LaneSummary;
   seat: SeatId;
@@ -129,7 +130,7 @@ function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string)
     verify:
       'Verify only. Re-run the relevant checks and compare claims with primary evidence. Do not alter product files unless the user explicitly asks for a fix.',
     assist:
-      'Provide a concise, practical answer grounded in the selected project. Do not expand the scope without asking.',
+      'Provide a concise, practical answer grounded in the selected command target. Do not expand the scope without asking.',
   };
   const permissionBoundary = permission === 'write'
     ? 'The operator explicitly enabled repository edits for this run. Keep changes inside the selected repository and remain within the request.'
@@ -564,7 +565,7 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
         laneId: request.lane.id,
         laneName: request.lane.name,
         seat: request.seat,
-        projectId: request.projectId,
+        target: request.target,
         modelLabel: observedModel
           ? `${observedModel} · ${effortLabel(invocation.effort)}`
           : invocation.label,

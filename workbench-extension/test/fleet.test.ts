@@ -3,7 +3,26 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
-import { scanFleet } from '../src/services/fleet.js';
+import { resolveGeneralStaffRoot, scanFleet } from '../src/services/fleet.js';
+
+test('an explicit GENERALSTAFF_ROOT wins and must contain state', async (context) => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'gs-workbench-root-test-'));
+  context.after(async () => fs.rm(temporary, { recursive: true, force: true }));
+  const environmentRoot = path.join(temporary, 'environment-root');
+  const configuredRoot = path.join(temporary, 'configured-root');
+  await fs.mkdir(path.join(environmentRoot, 'state'), { recursive: true });
+  await fs.mkdir(path.join(configuredRoot, 'state'), { recursive: true });
+  const previous = process.env.GENERALSTAFF_ROOT;
+  process.env.GENERALSTAFF_ROOT = environmentRoot;
+  context.after(() => {
+    if (previous === undefined) delete process.env.GENERALSTAFF_ROOT;
+    else process.env.GENERALSTAFF_ROOT = previous;
+  });
+
+  assert.equal(await resolveGeneralStaffRoot(configuredRoot), environmentRoot);
+  process.env.GENERALSTAFF_ROOT = path.join(temporary, 'missing-root');
+  assert.equal(await resolveGeneralStaffRoot(configuredRoot), configuredRoot);
+});
 
 test('builds a fleet snapshot from canonical GeneralStaff state', async (context) => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'gs-workbench-test-'));

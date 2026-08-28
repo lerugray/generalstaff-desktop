@@ -6,6 +6,7 @@ import type {
   ConversationDecision,
   ConversationMessage,
   ConversationReceipt,
+  CommandTarget,
   EffortId,
   LaneId,
   PermissionMode,
@@ -26,6 +27,20 @@ interface ProviderSession {
   updatedAt: number;
 }
 
+type StoredConversation = Omit<Conversation, 'target' | 'writeConsent'> & {
+  target?: CommandTarget;
+  projectId?: string;
+  writeConsent?: { at: number; target?: CommandTarget; projectId?: string };
+};
+
+function restoredTarget(conversation: StoredConversation): CommandTarget {
+  if (conversation.target?.kind === 'general') return { kind: 'general' };
+  if (conversation.target?.kind === 'project' && conversation.target.projectId) {
+    return { kind: 'project', projectId: conversation.target.projectId };
+  }
+  return { kind: 'project', projectId: conversation.projectId ?? 'unavailable-project' };
+}
+
 type ProviderSessionMap = Record<string, Partial<Record<LaneId, ProviderSession>>>;
 
 export class ConversationStore {
@@ -34,24 +49,30 @@ export class ConversationStore {
 
   constructor(private readonly state: vscode.Memento) {
     let recoveredInterruptedRun = false;
-    this.conversations = state.get<Conversation[]>(storageKey, []).map((conversation) => ({
-      ...conversation,
-      permission: conversation.permission ?? 'read',
-      effort: conversation.effort ?? 'default',
-      context: conversation.context ?? [],
-      decisions: conversation.decisions ?? [],
-      messages: (conversation.messages ?? []).map((message) => {
-        if (message.status !== 'streaming') return message;
-        recoveredInterruptedRun = true;
-        return {
-          ...message,
-          text: message.text.trim()
-            ? `${message.text}\n\nThe Workbench closed before this run completed.`
-            : 'The Workbench closed before this run completed.',
-          status: 'error' as const,
-        };
-      }),
-    }));
+    this.conversations = state.get<StoredConversation[]>(storageKey, []).map((stored) => {
+      const { projectId: _legacyProjectId, writeConsent, ...conversation } = stored;
+      const target = restoredTarget(stored);
+      return {
+        ...conversation,
+        target,
+        ...(writeConsent ? { writeConsent: { at: writeConsent.at, target } } : {}),
+        permission: conversation.permission ?? 'read',
+        effort: conversation.effort ?? 'default',
+        context: conversation.context ?? [],
+        decisions: conversation.decisions ?? [],
+        messages: (conversation.messages ?? []).map((message) => {
+          if (message.status !== 'streaming') return message;
+          recoveredInterruptedRun = true;
+          return {
+            ...message,
+            text: message.text.trim()
+              ? `${message.text}\n\nThe Workbench closed before this run completed.`
+              : 'The Workbench closed before this run completed.',
+            status: 'error' as const,
+          };
+        }),
+      };
+    });
     this.providerSessions = state.get<ProviderSessionMap>(providerStorageKey, {});
     if (recoveredInterruptedRun) void this.persist();
   }
@@ -65,7 +86,7 @@ export class ConversationStore {
   }
 
   async create(
-    projectId: string,
+    target: CommandTarget,
     laneId: LaneId,
     seat: SeatId,
     effort: EffortId,
@@ -77,13 +98,13 @@ export class ConversationStore {
     const conversation: Conversation = {
       id: crypto.randomUUID(),
       title: 'New command',
-      projectId,
+      target,
       laneId,
       seat,
       effort,
       ...(skillId ? { skillId } : {}),
       permission,
-      ...(permission === 'write' ? { writeConsent: { at: now, projectId } } : {}),
+      ...(permission === 'write' ? { writeConsent: { at: now, target } } : {}),
       context,
       messages: [],
       decisions: [],
@@ -228,7 +249,7 @@ export class ConversationStore {
     if (skillId) conversation.skillId = skillId;
     else delete conversation.skillId;
     conversation.permission = permission;
-    if (permission === 'write') conversation.writeConsent = { at: Date.now(), projectId: conversation.projectId };
+    if (permission === 'write') conversation.writeConsent = { at: Date.now(), target: conversation.target };
     else delete conversation.writeConsent;
     conversation.updatedAt = Date.now();
     await this.persist();

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { runCliAdapter, supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
-import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, RunContinuity } from './domain.js';
+import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
@@ -103,9 +103,14 @@ class CommandDeckPanel {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const rootPath = await resolveGeneralStaffRoot(configured, workspaceRoot);
       this.snapshot = await scanFleet(rootPath, this.privateRuntimeOptions());
-      const lane = this.snapshot.lanes.find(
-        (item) => item.state === 'available' && item.roles.includes('orchestrate') && item.permissions.includes('read'),
-      ) ?? this.snapshot.lanes.find((item) => item.id === 'codex') ?? this.snapshot.lanes[0];
+      const orchestratorReady = (item: LaneSummary) =>
+        item.state === 'available' && item.roles.includes('orchestrate') && item.permissions.includes('read');
+      // Operator ruling 2026-08-28: the orchestrator session defaults to the Claude Fable
+      // seat when it is available; other lanes remain explicit picks.
+      const lane = this.snapshot.lanes.find((item) => item.id === 'claude' && orchestratorReady(item))
+        ?? this.snapshot.lanes.find(orchestratorReady)
+        ?? this.snapshot.lanes.find((item) => item.id === 'claude')
+        ?? this.snapshot.lanes[0];
       if (!lane) throw new Error('No model lanes are configured for the orchestrator session.');
       await this.orchestrator.ensure({
         laneId: lane.id,

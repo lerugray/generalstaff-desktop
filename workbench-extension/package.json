@@ -1,8 +1,8 @@
 {
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
-  "description": "A conversation-first command environment for directing a GeneralStaff fleet.",
-  "version": "0.3.0",
+  "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
+  "version": "0.4.0",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -36,7 +36,7 @@
       },
       {
         "command": "generalstaff.newConversation",
-        "title": "GeneralStaff: New Conversation",
+        "title": "GeneralStaff: Focus Orchestrator Session",
         "category": "GeneralStaff"
       },
       {

@@ -126,18 +126,30 @@
         persisted.selectedLaneId = 'codex';
         persisted.selectedSeat = 'verify';
       }
+      const orchestratorSession = {
+        id: 'orchestrator-session', kind: 'orchestrator', title: 'Orchestrator session', target: { kind: 'general' }, laneId: 'codex', seat: 'orchestrate', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 3600000, updatedAt: now - 60000,
+        messages: [
+          { id: 'orchestrator-user', role: 'user', text: 'Catch me up on the fleet before we dispatch today.', status: 'complete', createdAt: now - 65000 },
+          { id: 'orchestrator-assistant', role: 'assistant', text: 'The fleet is grounded. Two projects are active, one review needs your ruling, and no destructive action is pending.', status: 'complete', createdAt: now - 60000 },
+        ],
+      };
+      conversations = [orchestratorSession, ...conversations.map((conversation) => ({ kind: 'command', ...conversation }))];
       window.acquireVsCodeApi = () => ({
         getState: () => persisted,
         setState: (value) => { persisted = value; },
         postMessage: (message) => {
           if (message.type === 'ready' || message.type === 'refresh') {
-            setTimeout(() => window.postMessage({ type: 'state', snapshot, conversations, notes }, '*'), 10);
+            setTimeout(() => window.postMessage({ type: 'state', snapshot, conversations, orchestratorSessionId: orchestratorSession.id, notes }, '*'), 10);
+            if (mode) {
+              const selected = conversations.find((conversation) => conversation.id === `${mode}-conversation`);
+              if (selected) setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation: selected }, '*'), 25);
+            }
             if (mode === 'active') {
               setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'status', text: 'Comparing claims with the packaged artifact' } }, '*'), 35);
             }
           }
           if (message.type === 'new-conversation') {
-            const conversation = { id: `c-${Date.now()}`, title: 'New command', target: message.target, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
+            const conversation = { id: `c-${Date.now()}`, kind: 'command', title: 'New command', target: message.target, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
             conversations = [conversation, ...conversations];
             setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation }, '*'), 10);
           }

@@ -156,6 +156,7 @@ export interface ConversationContextItem {
 
 export interface Conversation {
   id: string;
+  kind: 'orchestrator' | 'command';
   title: string;
   target: CommandTarget;
   laneId: LaneId;

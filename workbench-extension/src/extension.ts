@@ -18,6 +18,7 @@ import { ConversationStore } from './services/conversations.js';
 import { extractDecisionCards } from './services/decisions.js';
 import { resolveGeneralStaffRoot, scanFleet } from './services/fleet.js';
 import { ProjectNoteStore } from './services/notes.js';
+import { OrchestratorSessionManager } from './services/orchestratorSession.js';
 import { PreviewServer } from './services/previewServer.js';
 import {
   discoverPrivateRuntime,
@@ -39,6 +40,7 @@ class CommandDeckPanel {
   static current: CommandDeckPanel | undefined;
 
   private readonly store: ConversationStore;
+  private readonly orchestrator: OrchestratorSessionManager;
   private readonly notes: ProjectNoteStore;
   private readonly preview = new PreviewServer();
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -51,6 +53,7 @@ class CommandDeckPanel {
     private readonly context: vscode.ExtensionContext,
   ) {
     this.store = new ConversationStore(context.globalState);
+    this.orchestrator = new OrchestratorSessionManager(context.globalState, this.store);
     this.notes = new ProjectNoteStore(context.globalState);
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, context.subscriptions);
@@ -100,6 +103,18 @@ class CommandDeckPanel {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const rootPath = await resolveGeneralStaffRoot(configured, workspaceRoot);
       this.snapshot = await scanFleet(rootPath, this.privateRuntimeOptions());
+      const lane = this.snapshot.lanes.find(
+        (item) => item.state === 'available' && item.roles.includes('orchestrate') && item.permissions.includes('read'),
+      ) ?? this.snapshot.lanes.find((item) => item.id === 'codex') ?? this.snapshot.lanes[0];
+      if (!lane) throw new Error('No model lanes are configured for the orchestrator session.');
+      await this.orchestrator.ensure({
+        laneId: lane.id,
+        effort: lane.defaultEffort,
+        permission: 'read',
+        compatibleLaneIds: this.snapshot.lanes
+          .filter((item) => item.state === 'available' && item.roles.includes('orchestrate'))
+          .map((item) => item.id),
+      });
       await this.postState();
     } catch (error) {
       await this.notice(error instanceof Error ? error.message : 'GeneralStaff could not refresh its project state.', 'error');
@@ -117,6 +132,7 @@ class CommandDeckPanel {
       type: 'state',
       snapshot: this.snapshot,
       conversations: this.store.all(),
+      orchestratorSessionId: this.orchestrator.current()?.id,
       notes: this.notes.all(),
     });
   }
@@ -140,6 +156,11 @@ class CommandDeckPanel {
 
     switch (message.type) {
       case 'new-conversation': {
+        if (message.target.kind === 'general') {
+          const session = this.orchestrator.current();
+          if (session) await this.panel.webview.postMessage({ type: 'conversation-selected', conversation: session });
+          return;
+        }
         const target = resolveCommandTarget(message.target, this.snapshot);
         const lane = this.snapshot.lanes.find((item) => item.id === message.laneId);
         const skill = message.skillId ? this.snapshot.skills.find((item) => item.id === message.skillId) : undefined;
@@ -187,6 +208,10 @@ class CommandDeckPanel {
           return;
         }
         const conversation = this.store.get(message.conversationId);
+        if (conversation?.kind === 'orchestrator' && message.seat !== 'orchestrate') {
+          await this.notice('The persistent GeneralStaff session always uses the orchestrator seat.', 'error');
+          return;
+        }
         const target = conversation ? resolveCommandTarget(conversation.target, this.snapshot) : undefined;
         const lane = this.snapshot.lanes.find((item) => item.id === message.laneId);
         const skill = message.skillId ? this.snapshot.skills.find((item) => item.id === message.skillId) : undefined;
@@ -325,21 +350,27 @@ class CommandDeckPanel {
     const contextBlock = selectedContext
       ? `\n\nLocal context explicitly selected by the operator:\n${selectedContext}`
       : '';
-    const providerSessionId = !options.forceTranscript && supportsNativeResume(lane.id) && conversation.receipt?.laneId === lane.id
-      ? this.store.providerSession(conversationId, lane.id, lane.runner, conversation.permission, skillId, cwd)
+    const orchestratorContinuity = conversation.kind === 'orchestrator'
+      ? this.orchestrator.continuationFor(conversation, lane.runner, skillId, cwd, options.forceTranscript)
       : undefined;
-    const continuity: RunContinuity = providerSessionId
+    const handoffContext = orchestratorContinuity?.transcript ?? priorContext;
+    const providerSessionId = orchestratorContinuity?.providerSessionId ?? (
+      !options.forceTranscript && supportsNativeResume(lane.id) && conversation.receipt?.laneId === lane.id
+        ? this.store.providerSession(conversationId, lane.id, lane.runner, conversation.permission, skillId, cwd)
+        : undefined
+    );
+    const continuity: RunContinuity = orchestratorContinuity?.continuity ?? (providerSessionId
       ? 'native'
       : priorContext
         ? 'transcript'
-        : 'new';
+        : 'new');
     const laneRequest = invocation.laneText;
     const lanePrompt = continuity === 'native'
       ? options.retry
         ? `Retry the latest operator request. The previous attempt did not complete cleanly. Continue from the provider session, avoid repeating finished work, and report what you verified.\n\nOriginal operator request:\n${laneRequest}`
         : laneRequest
-      : priorContext
-        ? `Continue this existing Workbench conversation using the transcript handoff below. Treat the newest operator request as authoritative.\n\nTranscript:\n${priorContext}\n\nNewest operator request:\n${laneRequest}`
+      : handoffContext
+        ? `Continue this existing Workbench conversation using the transcript handoff below. Treat the newest operator request as authoritative.\n\nTranscript:\n${handoffContext}\n\nNewest operator request:\n${laneRequest}`
         : laneRequest;
 
     let skillBlock = '';

@@ -1,5 +1,7 @@
 # Workbench 2.4 General Command note
 
+> **Superseded on 2026-08-28 by Workbench 2.5.** This release made the private root a command target but retained the per-project, one-command-at-a-time interaction model. Workbench 2.5 replaces that General surface with one persistent orchestrator session; see `GS-WORKBENCH-V2.5-ORCHESTRATOR-SESSION-NOTE.md`. The project-order flow remains unchanged.
+
 Date: 2026-08-28  
 Extension: `lerugray.generalstaff-workbench` 0.3.0
 

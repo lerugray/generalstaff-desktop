@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   );
   const completion = await run.completed;
   const cwdEvidence = completion.receipt.evidence
-    .filter((line) => /(?:\"cwd\"|\bpwd\b|CLI run started)/iu.test(line))
+    .filter((line) => /(?:"cwd"|\bpwd\b|CLI run started)/iu.test(line))
     .slice(0, 12);
   process.stdout.write(`${JSON.stringify({
     output: output.trim(),

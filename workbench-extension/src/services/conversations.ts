@@ -54,6 +54,7 @@ export class ConversationStore {
       const target = restoredTarget(stored);
       return {
         ...conversation,
+        kind: conversation.kind ?? 'command',
         target,
         ...(writeConsent ? { writeConsent: { at: writeConsent.at, target } } : {}),
         permission: conversation.permission ?? 'read',
@@ -97,6 +98,7 @@ export class ConversationStore {
     const now = Date.now();
     const conversation: Conversation = {
       id: crypto.randomUUID(),
+      kind: 'command',
       title: 'New command',
       target,
       laneId,
@@ -112,6 +114,45 @@ export class ConversationStore {
       updatedAt: now,
     };
     this.conversations.unshift(conversation);
+    await this.persist();
+    return conversation;
+  }
+
+  async createOrchestrator(
+    laneId: LaneId,
+    effort: EffortId,
+    permission: PermissionMode = 'read',
+  ): Promise<Conversation> {
+    const now = Date.now();
+    const target: CommandTarget = { kind: 'general' };
+    const conversation: Conversation = {
+      id: crypto.randomUUID(),
+      kind: 'orchestrator',
+      title: 'Orchestrator session',
+      target,
+      laneId,
+      seat: 'orchestrate',
+      effort,
+      permission,
+      ...(permission === 'write' ? { writeConsent: { at: now, target } } : {}),
+      context: [],
+      messages: [],
+      decisions: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.conversations.unshift(conversation);
+    await this.persist();
+    return conversation;
+  }
+
+  async promoteToOrchestrator(id: string): Promise<Conversation | undefined> {
+    const conversation = this.get(id);
+    if (!conversation || conversation.target.kind !== 'general') return undefined;
+    conversation.kind = 'orchestrator';
+    conversation.title = 'Orchestrator session';
+    conversation.seat = 'orchestrate';
+    conversation.updatedAt = Date.now();
     await this.persist();
     return conversation;
   }
@@ -257,9 +298,11 @@ export class ConversationStore {
   }
 
   private async persist(): Promise<void> {
-    this.conversations = this.conversations
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, maxConversations);
+    const sorted = this.conversations.sort((a, b) => b.updatedAt - a.updatedAt);
+    const orchestrator = sorted.find((conversation) => conversation.kind === 'orchestrator');
+    this.conversations = orchestrator
+      ? [orchestrator, ...sorted.filter((conversation) => conversation.id !== orchestrator.id).slice(0, maxConversations - 1)]
+      : sorted.slice(0, maxConversations);
     await this.state.update(storageKey, this.conversations);
     const retained = new Set(this.conversations.map((conversation) => conversation.id));
     for (const conversationId of Object.keys(this.providerSessions)) {

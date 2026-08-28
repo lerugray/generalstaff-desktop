@@ -17,6 +17,8 @@
   const state = {
     snapshot: null,
     conversations: [],
+    orchestratorSessionId: null,
+    hydrated: false,
     notes: {},
     activeConversationId: null,
     selectedTargetKind: 'general',
@@ -118,6 +120,22 @@
     return state.conversations.find((conversation) => conversation.id === state.activeConversationId);
   }
 
+  function selectOrchestratorSession(clearDraft = false) {
+    state.activeConversationId = state.orchestratorSessionId;
+    state.selectedTargetKind = 'general';
+    state.selectedProjectId = null;
+    state.pendingContext = [];
+    const session = currentConversation();
+    if (session) {
+      state.selectedLaneId = session.laneId;
+      state.selectedSeat = session.seat;
+      state.selectedEffort = session.effort || 'default';
+      state.selectedSkillId = session.skillId || '';
+      state.selectedPermission = session.permission || 'read';
+    }
+    if (clearDraft) state.draft = '';
+  }
+
   function compatibleLanes() {
     return (state.snapshot?.lanes || []).filter(
       (lane) => lane.state === 'available' && lane.roles.includes(state.selectedSeat) &&
@@ -170,16 +188,15 @@
       <aside class="rail">
         <div class="brand">
           <div class="brand-mark"><span>G</span><span>S</span></div>
-          <div><strong>GeneralStaff</strong><small>Workbench 2.4</small></div>
+          <div><strong>GeneralStaff</strong><small>Workbench 2.5</small></div>
         </div>
-        <button class="new-command" data-action="new-command"><span>+</span> New command <kbd>⌘ N</kbd></button>
-        <button class="general-command-target ${state.selectedTargetKind === 'general' && !state.activeConversationId ? 'selected' : ''}" data-action="general-command">
+        <button class="general-command-target ${state.activeConversationId === state.orchestratorSessionId ? 'selected' : ''}" data-action="general-command">
           <span class="general-command-mark">GS</span>
-          <span><strong>General Staff</strong><small>Orchestrator · private root</small></span>
-          <span class="pinned-label">Pinned</span>
+          <span><strong>Orchestrator session</strong><small><i class="session-live-dot"></i> Live seat · private root</small></span>
+          <span class="pinned-label">Primary</span>
         </button>
         <nav class="rail-nav" aria-label="Workbench">
-          <div class="rail-label"><span>Projects</span><span>${projects.length}</span></div>
+          <div class="rail-label"><span>Project commands</span><span>${projects.length}</span></div>
           <div class="project-list">
             ${projects
               .map(
@@ -192,9 +209,10 @@
               )
               .join('')}
           </div>
-          <div class="rail-label"><span>Recent commands</span></div>
+          <div class="rail-label"><span>Recent project orders</span></div>
           <div class="conversation-list">
             ${state.conversations
+              .filter((conversation) => conversation.target?.kind === 'project')
               .slice(0, 7)
               .map(
                 (conversation) => `
@@ -202,7 +220,7 @@
                     <span>${escapeHtml(conversation.title)}</span><small>${formatWhen(conversation.updatedAt)}</small>
                   </button>`,
               )
-              .join('') || '<p class="empty-rail">Your commands will collect here.</p>'}
+              .join('') || '<p class="empty-rail">Project orders will collect here.</p>'}
           </div>
         </nav>
         <div class="theme-picker">
@@ -233,7 +251,8 @@
   }
 
   function renderSeatSelect() {
-    const disabled = currentConversation() && state.runStatus[currentConversation().id];
+    const active = currentConversation();
+    const disabled = active?.kind === 'orchestrator' || (active && state.runStatus[active.id]);
     return `
       <label class="select-field">
         <span>Seat</span>
@@ -301,23 +320,24 @@
     const general = state.selectedTargetKind === 'general';
     const seat = seatCopy[state.selectedSeat];
     const active = currentConversation();
+    const orchestrator = active?.kind === 'orchestrator' || (general && state.activeConversationId === state.orchestratorSessionId);
     const running = Boolean(active && state.runStatus[active.id]);
     return `
       <section class="composer ${compact ? 'compact' : ''}">
         <div class="composer-heading">
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
-          <div><strong>${general ? 'General Command' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${general ? 'Runs from the private GeneralStaff root with its orchestrator context.' : escapeHtml(seat?.[1] || '')}</small></div>
+          <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${orchestrator ? 'One continuous GeneralStaff seat rooted in the private repository.' : escapeHtml(seat?.[1] || '')}</small></div>
         </div>
         ${!compact ? `<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>` : ''}
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
-        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="Tell GeneralStaff what outcome you want…" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
+        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
           <div class="composer-selects">${renderSeatSelect()}${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
           <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
-            <span>Issue command</span><span class="send-arrow">↑</span>
+            <span>${orchestrator ? 'Send' : 'Issue order'}</span><span class="send-arrow">↑</span>
           </button>
         </div>
       </section>`;
@@ -536,25 +556,30 @@
   }
 
   function renderConversation() {
-    const conversation = currentConversation();
+    let conversation = currentConversation();
+    if (!conversation && state.selectedTargetKind === 'general' && state.orchestratorSessionId) {
+      state.activeConversationId = state.orchestratorSessionId;
+      conversation = currentConversation();
+    }
     if (!conversation) return renderDashboard();
     const project = conversationProject(conversation);
     const general = conversation.target?.kind === 'general';
+    const orchestrator = conversation.kind === 'orchestrator';
     const lane = state.snapshot?.lanes.find((item) => item.id === conversation.laneId);
     const run = state.runStatus[conversation.id];
     const contextItems = conversation.context || [];
     return `
       <main class="main conversation-main">
-        ${renderTopbar(conversation.title, `${escapeHtml(general ? 'General Staff — orchestrator' : project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
+        ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? 'GENERAL STAFF · LIVE COMMAND SEAT' : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
         <div class="conversation-shell">
           <div class="conversation-meta">
-            <button class="back-button" data-action="dashboard">← ${general ? 'General Command' : 'Project Command'}</button>
+            ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
               <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
               <span>${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
-              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">Private root</span>'}
+              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
             </div>
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
@@ -568,7 +593,7 @@
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
               )
-              .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>What outcome are we commanding?</h2><p>The selected lane runs from ${general ? 'the private GeneralStaff root' : 'the project repository'} with the chosen seat and your plain-English request.</p></div>`}
+              .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>${orchestrator ? 'The orchestrator seat is ready.' : 'What project outcome are we ordering?'}</h2><p>${orchestrator ? 'Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.' : 'This project order runs from the selected repository with its own bounded conversation.'}</p></div>`}
             ${renderReceipt(conversation)}
             ${renderRecovery(conversation, Boolean(run))}
           </section>
@@ -620,7 +645,11 @@
     const prompt = document.getElementById('prompt');
     const text = prompt?.value.trim();
     if (!text || !state.snapshot?.rootPath || !state.selectedLaneId) return;
-    const conversation = currentConversation();
+    let conversation = currentConversation();
+    if (!conversation && state.selectedTargetKind === 'general' && state.orchestratorSessionId) {
+      state.activeConversationId = state.orchestratorSessionId;
+      conversation = currentConversation();
+    }
     if (conversation) {
       if (state.runStatus[conversation.id] || state.pendingSend) return;
       state.pendingSend = { conversationId: conversation.id, text };
@@ -698,23 +727,18 @@
       }
       render();
     } else if (action === 'dashboard') {
+      const projectId = currentConversation()?.target?.projectId || state.selectedProjectId;
       state.activeConversationId = null;
-      state.selectedTargetKind = 'general';
+      state.selectedTargetKind = projectId ? 'project' : 'general';
+      state.selectedProjectId = projectId || null;
       state.selectedPermission = 'read';
       render();
     } else if (action === 'general-command') {
-      state.activeConversationId = null;
-      state.selectedTargetKind = 'general';
-      state.pendingContext = [];
-      state.selectedPermission = 'read';
+      selectOrchestratorSession();
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     } else if (action === 'new-command') {
-      state.activeConversationId = null;
-      state.selectedTargetKind = 'general';
-      state.pendingContext = [];
-      state.selectedPermission = 'read';
-      state.draft = '';
+      selectOrchestratorSession(true);
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     } else if (action === 'send') {
@@ -840,6 +864,20 @@
     if (message.type === 'state') {
       state.snapshot = message.snapshot;
       state.conversations = message.conversations || [];
+      state.orchestratorSessionId = message.orchestratorSessionId || null;
+      if (!state.hydrated) {
+        state.activeConversationId = state.orchestratorSessionId;
+        state.selectedTargetKind = 'general';
+        const session = state.conversations.find((item) => item.id === state.orchestratorSessionId);
+        if (session) {
+          state.selectedLaneId = session.laneId;
+          state.selectedSeat = session.seat;
+          state.selectedEffort = session.effort || 'default';
+          state.selectedSkillId = session.skillId || '';
+          state.selectedPermission = session.permission || 'read';
+        }
+        state.hydrated = true;
+      }
       state.notes = message.notes || {};
       render();
     } else if (message.type === 'conversations') {
@@ -929,9 +967,7 @@
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     } else if (message.type === 'focus-composer') {
-      state.activeConversationId = null;
-      state.selectedTargetKind = 'general';
-      state.selectedPermission = 'read';
+      selectOrchestratorSession();
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     }
@@ -940,10 +976,7 @@
   document.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
       event.preventDefault();
-      state.activeConversationId = null;
-      state.selectedTargetKind = 'general';
-      state.selectedPermission = 'read';
-      state.draft = '';
+      selectOrchestratorSession(true);
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     }

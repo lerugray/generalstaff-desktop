@@ -1,18 +1,20 @@
 # GeneralStaff Workbench
 
-GeneralStaff Workbench is the current GeneralStaff Desktop product. It is a conversation-first command surface for directing a GeneralStaff project fleet. The default General Command window is an orchestrator seat in the private GeneralStaff root: an operator can catch up, route, dispatch, or ask a fleet-wide question immediately. Choosing an individual project remains available for work that belongs in one repository.
+GeneralStaff Workbench is the current GeneralStaff Desktop product. Its default and dominant surface is one persistent orchestrator session rooted in the private GeneralStaff repository: an operator can catch up, make rulings, follow up, dispatch, or ask a fleet-wide question in a continuous transcript. Choosing an individual project remains available as the secondary per-project order flow.
 
-This realizes the original GeneralStaff Desktop goal more directly. The conversation is the main instrument. Fleet state, progress, artifacts, source files, diffs, previews, and terminals support the conversation instead of competing with it. The opening Command Deck is organized around what needs attention, what is running, what recently finished, and what the operator can do next.
+This realizes the original GeneralStaff Desktop goal more directly. The conversation is the main instrument. Fleet state, progress, artifacts, source files, diffs, previews, terminals, and project order boxes support the orchestrator session instead of competing with it.
 
-Workbench 2.4 is a first-party Visual Studio Code extension launched in a dedicated profile. It is the product code in this repository. The earlier Tauri and xterm application is retained as historical product work, not as a second current desktop surface.
+Workbench 2.5 is a first-party Visual Studio Code extension launched in a dedicated profile. It is the product code in this repository. The earlier Tauri and xterm application is retained as historical product work, not as a second current desktop surface.
 
 ## Direct the fleet from one conversation surface
 
 Workbench reads the selected GeneralStaff root and builds its project view from canonical state under `state/`. It shows project missions, task counts, work that needs review or a decision, blocked work, recent completions, and a small shelf of local artifacts. A matching sibling repository enables edit-capable work and project artifacts; a project without one remains available as state-only context.
 
-General Command is pinned above the project list and opens by default. Commands issued there launch the selected model lane with `cwd` set to the GeneralStaff root itself, so the provider sees the same repository instructions, state, and skills as a terminal session opened in that private repository. The project list is the narrower path: selecting a project keeps the existing repository/state working-directory behavior.
+The Orchestrator session is pinned above the project list and opens by default as the full command deck. Every message belongs to the same host-owned session and runs with `cwd` set to the GeneralStaff root, so follow-ups retain the visible transcript and, when supported, the same native provider conversation. The project list is the narrower path: selecting a project keeps the existing one-order-at-a-time repository/state behavior.
 
-Conversations are scoped either to General Command or to one project and persist across Workbench restarts. Each conversation keeps its command target, selected seat, lane, effort, permission, referenced local files, messages, decisions, and latest receipt. Markdown, local HTML, images, PDFs, source files, diffs, and the integrated terminal open through Visual Studio Code when the operator asks for them.
+The orchestrator transcript, selected model, effort, permission, skill, decisions, and latest receipt persist across Workbench and extension-host restarts. Native provider session identifiers remain host-only. When native resume is unavailable or a model/security boundary changes, the same visible session continues through a bounded transcript handoff. Project conversations remain separately scoped to one project.
+
+Closing the Workbench while idle simply reattaches to the same orchestrator session on reopen. Closing during a turn stops the owned provider process and records a recoverable interruption; the transcript and session identity survive, but the extension does not claim that an in-flight process remains alive in the background.
 
 The rail includes the six palettes carried forward from the legacy desktop: Kriegspiel Paper, Kriegspiel Night, Linen Folio, Map Vellum, Iron Press, and Carbon Folio. Carbon Folio is the default, and the selected palette is kept in local webview state.
 
@@ -38,7 +40,7 @@ Codex, Fable, and Cline expose the effort values supported by their non-interact
 
 ## Skills and private runtime tools
 
-Workbench 2.4 can apply canonical procedures from `skills/<id>/SKILL.md` in the selected GeneralStaff root across every lane. The composer lists discovered skills and accepts a leading `/skill-name`. The extension host bundles the selected `SKILL.md` with safe text companions, rejects symlinked skill directories, excludes the `lean-ctx` tombstone, enforces file and character limits, and redacts common credential shapes before dispatch.
+Workbench 2.5 can apply canonical procedures from `skills/<id>/SKILL.md` in the selected GeneralStaff root across every lane. The composer lists discovered skills and accepts a leading `/skill-name`. The extension host bundles the selected `SKILL.md` with safe text companions, rejects symlinked skill directories, excludes the `lean-ctx` tombstone, enforces file and character limits, and redacts common credential shapes before dispatch.
 
 Private runtime helpers are discovered from the operator's machine rather than packaged with the extension. Headroom and Lane Desk are passed to direct Claude and Codex runs as ephemeral MCP definitions. Kimi, Cline, Cursor, and Cursor-hosted Fable can use Lane Desk through its read-only CLI route; Headroom is reported unavailable on those lanes because there is no equivalent safe transport. Lane Desk remains observational. Neither helper changes the selected repository permission or grants authority for external actions.
 
@@ -60,7 +62,7 @@ GENERALSTAFF_ROOT=/absolute/path/to/generalstaff-private ./scripts/launch-workbe
 
 On Windows, use `scripts\build-workbench.cmd` and `scripts\launch-workbench.cmd`. Set `GENERALSTAFF_ROOT` in the environment before launching and set `CODE_BIN` if Visual Studio Code is installed somewhere the launcher does not discover.
 
-The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher force-installs that package into the repo-local, gitignored `.workbench-data/` profile and opens the dedicated Workbench workspace. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, set `GENERALSTAFF_ROOT` or choose the GeneralStaff root that contains `state/`; a chosen root is stored as a machine-scoped setting in the isolated profile. The opening surface is General Command, with no project selection required.
+The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher force-installs that package into the repo-local, gitignored `.workbench-data/` profile and opens the dedicated Workbench workspace. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, set `GENERALSTAFF_ROOT` or choose the GeneralStaff root that contains `state/`; a chosen root is stored as a machine-scoped setting in the isolated profile. The opening surface is the persistent Orchestrator session, with no project selection required.
 
 For extension development, run the checks from the extension directory:
 
@@ -89,7 +91,7 @@ The legacy prototype proved fleet state, tray attention, pings, progress, notifi
 
 ## Permissions, privacy, and redaction
 
-New conversations begin read-only. Edit access is visibly distinct and requires confirmation in a host-owned Visual Studio Code dialog. General Command edit access is bounded to the private GeneralStaff repository; project edit access still requires a repository matched to that project. Kimi is shown only for its supported edit-capable path because its non-interactive prompt mode cannot provide the claimed read-only boundary. Child processes are spawned with an executable and argument array in the resolved command-target directory, not with concatenated shell commands.
+The orchestrator session and new project orders begin read-only. Edit access is visibly distinct and requires confirmation in a host-owned Visual Studio Code dialog. Orchestrator edit access is bounded to the private GeneralStaff repository; project edit access still requires a repository matched to that project. Kimi is shown only for its supported edit-capable path because its non-interactive prompt mode cannot provide the claimed read-only boundary. Child processes are spawned with an executable and argument array in the resolved command-target directory, not with concatenated shell commands.
 
 The webview has no unrestricted filesystem or network access. Incoming messages are type-checked and size-bounded. File references and open-file requests must resolve inside the selected GeneralStaff state or registered project roots. Provider credentials remain in an authenticated CLI or its existing credential store. They are not written to workspace settings, receipts, transcripts, or the VSIX.
 
@@ -111,7 +113,8 @@ A completed conversation and its receipt show what a provider ran and reported. 
 - [`docs/GS-WORKBENCH-V2.1-IMPLEMENTATION-NOTE.md`](docs/GS-WORKBENCH-V2.1-IMPLEMENTATION-NOTE.md) records continuity, recovery, and decision cards.
 - [`docs/GS-WORKBENCH-V2.2-THEMES-EFFORT-PROFILE-NOTE.md`](docs/GS-WORKBENCH-V2.2-THEMES-EFFORT-PROFILE-NOTE.md) records themes, effort controls, and provider runners.
 - [`docs/GS-WORKBENCH-V2.3-SKILLS-MCP-NOTE.md`](docs/GS-WORKBENCH-V2.3-SKILLS-MCP-NOTE.md) records the skill bridge and private runtime tools.
-- [`docs/GS-WORKBENCH-V2.4-GENERAL-COMMAND-NOTE.md`](docs/GS-WORKBENCH-V2.4-GENERAL-COMMAND-NOTE.md) records the default orchestrator target and local verification evidence.
+- [`docs/GS-WORKBENCH-V2.4-GENERAL-COMMAND-NOTE.md`](docs/GS-WORKBENCH-V2.4-GENERAL-COMMAND-NOTE.md) records the superseded General-scoped order surface.
+- [`docs/GS-WORKBENCH-V2.5-ORCHESTRATOR-SESSION-NOTE.md`](docs/GS-WORKBENCH-V2.5-ORCHESTRATOR-SESSION-NOTE.md) records the corrective persistent-session design and verification evidence.
 
 ## License
 

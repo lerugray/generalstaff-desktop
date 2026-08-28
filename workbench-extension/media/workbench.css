@@ -374,7 +374,7 @@ select:focus-visible {
   grid-template-columns: 31px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
-  margin: 0 14px 8px;
+  margin: 15px 14px 12px;
   padding: 8px 9px;
   border: 1px solid rgb(var(--accent-rgb) / 0.22);
   border-radius: 8px;
@@ -431,6 +431,17 @@ select:focus-visible {
   font-size: 7px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.session-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 3px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgb(var(--success-rgb) / 0.1);
+  vertical-align: 0;
 }
 
 .rail-nav {
@@ -1586,6 +1597,37 @@ select:focus-visible {
   justify-content: space-between;
   gap: 20px;
   border-bottom: 1px solid var(--line);
+}
+
+.session-identity {
+  display: grid;
+  min-width: 190px;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 5px;
+}
+
+.session-identity .session-live-dot {
+  grid-row: 1 / 3;
+}
+
+.session-identity strong,
+.session-identity small {
+  display: block;
+}
+
+.session-identity strong {
+  color: var(--paper-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.session-identity small {
+  margin-top: 2px;
+  color: var(--paper-faint);
+  font-size: 8px;
 }
 
 .conversation-context {

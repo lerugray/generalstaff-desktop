@@ -1,109 +1,115 @@
-# GeneralStaff Desktop
+# GeneralStaff Workbench
 
-<!-- TODO: GSD cockpit screenshot -->
-![GSD cockpit screenshot](docs/images/screenshot.png)
+GeneralStaff Workbench is the current GeneralStaff Desktop product. It is a conversation-first command surface for directing a GeneralStaff project fleet. An operator chooses a project and a job-shaped seat, describes the outcome in plain English, follows the work, answers decisions, and inspects the result.
 
-## In plain English
+This realizes the original GeneralStaff Desktop goal more directly. The conversation is the main instrument. Fleet state, progress, artifacts, source files, diffs, previews, and terminals support the conversation instead of competing with it. The opening Command Deck is organized around what needs attention, what is running, what recently finished, and what the operator can do next.
 
-GeneralStaff Desktop is the app version of GeneralStaff: a window you open instead of commands you type. It shows all your projects at a glance, what each one is working on, what just got done, and anything that needs your attention. It sits quietly in the background with a small badge that lights up when something needs your eyes, so you don't have to keep checking on it. Think of it as a control panel for watching the AI do its work.
+Workbench 2.3 is a first-party Visual Studio Code extension launched in a dedicated profile. It is the product code in this repository. The earlier Tauri and xterm application is retained as historical product work, not as a second current desktop surface.
 
-A Tauri 2 desktop console for [GeneralStaff](https://github.com/lerugray/generalstaff) — the local-first autonomous dev-fleet orchestrator. Targets macOS and Windows.
+## Direct the fleet from one conversation surface
 
-**v0.1.0**
+Workbench reads the selected GeneralStaff root and builds its project view from canonical state under `state/`. It shows project missions, task counts, work that needs review or a decision, blocked work, recent completions, and a small shelf of local artifacts. A matching sibling repository enables edit-capable work and project artifacts; a project without one remains available as state-only context.
 
-GSD gives the full fleet a permanent home outside the terminal: a dashboard of every registered project with its open task queue and recent cycle history, a per-project workbench (file tree, file viewer, pings inbox), and embedded terminal sessions that run real `claude` / `cursor-agent` CLI processes under a PTY — rendered in xterm.js and themed to match the rest of the UI.
+Conversations are project-scoped and persist across Workbench restarts. Each conversation keeps its selected seat, lane, effort, permission, referenced project files, messages, decisions, and latest receipt. Markdown, local HTML, images, PDFs, source files, diffs, and the integrated terminal open through Visual Studio Code when the operator asks for them.
 
-v0.1.0 adds the **ambient inversion**: GSD moves from a pull-open tool to a background presence that surfaces the fleet's state without requiring the terminal to be open.
+The rail includes the six palettes carried forward from the legacy desktop: Kriegspiel Paper, Kriegspiel Night, Linen Folio, Map Vellum, Iron Press, and Carbon Folio. Carbon Folio is the default, and the selected palette is kept in local webview state.
 
-- **System tray** with an attention badge (unread pings count) and a situation dropdown showing the current active project and its top pending task — visible from any app.
-- **PROGRESS.jsonl feed** in the workbench: cycle verdicts stream in as the bot runs, so you can see what landed without pulling logs.
-- **Briefing panel** on the workbench landing: attention summary + unresolved pings in one glance.
-- **Attention + pings landing**: the default view on open surfaces what needs eyes before anything else.
-- **Launch at login** and **close to hide** (minimize to tray rather than quit) so GSD stays live across reboots.
+The five seats describe the job rather than the vendor:
 
-It is strictly a **viewer/controller**: it reads GeneralStaff's file-based state and writes only to the pings inbox (`state/pings/inbox.md`). It never touches `tasks.json`, `project-meta.yaml`, or any other structured state file directly.
+- **Orchestrate** routes, decides, verifies, and reports.
+- **Build** carries out bounded repository work.
+- **Review** inspects work without writing.
+- **Verify** reruns checks and compares claims with evidence.
+- **Fast assist** handles short drafting and mechanical work.
 
-## Prerequisites
+The extension discovers installed, authenticated command-line lanes and exposes only the seat, permission, and effort combinations that each lane supports.
 
-- macOS or Windows (Linux is untested but the Rust code is otherwise portable)
-- [Rust](https://rustup.rs/) (stable, 1.77.2+)
-- [Bun](https://bun.sh/) 1.2+
-- [Tauri CLI v2](https://tauri.app/start/prerequisites/) (`cargo install tauri-cli --version "^2"` or via Bun — `bun add -D @tauri-apps/cli`)
-  - Windows: also requires the [WebView2 runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (ships with Windows 11; downloadable for Windows 10)
-- A GeneralStaff checkout (public or private)
+| Lane | Seats | Permission | Continuity |
+| --- | --- | --- | --- |
+| Codex, pinned to GPT-5.6 Sol | All five | Read or edit | Native provider session |
+| Claude Fable, with an authenticated Cursor Fable fallback | All five | Read or edit | Native provider session, scoped to the concrete runner |
+| Kimi K3 | Orchestrate and Build | Edit only | Native provider session |
+| Cline / GLM | All five | Read or edit | Bounded transcript handoff |
+| Cursor Agent | Build, Review, and Verify | Read or edit | Native provider session |
 
-## Two-repo layout
+Codex, Fable, and Cline expose the effort values supported by their non-interactive CLI paths. Kimi and Cursor use the provider default. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
-GSD reads GeneralStaff's file-based state, which spans two repos:
+## Skills and private runtime tools
 
-- **`generalstaff-private/`** — the private working repo where most project portfolios live (`state/<id>/tasks.json`, `state/<id>/MISSION.md`, etc.)
-- **`generalstaff/`** — the public repo, which carries state for a handful of public-facing projects
+Workbench 2.3 can apply canonical procedures from `skills/<id>/SKILL.md` in the selected GeneralStaff root across every lane. The composer lists discovered skills and accepts a leading `/skill-name`. The extension host bundles the selected `SKILL.md` with safe text companions, rejects symlinked skill directories, excludes the `lean-ctx` tombstone, enforces file and character limits, and redacts common credential shapes before dispatch.
 
-At startup GSD resolves the private repo path from `~/.generalstaff-desktop/config.json`:
+Private runtime helpers are discovered from the operator's machine rather than packaged with the extension. Headroom and Lane Desk are passed to direct Claude and Codex runs as ephemeral MCP definitions. Kimi, Cline, Cursor, and Cursor-hosted Fable can use Lane Desk through its read-only CLI route; Headroom is reported unavailable on those lanes because there is no equivalent safe transport. Lane Desk remains observational. Neither helper changes the selected repository permission or grants authority for external actions.
 
-```json
-{ "generalstaff_path": "/absolute/path/to/your/generalstaff-private" }
-```
+Private skill source, MCP launch paths, and provider session identifiers do not enter the VSIX or webview. The receipt discloses the selected skill and available capability names, not their private definitions.
 
-If the file or key is absent it falls back to `~/Desktop/Dev Work/generalstaff-private`. Create the config file to point GSD at your own GeneralStaff checkout. GSD then expects the public GeneralStaff repo as a sibling directory named `generalstaff` alongside the private one.
+## Install and run
 
-## Build from source
+The repository launcher expects Visual Studio Code 1.135 or newer, Node and npm for the source build, and at least one supported provider CLI that is already authenticated. Build the extension and stable package once:
 
 ```bash
-bun install
-bun tauri dev       # development — hot-reload frontend, debug Rust
-bun tauri build     # release build (unsigned; see Signing below)
+./scripts/build-workbench.sh
 ```
 
-The `scripts/install.sh` path is the macOS operator install flow — it builds a release bundle, copies the `gs-mcp` sidecar binary into `GeneralStaff.app/Contents/MacOS/`, re-signs inside-out with a stable identity, and drops the result in `/Applications`. Contributors building locally do not need it.
+Then open the isolated Workbench profile:
 
-On Windows the sidecar (`gs-mcp.exe`) is placed beside the main executable by Tauri's bundler — no separate copy step is needed.
-
-### The gs-mcp sidecar
-
-`src/bin/gs-mcp.rs` is a second binary in the Cargo workspace — a stdio MCP server the dispatcher uses to communicate with the desktop. `scripts/install.sh` handles copying it into the bundle. During `bun tauri dev` the sidecar is not required; it only matters for the installed-app dispatcher flow.
-
-## Signing (operators only)
-
-### macOS
-
-To keep macOS TCC permissions (Desktop folder, Screen Recording, Accessibility) stable across rebuilds, the installed app is signed with a consistent identity. The signing identity lives in a gitignored local override that Tauri 2 merges at build time:
-
-**`src-tauri/tauri.local.conf.json`** (create this file locally; it is gitignored):
-
-```json
-{
-  "bundle": {
-    "macOS": {
-      "signingIdentity": "GS Dev Signing"
-    }
-  }
-}
+```bash
+./scripts/launch-workbench.sh
 ```
 
-Set `signingIdentity` to the name of your certificate in Keychain. Contributors without a cert build and run fine without this file — `bun tauri dev` and `bun tauri build` both work unsigned.
+On Windows, use `scripts\build-workbench.cmd` and `scripts\launch-workbench.cmd`. Set `CODE_BIN` if Visual Studio Code is installed somewhere the launcher does not discover.
 
-## Security
+The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher installs that package into the repo-local, gitignored `.workbench-data/` profile and opens the dedicated Workbench workspace. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, choose the GeneralStaff root that contains `state/`; the choice is stored as a machine-scoped setting in the isolated profile.
 
-### Autonomous mode — no sandbox
+For extension development, run the checks from the extension directory:
 
-> **Not the same as GeneralStaff's "autonomous mode."** Two different things share the name. *Here* (GSD), "autonomous session mode" means launching one agent session with its permission prompts bypassed — a sandbox/trust setting, described below. In the GeneralStaff CLI (v0.8.0+), `gs autonomous` is a self-scoping mode where the dispatcher proposes its own work and gates it. GSD doesn't drive `gs autonomous`; the two are unrelated controls.
+```bash
+cd workbench-extension
+npm ci
+npm run check
+```
 
-GSD supports an **autonomous session mode** where the AI agent is launched with all permission prompts bypassed (`claude --permission-mode bypassPermissions` / `cursor-agent --trust`). In autonomous mode the agent can **read and write any file on your machine and run any shell command without asking for permission**.
+`npm run check` performs the TypeScript check, validates the webview script syntax, runs the Node test suite, and compiles the extension. The automated suite covers the message, persistence, adapter, permission, path, redaction, decision, continuity, theme, skill, and private-runtime boundaries; `npm run check` reports the current count.
 
-This is intentional for trusted operator use on known projects. It is dangerous if used on a hostile or untrusted project.
+## Architecture boundary
 
-**Rules of thumb:**
-- Only use autonomous mode on projects and prompts you fully trust.
-- Do not open a GeneralStaff session (dispatcher or otherwise) in a project repository that could have been tampered with.
-- GSD shows an explicit consent modal the first time you trigger an autonomous session. Once you confirm, the flag persists to `~/.generalstaff-desktop/settings.json` and the modal is not shown again.
+Workbench uses the stable Visual Studio Code extension API and a dedicated workspace profile. The extension host owns filesystem access, provider discovery, process launch, persistence, redaction, and permission checks. The webview is presentation code behind a validated message allowlist and a restrictive content policy. Visual Studio Code supplies the editor, diff viewer, Markdown renderer, browser preview, source control, and terminal.
 
-The MCP-originated spawn path (a dispatcher session calling the `spawn_session` tool with `"mode": "autonomous"`) does **not** require the same consent gate — it is trusted operator-to-operator communication. Do not point the MCP tool at untrusted dispatcher sessions.
+This is a thin distribution by design, not a fork of Visual Studio Code or Code OSS. A future branded Code OSS package may replace the outer shell, but the Workbench extension remains the product logic. The repository layout reflects that boundary:
 
-## Stack
+| Path | Status |
+| --- | --- |
+| `workbench-extension/` | Current Workbench product code |
+| `scripts/` and `distribution/` | Check, package, and isolated-profile launch layer |
+| `docs/GS-WORKBENCH-*` | Product contract, implementation notes, and review evidence |
+| `src/` and `src-tauri/` | Superseded Tauri/xterm prototype retained for history |
 
-Tauri 2 · Rust backend · vanilla-JS frontend (no bundler) · xterm.js for embedded terminal sessions.
+The legacy prototype proved fleet state, tray attention, pings, progress, notifications, and session machinery. Its primary interaction remained an embedded terminal, so it became a decorated terminal multiplexer rather than the intended command surface. New operator-facing behavior belongs in `workbench-extension/`.
+
+## Permissions, privacy, and redaction
+
+New conversations begin read-only. Edit access is visibly distinct, requires a repository matched to the selected project, and requires confirmation in a host-owned Visual Studio Code dialog. Kimi is shown only for its supported edit-capable path because its non-interactive prompt mode cannot provide the claimed read-only boundary. Child processes are spawned with an executable and argument array in the resolved project directory, not with concatenated shell commands.
+
+The webview has no unrestricted filesystem or network access. Incoming messages are type-checked and size-bounded. File references and open-file requests must resolve inside the selected GeneralStaff state or registered project roots. Provider credentials remain in an authenticated CLI or its existing credential store. They are not written to workspace settings, receipts, transcripts, or the VSIX.
+
+Provider session identifiers are stored separately in extension-host state and are never sent to the webview. Provider output, surfaced errors, and receipts pass through redaction for common private-key, API-key, token, password, home-directory, and session-identifier patterns. Compiled skill text is separately redacted for the common credential and identity patterns before dispatch. Redaction is a containment layer, not a claim that arbitrary sensitive text can always be recognized.
+
+Workbench is a local control surface, but the selected provider still receives the task text and any bounded transcript or skill bundle needed for that run. Referenced local files are supplied as paths for the selected lane to read within its permission boundary. Operators should choose lanes and context with that data flow in mind.
+
+Stopping a run or closing the Workbench asks the owned process tree to terminate. A full operating-system or extension-host crash can still outlive JavaScript cleanup until the provider exits or is terminated separately.
+
+## Relationship to the GeneralStaff CLI and gate
+
+Workbench is the desktop command surface. The GeneralStaff CLI remains the task dispatcher and verification gate. Workbench reads the same project state and gives the operator a place to direct provider lanes, inspect results, and open a supporting terminal for direct CLI work.
+
+A completed conversation and its receipt show what a provider ran and reported. They do not run or satisfy the GeneralStaff cycle gate, and they do not make an agent's success claim authoritative. GeneralStaff's existing independent verification and reviewer gates remain the boundary for gated work.
+
+## Further reading
+
+- [`docs/GS-WORKBENCH-V2-PRODUCT-CONTRACT.md`](docs/GS-WORKBENCH-V2-PRODUCT-CONTRACT.md) defines the product promise and safety boundary.
+- [`docs/GS-WORKBENCH-V2.1-IMPLEMENTATION-NOTE.md`](docs/GS-WORKBENCH-V2.1-IMPLEMENTATION-NOTE.md) records continuity, recovery, and decision cards.
+- [`docs/GS-WORKBENCH-V2.2-THEMES-EFFORT-PROFILE-NOTE.md`](docs/GS-WORKBENCH-V2.2-THEMES-EFFORT-PROFILE-NOTE.md) records themes, effort controls, and provider runners.
+- [`docs/GS-WORKBENCH-V2.3-SKILLS-MCP-NOTE.md`](docs/GS-WORKBENCH-V2.3-SKILLS-MCP-NOTE.md) records the skill bridge and private runtime tools.
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). Copyright (C) 2024–2026 Ray Weiss.
+[AGPL-3.0-or-later](LICENSE). Copyright (C) 2024-2026 Ray Weiss.

@@ -1,0 +1,24 @@
+{
+  "folders": [],
+  "settings": {
+    "generalstaff.openOnLaunch": true,
+    "generalstaff.immersiveMode": true,
+    "workbench.startupEditor": "none",
+    "workbench.activityBar.location": "hidden",
+    "workbench.statusBar.visible": false,
+    "workbench.editor.showTabs": "none",
+    "workbench.editor.editorActionsLocation": "hidden",
+    "workbench.layoutControl.enabled": false,
+    "workbench.navigationControl.enabled": false,
+    "workbench.secondarySideBar.defaultVisibility": "hidden",
+    "window.commandCenter": false,
+    "window.title": "GeneralStaff Workbench",
+    "editor.minimap.enabled": false,
+    "telemetry.telemetryLevel": "off"
+  },
+  "extensions": {
+    "recommendations": [
+      "lerugray.generalstaff-workbench"
+    ]
+  }
+}

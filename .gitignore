@@ -4,6 +4,10 @@ src-tauri/gen/
 node_modules/
 dist/
 build/
+workbench-extension/dist/
+workbench-extension/node_modules/
+workbench-extension/*.vsix
+.workbench-data/
 
 # Tauri generated
 src-tauri/Cargo.lock

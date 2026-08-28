@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeneralStaff Workbench visual harness</title>
+    <link rel="stylesheet" href="../media/workbench.css">
+  </head>
+  <body>
+    <div id="app"><div class="boot"><div class="boot-mark">GS</div></div></div>
+    <script>
+      const now = Date.now();
+      const project = (id, name, mission, counts, artifacts = []) => ({
+        id,
+        name,
+        mission,
+        statePath: `/fleet/state/${id}`,
+        repoPath: `/fleet/${id}`,
+        pending: counts[0],
+        inProgress: counts[1],
+        needsReview: counts[2],
+        completed: counts[3],
+        topTask: 'Complete the next bounded outcome',
+        lastChangedAt: now - counts[0] * 120000,
+        artifacts,
+      });
+      const artifact = (label, kind, age) => ({ label, kind, path: `/fleet/demo/${label}.${kind === 'preview' ? 'html' : 'md'}`, changedAt: now - age });
+      const effortOptions = {
+        codex: [{ id: 'default', label: 'Workbench default' }, { id: 'minimal', label: 'Minimal' }, { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'Extra high' }],
+        claude: [{ id: 'default', label: 'Workbench default' }, { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'Extra high' }, { id: 'max', label: 'Max' }],
+        cline: [{ id: 'default', label: 'Workbench default' }, { id: 'none', label: 'None' }, { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'Extra high' }],
+        provider: [{ id: 'default', label: 'Provider default' }],
+      };
+      const snapshot = {
+        generatedAt: now,
+        rootPath: '/fleet',
+        projects: [
+          project('generalstaff', 'GeneralStaff', 'A disciplined staff officer for turning plain-English intent into verified project outcomes.', [8, 3, 2, 142], [
+            artifact('Readme', 'document', 360000), artifact('Workbench Product Contract', 'brief', 120000), artifact('Command Deck Preview', 'preview', 60000), artifact('Architecture', 'brief', 7200000),
+          ]),
+          project('snesos', 'SnesOS', 'A focused game-system restoration with a playable artifact as the measure of truth.', [11, 7, 1, 91]),
+          project('appendix-n', 'Appendix N', 'A readable digital edition with deliberate editorial judgment.', [6, 7, 0, 55]),
+          project('free-indirect', 'Free Indirect', 'A research and writing project built around clear evidence.', [7, 4, 2, 37]),
+          project('retrogaze', 'Retrogaze', 'A distinctive visual archive and editorial surface.', [3, 3, 0, 29]),
+          project('adversary', 'Adversary', 'A playable conflict model with strict rules fidelity.', [9, 3, 1, 68]),
+          project('guns-americas', 'Guns of the Americas', 'Digitize the commissioned wargame without losing its original character.', [5, 2, 0, 43]),
+          project('clever-lazy', 'Clever Lazy', 'A practical field manual for high-leverage creative work.', [4, 2, 0, 31]),
+        ],
+        attention: [
+          { id: 'a', projectId: 'generalstaff', kind: 'review', title: 'Approve the workbench product contract', detail: 'The architecture is frozen and waiting for operator judgment.' },
+          { id: 'b', projectId: 'snesos', kind: 'decision', title: 'Choose the next playable slice', detail: 'Two equally viable routes are ready.' },
+          { id: 'c', projectId: 'free-indirect', kind: 'review', title: 'Read the revised field report', detail: 'Claims have been checked against source material.' },
+        ],
+        activity: [
+          { id: 'd', projectId: 'generalstaff', tone: 'good', title: 'Fleet reconciliation landed', detail: 'GeneralStaff recorded the work complete.', when: new Date(now - 240000).toISOString() },
+          { id: 'e', projectId: 'guns-americas', tone: 'good', title: 'Map preview exported', detail: 'A new visual artifact is ready to inspect.', when: new Date(now - 720000).toISOString() },
+          { id: 'f', projectId: 'appendix-n', tone: 'quiet', title: 'Editorial pass verified', detail: 'No unresolved findings remain.', when: new Date(now - 3600000).toISOString() },
+        ],
+        skills: [
+          { id: 'audit', name: 'audit', description: 'Run a Hammerstein adversarial audit before firing a non-trivial plan.', fileCount: 1, characterCount: 8200 },
+          { id: 'delegate', name: 'delegate', description: 'Route a bounded task to a prepaid model lane.', fileCount: 4, characterCount: 118000 },
+          { id: 'stop-slop', name: 'stop-slop', description: 'Remove predictable AI writing patterns from prose.', fileCount: 4, characterCount: 12000 },
+          { id: 'wrapup', name: 'wrapup', description: 'Run the GeneralStaff end-of-session sequence.', fileCount: 1, characterCount: 9000 },
+        ],
+        capabilities: [
+          { id: 'headroom', name: 'Headroom', detail: 'Local MCP compression and retrieval.', state: 'available', nativeLanes: ['codex', 'claude'], fallbackLanes: [] },
+          { id: 'lane-desk', name: 'Lane Desk', detail: 'Read-only detached lane observation.', state: 'available', nativeLanes: ['codex', 'claude'], fallbackLanes: ['kimi', 'cline', 'cursor'] },
+        ],
+        lanes: [
+          { id: 'codex', runner: 'codex', name: 'Codex', detail: 'GPT-class agentic work through the existing Codex subscription', evidenceLabel: 'Repo-proven · seat provisional', state: 'available', executable: '/bin/codex', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read', 'write'], efforts: effortOptions.codex, defaultEffort: 'default' },
+          { id: 'claude', runner: 'cursor', name: 'Claude Fable', detail: 'The operator-proven GeneralStaff judgment seat, explicitly selected · via Cursor subscription', evidenceLabel: 'Daily operator seat · not benchmarked', state: 'available', executable: '/bin/cursor-agent', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read', 'write'], efforts: effortOptions.claude, defaultEffort: 'default' },
+          { id: 'kimi', runner: 'kimi', name: 'Kimi K3', detail: 'Long-context subscription lane for orchestration, specs, and implementation', evidenceLabel: 'Measured in the 2026-08-24 seat benchmark', state: 'available', executable: '/bin/kimi', roles: ['orchestrate', 'build'], permissions: ['write'], efforts: effortOptions.provider, defaultEffort: 'default' },
+          { id: 'cline', runner: 'cline', name: 'Cline / GLM', detail: 'Cline Pass and free GLM-5.3 Flash capacity', evidenceLabel: 'GLM measured in the 2026-08-24 seat benchmark', state: 'available', executable: '/bin/cline', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read', 'write'], efforts: effortOptions.cline, defaultEffort: 'default' },
+          { id: 'cursor', runner: 'cursor', name: 'Cursor Agent', detail: 'Subscription-backed engineering lane with shell and repository tools', evidenceLabel: 'Engineering subscription lane · unbenchmarked', state: 'available', executable: '/bin/cursor', roles: ['build', 'review', 'verify'], permissions: ['read', 'write'], efforts: effortOptions.provider, defaultEffort: 'default' },
+        ],
+      };
+      const params = new URLSearchParams(location.search);
+      const requestedTheme = params.get('theme');
+      let persisted = requestedTheme ? { selectedTheme: requestedTheme } : {};
+      let conversations = [];
+      let notes = { generalstaff: 'Keep the operator surface calm. The code is supporting evidence, never the assignment.' };
+      const mode = params.get('mode');
+      if (mode === 'error') {
+        conversations = [{
+          id: 'error-conversation', title: 'Verify the release candidate', projectId: 'generalstaff', laneId: 'cursor', seat: 'verify', effort: 'default', permission: 'read', context: [], decisions: [], createdAt: now - 90000, updatedAt: now,
+          messages: [
+            { id: 'error-user', role: 'user', text: 'Verify the release candidate.', status: 'complete', createdAt: now - 90000 },
+            { id: 'error-assistant', role: 'assistant', text: 'Cursor could not complete the verification because its authenticated session is unavailable. No project files were changed.', status: 'error', createdAt: now - 85000 },
+          ],
+          receipt: { laneId: 'cursor', laneName: 'Cursor Agent', seat: 'verify', effort: 'default', projectId: 'generalstaff', modelLabel: 'Cursor Agent · auto', startedAt: now - 90000, finishedAt: now - 85000, exitCode: 1, stopped: false, permission: 'read', workingDirectory: '/fleet/generalstaff', continuity: 'native', evidence: ['stderr: authentication unavailable'] },
+        }];
+        persisted.activeConversationId = 'error-conversation';
+        persisted.selectedProjectId = 'generalstaff';
+        persisted.selectedLaneId = 'cursor';
+        persisted.selectedSeat = 'verify';
+      } else if (mode === 'decision') {
+        conversations = [{
+          id: 'decision-conversation', title: 'Choose the next playable slice', projectId: 'snesos', laneId: 'codex', seat: 'orchestrate', effort: 'high', permission: 'read', context: [], createdAt: now - 120000, updatedAt: now,
+          messages: [
+            { id: 'decision-user', role: 'user', text: 'Prepare the next bounded playable slice.', status: 'complete', createdAt: now - 120000 },
+            { id: 'decision-assistant', role: 'assistant', text: 'Both routes are grounded and bounded. I need your call before assigning implementation.', status: 'complete', createdAt: now - 90000 },
+          ],
+          decisions: [{
+            id: 'decision-one', messageId: 'decision-assistant', title: 'Choose the playable slice', question: 'Which route should GeneralStaff put into implementation first?', createdAt: now - 90000,
+            options: [
+              { id: 'option-loop', label: 'Playable loop', description: 'Prioritize feel, controls, and a complete minute of play.' },
+              { id: 'option-import', label: 'Import path', description: 'Prioritize bringing existing project data into the restored system.' },
+            ],
+          }],
+          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'orchestrate', effort: 'high', projectId: 'snesos', modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 120000, finishedAt: now - 90000, exitCode: 0, stopped: false, permission: 'read', workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: decision returned'] },
+        }];
+        persisted.activeConversationId = 'decision-conversation';
+        persisted.selectedProjectId = 'snesos';
+        persisted.selectedLaneId = 'codex';
+        persisted.selectedSeat = 'orchestrate';
+      } else if (mode === 'active') {
+        conversations = [{
+          id: 'active-conversation', title: 'Reconcile the release evidence', projectId: 'generalstaff', laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
+          messages: [
+            { id: 'active-user', role: 'user', text: 'Reconcile every release claim with primary evidence.', status: 'complete', createdAt: now - 45000 },
+            { id: 'active-assistant', role: 'assistant', text: '', status: 'streaming', createdAt: now - 43000 },
+          ],
+        }];
+        persisted.activeConversationId = 'active-conversation';
+        persisted.selectedProjectId = 'generalstaff';
+        persisted.selectedLaneId = 'codex';
+        persisted.selectedSeat = 'verify';
+      }
+      window.acquireVsCodeApi = () => ({
+        getState: () => persisted,
+        setState: (value) => { persisted = value; },
+        postMessage: (message) => {
+          if (message.type === 'ready' || message.type === 'refresh') {
+            setTimeout(() => window.postMessage({ type: 'state', snapshot, conversations, notes }, '*'), 10);
+            if (mode === 'active') {
+              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'status', text: 'Comparing claims with the packaged artifact' } }, '*'), 35);
+            }
+          }
+          if (message.type === 'new-conversation') {
+            const conversation = { id: `c-${Date.now()}`, title: 'New command', projectId: message.projectId, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
+            conversations = [conversation, ...conversations];
+            setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation }, '*'), 10);
+          }
+          if (message.type === 'send-prompt') {
+            const conversation = conversations.find((item) => item.id === message.conversationId);
+            if (!conversation) return;
+            conversation.title = message.text.slice(0, 54);
+            conversation.messages.push({ id: 'user-1', role: 'user', text: message.text, status: 'complete', createdAt: Date.now() });
+            conversation.messages.push({ id: 'assistant-1', role: 'assistant', text: 'I have the seat. I will inspect the governing context, keep the scope bounded, and return a verified receipt.', status: 'complete', createdAt: Date.now() + 1 });
+            conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, projectId: conversation.projectId, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: '/fleet/generalstaff', continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'] };
+            setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 80);
+          }
+          if (message.type === 'update-routing') {
+            const conversation = conversations.find((item) => item.id === message.conversationId);
+            if (!conversation) return;
+            Object.assign(conversation, { laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission });
+            setTimeout(() => window.postMessage({ type: 'routing-updated', conversation }, '*'), 10);
+          }
+          if (message.type === 'save-note') {
+            notes[message.projectId] = message.text;
+            setTimeout(() => window.postMessage({ type: 'notes', notes }, '*'), 10);
+          }
+          if (message.type === 'pick-context') {
+            setTimeout(() => window.postMessage({ type: 'context-picked', items: [{ label: 'product-contract.md', path: '/fleet/generalstaff/product-contract.md', kind: 'document' }] }, '*'), 10);
+          }
+          if (message.type === 'answer-decision') {
+            const conversation = conversations.find((item) => item.id === message.conversationId);
+            const decision = conversation?.decisions?.find((item) => item.id === message.decisionId);
+            if (!decision) return;
+            decision.answerOptionId = message.optionId;
+            decision.answeredAt = Date.now();
+            setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 10);
+            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: 'Continuing with your decision' } }, '*'), 30);
+          }
+          if (message.type === 'retry-run') {
+            const conversation = conversations.find((item) => item.id === message.conversationId);
+            if (!conversation) return;
+            conversation.messages.push({ id: `retry-${Date.now()}`, role: 'assistant', text: '', status: 'streaming', attempt: 'retry', createdAt: Date.now() });
+            setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 10);
+            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: message.strategy === 'transcript' ? 'Starting transcript recovery' : 'Resuming the provider session' } }, '*'), 25);
+          }
+        },
+      });
+    </script>
+    <script src="../media/workbench.js"></script>
+  </body>
+</html>

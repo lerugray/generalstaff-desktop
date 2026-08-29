@@ -35,14 +35,15 @@ The extension discovers installed, authenticated command-line lanes and exposes 
 | Kimi K3 | Orchestrate and Build | Edit only | Native provider session |
 | Cline / GLM | All five | Read or edit | Bounded transcript handoff |
 | Cursor Agent | Build, Review, and Verify | Read or edit | Native provider session |
+| Grok 4.6 (trial), through Cursor Agent | All five | Read or edit | Native provider session |
 
-Codex, Fable, and Cline expose the effort values supported by their non-interactive CLI paths. Kimi and Cursor use the provider default. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
+Codex, Fable, Cline, and the Grok trial lane expose the effort values supported by their non-interactive CLI paths. Kimi and Cursor use the provider default. Grok is an additional trial picker option; Fable remains the default orchestrator seat. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
 ## Skills and private runtime tools
 
 Workbench 2.5 can apply canonical procedures from `skills/<id>/SKILL.md` in the selected GeneralStaff root across every lane. The composer lists discovered skills and accepts a leading `/skill-name`. The extension host bundles the selected `SKILL.md` with safe text companions, rejects symlinked skill directories, excludes the `lean-ctx` tombstone, enforces file and character limits, and redacts common credential shapes before dispatch.
 
-Private runtime helpers are discovered from the operator's machine rather than packaged with the extension. Headroom and Lane Desk are passed to direct Claude and Codex runs as ephemeral MCP definitions. Kimi, Cline, Cursor, and Cursor-hosted Fable can use Lane Desk through its read-only CLI route; Headroom is reported unavailable on those lanes because there is no equivalent safe transport. Lane Desk remains observational. Neither helper changes the selected repository permission or grants authority for external actions.
+Private runtime helpers are discovered from the operator's machine rather than packaged with the extension. Headroom and Lane Desk are passed to direct Claude and Codex runs as ephemeral MCP definitions. Kimi, Cline, Cursor, Cursor-hosted Fable, and the Cursor-hosted Grok trial lane can use Lane Desk through its read-only CLI route; Headroom is reported unavailable on those lanes because there is no equivalent safe transport. Lane Desk remains observational. Neither helper changes the selected repository permission or grants authority for external actions.
 
 Private skill source, MCP launch paths, and provider session identifiers do not enter the VSIX or webview. The receipt discloses the selected skill and available capability names, not their private definitions.
 

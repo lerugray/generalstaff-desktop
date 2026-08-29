@@ -93,6 +93,7 @@ const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
   kimi: new Set(['default']),
   cline: new Set(['default', 'none', 'low', 'medium', 'high', 'xhigh']),
   cursor: new Set(['default']),
+  grok: new Set(['default', 'low', 'medium', 'high', 'xhigh']),
 };
 
 export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: EffortId = 'default'): EffortId {
@@ -102,6 +103,7 @@ export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: Effo
   if (requested !== 'default') return requested;
   if (laneId === 'codex') return 'high';
   if (laneId === 'claude') return seat === 'assist' ? 'high' : 'max';
+  if (laneId === 'grok') return 'high';
   if (laneId === 'cline') return seat === 'assist' ? 'medium' : 'high';
   return 'default';
 }
@@ -117,6 +119,13 @@ function cursorFableModel(effort: EffortId): string {
     throw new Error(`Cursor Fable does not support ${effort} effort.`);
   }
   return `claude-fable-5-thinking-${effort}`;
+}
+
+function cursorGrokModel(effort: EffortId): string {
+  if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+    throw new Error(`Cursor Grok does not support ${effort} effort.`);
+  }
+  return `cursor-grok-4.6-${effort}`;
 }
 
 function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string): string {
@@ -156,7 +165,11 @@ export function invocationFor(
   const writeCapable = permission === 'write';
   const effort = effectiveEffortFor(laneId, seat, options.effort);
   const runner = options.runner ?? laneId;
-  if (runner !== laneId && !(laneId === 'claude' && runner === 'cursor')) {
+  if (
+    runner !== laneId &&
+    !(laneId === 'claude' && runner === 'cursor') &&
+    !(laneId === 'grok' && runner === 'cursor')
+  ) {
     throw new Error(`${laneId} cannot use the ${runner} runner.`);
   }
   const nativeSession = options.continuity === 'native' ? options.providerSessionId : undefined;
@@ -303,6 +316,22 @@ export function invocationFor(
           groundedPrompt,
         ],
         label: 'Cursor auto-selected model · provider default effort',
+        effort,
+      };
+    case 'grok':
+      return {
+        args: [
+          ...(nativeSession ? ['--resume', nativeSession] : []),
+          '--model',
+          cursorGrokModel(effort),
+          ...(writeCapable ? ['--force'] : ['--mode', 'plan']),
+          '--print',
+          '--output-format',
+          'stream-json',
+          '--stream-partial-output',
+          groundedPrompt,
+        ],
+        label: `Grok 4.6 via Cursor - ${effortLabel(effort)}`,
         effort,
       };
   }

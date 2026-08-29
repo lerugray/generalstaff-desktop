@@ -149,7 +149,7 @@ export async function discoverPrivateRuntime(
         : 'Requires a healthy machine-scoped runtime outside the selected GeneralStaff root.',
       state: laneDeskAvailable ? 'available' : 'missing',
       nativeLanes: laneDeskAvailable ? ['codex', 'claude'] : [],
-      fallbackLanes: laneDeskAvailable ? ['kimi', 'cline', 'cursor'] : [],
+      fallbackLanes: laneDeskAvailable ? ['kimi', 'cline', 'cursor', 'grok'] : [],
     },
   ];
   const mcpServers: McpServerLaunch[] = [];

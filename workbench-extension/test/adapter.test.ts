@@ -131,6 +131,29 @@ test('maps explicit effort controls only onto provider-supported invocation flag
   );
 });
 
+test('builds Cursor-hosted Grok trial invocations with bounded effort and permission flags', () => {
+  const read = invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'cursor' });
+  assert.equal(read.args[read.args.indexOf('--model') + 1], 'cursor-grok-4.6-high');
+  assert.deepEqual(read.args.slice(read.args.indexOf('--mode'), read.args.indexOf('--mode') + 2), ['--mode', 'plan']);
+
+  const write = invocationFor('grok', 'orchestrate', 'write', '/work/repo', 'Direct this.', { runner: 'cursor' });
+  assert.ok(write.args.includes('--force'));
+  assert.equal(write.args.includes('--mode'), false);
+  assert.equal(write.args.includes('plan'), false);
+
+  const extraHigh = invocationFor('grok', 'review', 'read', '/work/repo', 'Review this.', {
+    effort: 'xhigh',
+    runner: 'cursor',
+  });
+  assert.equal(extraHigh.args[extraHigh.args.indexOf('--model') + 1], 'cursor-grok-4.6-xhigh');
+
+  assert.throws(
+    () => invocationFor('grok', 'verify', 'read', '/work/repo', 'Verify this.', { effort: 'max', runner: 'cursor' }),
+    /does not support the requested effort level/,
+  );
+  assert.equal(effectiveEffortFor('grok', 'orchestrate'), 'high');
+});
+
 test('loads private MCP servers ephemerally only in write-consented lanes with a native transport', () => {
   const mcpServers = [
     { id: 'headroom' as const, command: '/tools/headroom-mcp-pure', args: [] },

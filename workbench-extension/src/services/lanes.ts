@@ -47,6 +47,13 @@ const claudeEfforts: EffortOption[] = [
   { id: 'xhigh', label: 'Extra high' },
   { id: 'max', label: 'Max' },
 ];
+const grokEfforts: EffortOption[] = [
+  providerDefault,
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+  { id: 'xhigh', label: 'Extra high' },
+];
 const clineEfforts: EffortOption[] = [
   providerDefault,
   { id: 'none', label: 'None' },
@@ -156,6 +163,28 @@ const laneDefinitions: LaneDefinition[] = [
     roles: ['build', 'review', 'verify'],
     permissions: ['read', 'write'],
     efforts: [{ id: 'default', label: 'Provider default' }],
+    defaultEffort: 'default',
+  },
+  {
+    id: 'grok',
+    name: 'Grok 4.6 (trial)',
+    detail: "Trial seat option backed by the Cursor subscription's Grok 4.6 model",
+    evidenceLabel: 'Trial seat - first on the 2026-08-28 orchestrator-seat benchmark',
+    runners: [{
+      id: 'cursor',
+      binary: 'cursor-agent',
+      candidates: [path.join(home, '.local/bin/cursor-agent'), '/opt/homebrew/bin/cursor-agent'],
+      probeArgs: ['status'],
+      probeAccept: /logged in/iu,
+      availabilityProbe: {
+        args: ['--list-models'],
+        accept: /cursor-grok-4\.6-high/iu,
+        issue: 'the Grok 4.6 trial model is unavailable',
+      },
+    }],
+    roles: ['orchestrate', 'build', 'review', 'verify', 'assist'],
+    permissions: ['read', 'write'],
+    efforts: grokEfforts,
     defaultEffort: 'default',
   },
 ];

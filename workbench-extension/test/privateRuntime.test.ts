@@ -51,7 +51,7 @@ test('discovers only a healthy machine-scoped Lane Desk runtime outside the sele
   const laneDesk = profile.capabilities.find((capability) => capability.id === 'lane-desk');
   assert.equal(laneDesk?.state, 'available');
   assert.deepEqual(laneDesk?.nativeLanes, ['codex', 'claude']);
-  assert.deepEqual(laneDesk?.fallbackLanes, ['kimi', 'cline', 'cursor']);
+  assert.deepEqual(laneDesk?.fallbackLanes, ['kimi', 'cline', 'cursor', 'grok']);
   assert.ok(profile.mcpServers.some((server) => server.id === 'lane-desk'));
   assert.match(privateRuntimePrompt(profile, lane('codex')), /native MCP server/);
   assert.match(privateRuntimePrompt(profile, lane('kimi')), /read-only CLI fallback/);

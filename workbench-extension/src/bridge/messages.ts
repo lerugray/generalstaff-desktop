@@ -16,7 +16,7 @@ export type WebviewMessage =
   | { type: 'choose-root' }
   | { type: 'save-note'; projectId: string; text: string };
 
-const laneIds = new Set<LaneId>(['codex', 'claude', 'kimi', 'cline', 'cursor']);
+const laneIds = new Set<LaneId>(['codex', 'claude', 'kimi', 'cline', 'cursor', 'grok']);
 const seatIds = new Set<SeatId>(['orchestrate', 'build', 'review', 'verify', 'assist']);
 const permissionModes = new Set<PermissionMode>(['read', 'write']);
 const effortIds = new Set<EffortId>(['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);

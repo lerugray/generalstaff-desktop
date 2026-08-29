@@ -1,6 +1,6 @@
 export type SeatId = 'orchestrate' | 'build' | 'review' | 'verify' | 'assist';
 
-export type LaneId = 'codex' | 'claude' | 'kimi' | 'cline' | 'cursor';
+export type LaneId = 'codex' | 'claude' | 'kimi' | 'cline' | 'cursor' | 'grok';
 
 export type LaneState = 'available' | 'missing' | 'checking' | 'unavailable';
 

@@ -84,7 +84,7 @@ function claudeMcpPermissionArgs(servers: readonly McpServerLaunch[]): string[] 
 }
 
 export function supportsNativeResume(laneId: LaneId): boolean {
-  return laneId !== 'cline';
+  return !['cline', 'glm-ollama', 'glm-ollama-flash'].includes(laneId);
 }
 
 const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
@@ -94,6 +94,8 @@ const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
   cline: new Set(['default', 'none', 'low', 'medium', 'high', 'xhigh']),
   cursor: new Set(['default']),
   grok: new Set(['default', 'low', 'medium', 'high', 'xhigh']),
+  'glm-ollama': new Set(['default']),
+  'glm-ollama-flash': new Set(['default']),
 };
 
 export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: EffortId = 'default'): EffortId {
@@ -108,7 +110,7 @@ export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: Effo
   return 'default';
 }
 
-function effortLabel(effort: EffortId): string {
+export function effortLabel(effort: EffortId): string {
   if (effort === 'xhigh') return 'extra high';
   if (effort === 'default') return 'provider default effort';
   return `${effort} effort`;
@@ -128,7 +130,7 @@ function cursorGrokModel(effort: EffortId): string {
   return `cursor-grok-4.6-${effort}`;
 }
 
-function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string): string {
+export function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string): string {
   const boundaries: Record<SeatId, string> = {
     orchestrate:
       'Act as the GeneralStaff orchestrator. Ground yourself in the repository instructions, route or execute proportionately, preserve operator-reserved decisions, and report evidence honestly.',
@@ -334,6 +336,9 @@ export function invocationFor(
         label: `Grok 4.6 via Cursor - ${effortLabel(effort)}`,
         effort,
       };
+    case 'glm-ollama':
+    case 'glm-ollama-flash':
+      throw new Error(`${laneId} uses the Ollama Cloud API adapter.`);
   }
 }
 

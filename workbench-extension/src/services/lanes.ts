@@ -4,6 +4,13 @@ import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { EffortId, EffortOption, LaneId, LaneSummary, PermissionMode, SeatId } from '../domain.js';
+import {
+  catalogHasModel,
+  fetchOllamaCloudCatalog,
+  loadOllamaCloudApiKey,
+  ollamaCloudModelFor,
+  type FetchLike,
+} from './ollamaCloud.js';
 import { processInvocation } from './processInvocation.js';
 
 interface LaneDefinition {
@@ -189,6 +196,60 @@ const laneDefinitions: LaneDefinition[] = [
   },
 ];
 
+const ollamaLaneDefinitions = [
+  {
+    id: 'glm-ollama',
+    name: 'GLM 5.3 (Ollama)',
+    detail: 'GLM 5.3 through the Ollama Cloud flat subscription',
+  },
+  {
+    id: 'glm-ollama-flash',
+    name: 'GLM 5.3 Flash (Ollama)',
+    detail: 'GLM 5.3 Flash through the Ollama Cloud flat subscription',
+  },
+] as const;
+
+export interface OllamaLaneDiscoveryOptions {
+  fetcher?: FetchLike;
+  loadApiKey?: () => Promise<string | undefined>;
+}
+
+export async function discoverOllamaCloudLanes(
+  options: OllamaLaneDiscoveryOptions = {},
+): Promise<LaneSummary[]> {
+  const loadApiKey = options.loadApiKey ?? loadOllamaCloudApiKey;
+  const apiKey = await loadApiKey();
+  let tags = new Set<string>();
+  let issue: string | undefined;
+  if (!apiKey) {
+    issue = 'OLLAMA_CLOUD_API_KEY is missing from ~/.generalstaff/.env';
+  } else {
+    try {
+      tags = await fetchOllamaCloudCatalog(apiKey, options.fetcher);
+    } catch (error) {
+      issue = error instanceof Error ? error.message : 'catalog probe failed';
+    }
+  }
+
+  return ollamaLaneDefinitions.map((definition) => {
+    const model = ollamaCloudModelFor(definition.id);
+    const available = !issue && catalogHasModel(tags, model);
+    const detailIssue = issue ?? `the ${model} tag is unavailable`;
+    return {
+      id: definition.id,
+      runner: definition.id,
+      name: definition.name,
+      detail: available ? definition.detail : `${definition.detail} · ${detailIssue}`,
+      evidenceLabel: 'Ollama Cloud subscription lane · unbenchmarked',
+      state: available ? 'available' : 'unavailable',
+      roles: ['orchestrate', 'build', 'review', 'verify', 'assist'],
+      permissions: ['read'],
+      efforts: [{ id: 'default', label: 'Provider default' }],
+      defaultEffort: 'default',
+    } satisfies LaneSummary;
+  });
+}
+
 async function canExecute(candidate: string): Promise<boolean> {
   try {
     await fs.access(candidate, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
@@ -250,7 +311,8 @@ async function probeLane(executable: string, args: string[], accept: RegExp): Pr
 }
 
 export async function discoverLanes(): Promise<LaneSummary[]> {
-  return Promise.all(
+  const ollamaLanesPromise = discoverOllamaCloudLanes();
+  const cliLanes = await Promise.all(
     laneDefinitions.map(async (definition) => {
       const discovered: Array<RunnerDefinition & { executable: string; probe: ProbeResult }> = [];
       for (const runner of definition.runners) {
@@ -298,4 +360,6 @@ export async function discoverLanes(): Promise<LaneSummary[]> {
       } satisfies LaneSummary;
     }),
   );
+  const ollamaLanes = await ollamaLanesPromise;
+  return [...cliLanes, ...ollamaLanes];
 }

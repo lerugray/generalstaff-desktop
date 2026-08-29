@@ -1,9 +1,9 @@
 import * as path from 'node:path';
-import { runCliAdapter } from '../src/adapters/cliAdapter.js';
+import { runAdapter } from '../src/adapters/runAdapter.js';
 import type { LaneId } from '../src/domain.js';
 import { discoverLanes } from '../src/services/lanes.js';
 
-const known: LaneId[] = ['codex', 'claude', 'kimi', 'cline', 'cursor'];
+const known: LaneId[] = ['codex', 'claude', 'kimi', 'cline', 'cursor', 'grok', 'glm-ollama', 'glm-ollama-flash'];
 
 async function main(): Promise<void> {
   const requested = process.argv[2] as LaneId | undefined;
@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   }
 
   const cwd = path.resolve(process.argv[3] ?? process.cwd());
-  const run = runCliAdapter(
+  const run = runAdapter(
     {
       conversationId: 'manual-probe',
       target: { kind: 'general' },

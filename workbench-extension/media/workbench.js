@@ -396,9 +396,10 @@
             .map((lane) => {
               const permissionCompatible = (lane.permissions || ['read', 'write']).includes(state.selectedPermission);
               const unavailable = lane.state !== 'available' || !permissionCompatible;
+              const permissionIssue = state.selectedPermission === 'write' ? 'read only' : 'edit access only';
               return `
                 <button class="lane-card ${lane.id === state.selectedLaneId ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}" data-lane-id="${escapeHtml(lane.id)}" ${unavailable ? 'disabled' : ''}>
-                  <div class="lane-card-top"><span class="lane-glyph">${escapeHtml(lane.name.slice(0, 1))}</span><span class="availability ${unavailable ? 'unavailable' : lane.state}">${!permissionCompatible ? 'edit access only' : lane.state}</span></div>
+                  <div class="lane-card-top"><span class="lane-glyph">${escapeHtml(lane.name.slice(0, 1))}</span><span class="availability ${unavailable ? 'unavailable' : lane.state}">${!permissionCompatible ? permissionIssue : lane.state}</span></div>
                   <strong>${escapeHtml(lane.name)}</strong>
                   <p>${escapeHtml(lane.detail)}</p>
                   <small>${escapeHtml(lane.evidenceLabel || 'Evidence class not recorded')}</small>

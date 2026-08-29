@@ -269,6 +269,8 @@ test('captures only bounded provider session identifiers from native envelopes',
   assert.equal(providerSessionIdFromLine('cursor', JSON.stringify({ session_id: '--unsafe-option' })), undefined);
   assert.equal(providerSessionIdFromLine('cline', JSON.stringify({ session_id: '1787894769750_pjf8j' })), undefined);
   assert.equal(supportsNativeResume('cline'), false);
+  assert.equal(supportsNativeResume('glm-ollama'), false);
+  assert.equal(supportsNativeResume('glm-ollama-flash'), false);
   assert.equal(supportsNativeResume('cursor'), true);
   assert.doesNotMatch(
     redactProviderSessionEvidence(JSON.stringify({ session_id: 'ff7da156-f18e-49ae-83ca-56fb257dd14a' })),

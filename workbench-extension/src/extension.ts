@@ -1,7 +1,8 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { runCliAdapter, supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
+import { supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
+import { runAdapter } from './adapters/runAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
 import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
 import {
@@ -434,7 +435,7 @@ class CommandDeckPanel {
         }
       };
 
-      const run = runCliAdapter(
+      const run = runAdapter(
         {
           conversationId,
           target: conversation.target,

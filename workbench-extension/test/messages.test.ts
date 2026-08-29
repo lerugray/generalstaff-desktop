@@ -25,6 +25,18 @@ test('accepts a bounded command request', () => {
       contextPaths: [],
     },
   );
+  assert.equal(
+    parseWebviewMessage({
+      type: 'new-conversation',
+      target: { kind: 'general' },
+      laneId: 'glm-ollama',
+      seat: 'orchestrate',
+      effort: 'default',
+      permission: 'read',
+      contextPaths: [],
+    })?.type,
+    'new-conversation',
+  );
 });
 
 test('rejects unknown lanes, seats, and oversized prompts', () => {

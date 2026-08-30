@@ -31,6 +31,7 @@ interface RunnerDefinition {
   candidates: string[];
   probeArgs: string[];
   probeAccept: RegExp;
+  requiredFile?: { path: string; issue: string };
   availabilityProbe?: { args: string[]; accept: RegExp; issue: string };
   detailSuffix?: string;
 }
@@ -175,20 +176,35 @@ const laneDefinitions: LaneDefinition[] = [
   {
     id: 'grok',
     name: 'Grok 4.6 (trial)',
-    detail: "Trial seat option backed by the Cursor subscription's Grok 4.6 model",
+    detail: "Trial seat rides the Grok subscription's CLI with Cursor named-model fallback",
     evidenceLabel: 'Trial seat - first on the 2026-08-28 orchestrator-seat benchmark',
-    runners: [{
-      id: 'cursor',
-      binary: 'cursor-agent',
-      candidates: [path.join(home, '.local/bin/cursor-agent'), '/opt/homebrew/bin/cursor-agent'],
-      probeArgs: ['status'],
-      probeAccept: /logged in/iu,
-      availabilityProbe: {
-        args: ['--list-models'],
-        accept: /cursor-grok-4\.6-high/iu,
-        issue: 'the Grok 4.6 trial model is unavailable',
+    runners: [
+      {
+        id: 'grok',
+        binary: 'grok',
+        candidates: [path.join(home, '.grok/bin/grok'), path.join(home, '.local/bin/grok')],
+        probeArgs: ['--version'],
+        probeAccept: /grok \d/iu,
+        requiredFile: {
+          path: path.join(home, '.grok/auth.json'),
+          issue: 'the Grok CLI auth file is missing',
+        },
+        detailSuffix: 'Grok CLI primary · every effort selection uses provider default',
       },
-    }],
+      {
+        id: 'cursor',
+        binary: 'cursor-agent',
+        candidates: [path.join(home, '.local/bin/cursor-agent'), '/opt/homebrew/bin/cursor-agent'],
+        probeArgs: ['status'],
+        probeAccept: /logged in/iu,
+        availabilityProbe: {
+          args: ['--list-models'],
+          accept: /cursor-grok-4\.6-high/iu,
+          issue: 'the Grok 4.6 trial model is unavailable',
+        },
+        detailSuffix: 'Cursor named-model fallback',
+      },
+    ],
     roles: ['orchestrate', 'build', 'review', 'verify', 'assist'],
     permissions: ['read', 'write'],
     efforts: grokEfforts,
@@ -275,7 +291,7 @@ async function findOnPath(binary: string): Promise<string | undefined> {
   return undefined;
 }
 
-interface ProbeResult {
+export interface ProbeResult {
   authenticated: boolean;
   issue?: string;
 }
@@ -310,33 +326,55 @@ async function probeLane(executable: string, args: string[], accept: RegExp): Pr
   });
 }
 
-export async function discoverLanes(): Promise<LaneSummary[]> {
-  const ollamaLanesPromise = discoverOllamaCloudLanes();
-  const cliLanes = await Promise.all(
+export interface CliLaneDiscoveryOptions {
+  canExecute?: (candidate: string) => Promise<boolean>;
+  findOnPath?: (binary: string) => Promise<string | undefined>;
+  probe?: (executable: string, args: string[], accept: RegExp) => Promise<ProbeResult>;
+  fileExists?: (candidate: string) => Promise<boolean>;
+}
+
+async function fileExists(candidate: string): Promise<boolean> {
+  try {
+    await fs.access(candidate, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function discoverCliLanes(options: CliLaneDiscoveryOptions = {}): Promise<LaneSummary[]> {
+  const executableCheck = options.canExecute ?? canExecute;
+  const pathLookup = options.findOnPath ?? findOnPath;
+  const probe = options.probe ?? probeLane;
+  const exists = options.fileExists ?? fileExists;
+  return Promise.all(
     laneDefinitions.map(async (definition) => {
       const discovered: Array<RunnerDefinition & { executable: string; probe: ProbeResult }> = [];
       for (const runner of definition.runners) {
         let executable: string | undefined;
         for (const candidate of runner.candidates) {
-          if (await canExecute(candidate)) {
+          if (await executableCheck(candidate)) {
             executable = candidate;
             break;
           }
         }
-        executable ??= await findOnPath(runner.binary);
+        executable ??= await pathLookup(runner.binary);
         if (!executable) continue;
-        let probe = await probeLane(executable, runner.probeArgs, runner.probeAccept);
-        if (probe.authenticated && runner.availabilityProbe) {
-          const availability = await probeLane(
+        let result = await probe(executable, runner.probeArgs, runner.probeAccept);
+        if (result.authenticated && runner.requiredFile && !(await exists(runner.requiredFile.path))) {
+          result = { authenticated: false, issue: runner.requiredFile.issue };
+        }
+        if (result.authenticated && runner.availabilityProbe) {
+          const availability = await probe(
             executable,
             runner.availabilityProbe.args,
             runner.availabilityProbe.accept,
           );
           if (!availability.authenticated) {
-            probe = { authenticated: false, issue: availability.issue ?? runner.availabilityProbe.issue };
+            result = { authenticated: false, issue: availability.issue ?? runner.availabilityProbe.issue };
           }
         }
-        discovered.push({ ...runner, executable, probe });
+        discovered.push({ ...runner, executable, probe: result });
       }
       const selected = discovered.find((runner) => runner.probe.authenticated) ?? discovered[0];
       const authenticated = selected?.probe.authenticated === true;
@@ -360,6 +398,11 @@ export async function discoverLanes(): Promise<LaneSummary[]> {
       } satisfies LaneSummary;
     }),
   );
+}
+
+export async function discoverLanes(): Promise<LaneSummary[]> {
+  const ollamaLanesPromise = discoverOllamaCloudLanes();
+  const cliLanes = await discoverCliLanes();
   const ollamaLanes = await ollamaLanesPromise;
   return [...cliLanes, ...ollamaLanes];
 }

@@ -131,7 +131,29 @@ test('maps explicit effort controls only onto provider-supported invocation flag
   );
 });
 
-test('builds Cursor-hosted Grok trial invocations with bounded effort and permission flags', () => {
+test('builds Grok CLI primary invocations with the exact headless permission contract', () => {
+  const read = invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', {
+    effort: 'xhigh',
+    runner: 'grok',
+  });
+  assert.deepEqual(read.args.slice(0, 4), ['--permission-mode', 'plan', '--output-format', 'plain']);
+  assert.ok(read.args.indexOf('--output-format') < read.args.indexOf('-p'));
+  assert.equal(read.effort, 'default');
+
+  const write = invocationFor('grok', 'build', 'write', '/work/repo', 'Build this.', {
+    effort: 'high',
+    runner: 'grok',
+  });
+  assert.equal(write.args[write.args.indexOf('--permission-mode') + 1], 'bypassPermissions');
+  assert.ok(write.args.indexOf('--output-format') < write.args.indexOf('-p'));
+  for (const forbidden of ['--always-approve', 'dontAsk', '--model', '--reasoning-effort', '--effort']) {
+    assert.equal(write.args.includes(forbidden), false, `Grok CLI invocation must not contain ${forbidden}`);
+  }
+  assert.equal(write.effort, 'default');
+  assert.match(write.label, /provider default effort/);
+});
+
+test('keeps Cursor named-model Grok as the bounded fallback runner', () => {
   const read = invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'cursor' });
   assert.equal(read.args[read.args.indexOf('--model') + 1], 'cursor-grok-4.6-high');
   assert.deepEqual(read.args.slice(read.args.indexOf('--mode'), read.args.indexOf('--mode') + 2), ['--mode', 'plan']);

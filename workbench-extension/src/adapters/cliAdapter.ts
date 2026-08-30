@@ -165,8 +165,9 @@ export function invocationFor(
 ): { args: string[]; stdin?: string; label: string; effort: EffortId } {
   const groundedPrompt = promptForSeat(seat, permission, prompt);
   const writeCapable = permission === 'write';
-  const effort = effectiveEffortFor(laneId, seat, options.effort);
   const runner = options.runner ?? laneId;
+  const requestedEffort = effectiveEffortFor(laneId, seat, options.effort);
+  const effort = laneId === 'grok' && runner === 'grok' ? 'default' : requestedEffort;
   if (
     runner !== laneId &&
     !(laneId === 'claude' && runner === 'cursor') &&
@@ -321,6 +322,21 @@ export function invocationFor(
         effort,
       };
     case 'grok':
+      if (runner === 'grok') {
+        return {
+          args: [
+            ...(nativeSession ? ['--resume', nativeSession] : []),
+            '--permission-mode',
+            writeCapable ? 'bypassPermissions' : 'plan',
+            '--output-format',
+            'plain',
+            '-p',
+            groundedPrompt,
+          ],
+          label: 'Grok 4.6 via Grok CLI · provider default effort',
+          effort,
+        };
+      }
       return {
         args: [
           ...(nativeSession ? ['--resume', nativeSession] : []),
@@ -333,7 +349,7 @@ export function invocationFor(
           '--stream-partial-output',
           groundedPrompt,
         ],
-        label: `Grok 4.6 via Cursor - ${effortLabel(effort)}`,
+        label: `Grok 4.6 via Cursor fallback · ${effortLabel(effort)}`,
         effort,
       };
     case 'glm-ollama':

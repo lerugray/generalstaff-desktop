@@ -2,7 +2,7 @@
 
 This folder is the thin distribution layer around the GeneralStaff Workbench extension. It deliberately uses stable VS Code APIs and a dedicated workspace profile instead of carrying a permanent source fork of Code OSS.
 
-The current stable local artifact is Workbench 2.5 (`lerugray.generalstaff-workbench` 0.4.0). It opens into one persistent, full-size orchestrator transcript rooted at the selected GeneralStaff private repository. Follow-ups reattach to the same host-owned session and resume provider context when supported. Per-project orders remain available in the secondary rail with their existing repository/state scoping.
+The current stable local artifact is Workbench 2.5 (`lerugray.generalstaff-workbench` 0.4.5). It opens into one persistent, full-size orchestrator transcript rooted at the selected GeneralStaff private repository. Follow-ups reattach to the same host-owned session and resume provider context when supported. Per-project orders remain available in the secondary rail with their existing repository/state scoping.
 
 The distribution does three things:
 

@@ -37,7 +37,12 @@
     runStatus: {},
     pendingActionConversationId: null,
     notice: null,
+    operatorDisplayName: '',
   };
+
+  function operatorAvatar() {
+    return operatorAvatarLabel(state.operatorDisplayName);
+  }
 
   const seatCopy = {
     orchestrate: ['Orchestrate', 'Direct work, preserve decisions, and judge completion.'],
@@ -245,7 +250,7 @@
         <div class="topbar-actions">
           <span class="date-chip">${escapeHtml(now)}</span>
           <button class="ghost-button" data-action="open-terminal">Terminal</button>
-          <button class="avatar" title="Operator">RW</button>
+          <button class="avatar" title="Operator">${escapeHtml(operatorAvatar())}</button>
         </div>
       </header>`;
   }
@@ -347,7 +352,7 @@
     const items = state.snapshot?.attention || [];
     return `
       <section class="panel attention-panel">
-        <div class="panel-heading"><div><small>OPERATOR QUEUE</small><h2>Needs Ray</h2></div><span class="count-pill">${items.length}</span></div>
+        <div class="panel-heading"><div><small>OPERATOR QUEUE</small><h2>${escapeHtml(operatorQueueHeading(state.operatorDisplayName))}</h2></div><span class="count-pill">${items.length}</span></div>
         <div class="item-stack">
           ${items
             .slice(0, 5)
@@ -589,7 +594,7 @@
               .map(
                 (message) => `
                   <article class="message ${message.role} ${message.status || ''}" data-message-id="${escapeHtml(message.id)}">
-                    <div class="message-author">${message.role === 'user' ? '<span class="avatar tiny">RW</span><strong>You</strong>' : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
+                    <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
                     <div class="message-body">${message.text ? renderText(message.text) : '<div class="thinking"><i></i><i></i><i></i><span>Taking the seat…</span></div>'}</div>
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
@@ -880,6 +885,7 @@
         state.hydrated = true;
       }
       state.notes = message.notes || {};
+      state.operatorDisplayName = typeof message.operatorDisplayName === 'string' ? message.operatorDisplayName : '';
       render();
     } else if (message.type === 'conversations') {
       state.conversations = message.conversations || [];

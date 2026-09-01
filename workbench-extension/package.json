@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -68,6 +68,12 @@
           "scope": "machine",
           "description": "Absolute path to the private GeneralStaff state repository. Leave blank to discover the existing operator configuration."
         },
+        "generalstaff.operatorDisplayName": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "The operator's display name for the Command Deck. When blank, the attention queue reads \"Needs You\" and avatars use a neutral glyph."
+        },
         "generalstaff.laneDeskRuntimePath": {
           "type": "string",
           "default": "",
@@ -104,7 +110,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "check": "npm run typecheck && node --check media/workbench.js && npm run test && npm run compile",
+    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/workbench.js && npm run test && npm run compile",
     "probe:codex-resume-boundary": "node --import tsx scripts/probe-codex-resume-boundary.ts",
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",

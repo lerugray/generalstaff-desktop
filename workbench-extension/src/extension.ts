@@ -132,6 +132,10 @@ class CommandDeckPanel {
     return laneDeskRuntimePath ? { laneDeskRuntimePath } : {};
   }
 
+  private operatorDisplayName(): string {
+    return vscode.workspace.getConfiguration('generalstaff').get<string>('operatorDisplayName')?.trim() ?? '';
+  }
+
   private async postState(): Promise<void> {
     if (!this.snapshot || this.disposed) return;
     await this.panel.webview.postMessage({
@@ -140,6 +144,7 @@ class CommandDeckPanel {
       conversations: this.store.all(),
       orchestratorSessionId: this.orchestrator.current()?.id,
       notes: this.notes.all(),
+      operatorDisplayName: this.operatorDisplayName(),
     });
   }
 
@@ -704,6 +709,7 @@ class CommandDeckPanel {
   private html(): string {
     const nonce = crypto.randomBytes(18).toString('base64');
     const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
+    const operatorIdentity = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'operatorIdentity.js'));
     const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.js'));
     const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce);
     return `<!doctype html>
@@ -722,6 +728,7 @@ class CommandDeckPanel {
         <div><strong>Opening Command Deck</strong><span>Reading the fleet without interrupting active work…</span></div>
       </div>
     </div>
+    <script nonce="${nonce}" src="${operatorIdentity}"></script>
     <script nonce="${nonce}" src="${script}"></script>
   </body>
 </html>`;

@@ -12,3 +12,18 @@ A new **Lanes** webview panel in workbench-extension that renders the lane-desk 
 - Tests: a fixture-driven render test (lanes_status JSON with running/failed/stalled/done rows + one unreachable host) asserting sort order, counter colours by state, badge count, and partial-envelope tolerance; keep `npm run check` green (84/84 baseline + new).
 - Version 0.4.9; rebuild the VSIX (vsce); re-run scripts/make-launcher-app.sh is the ORCHESTRATOR's harvest step — do not run the launcher script in the cloud.
 Commit on your branch with clear messages. Do NOT touch credentials, .env, signing, launcher internals, master, or anything under src-tauri/. Do not implement lane_detail / lane_harvest / Desk (M2/M3).
+
+---
+
+## Harvest render proof (2026-09-13)
+
+`docs/handoffs/GS-HARNESS-M1-PROOF-2026-09-13.png` — the Lanes webview HTML/JS renders standalone
+with no VS Code host: `media/workbench.css` + unmodified `media/lanes.js` served over local HTTP,
+a ~10-line `acquireVsCodeApi()` shim (getState/setState/postMessage no-ops, the same contract VS
+Code injects), and a real `window.postMessage({type:'lanes-model', model})` carrying the model
+built by the actual `parseLaneDeskStatus` + `buildLanesPanelModel` functions run against
+`test/fixtures/lanes-status-partial.json` (the M1 test fixture: running/failed/stalled/done/
+inconsistent rows + one unreachable host). Rendered headless Chromium (`--mute-audio`), 1204x753
+@2x. All 6 rows present; attention-first sort verified (unreachable, inconsistent, failed,
+stalled, running, done); counter colours distinguishable (amber for unreachable, iron-red for
+failed/inconsistent, dust for stalled, ink for running, quiet grey for done).

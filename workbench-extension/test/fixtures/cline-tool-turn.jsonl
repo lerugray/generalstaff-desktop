@@ -1,0 +1,11 @@
+{"type":"agent_event","event":{"type":"content_start","contentType":"text","text":"I'll read the note and update it."}}
+{"type":"agent_event","event":{"type":"content_end","contentType":"text","text":"I'll read the note and update it."}}
+{"type":"agent_event","event":{"type":"content_start","contentType":"tool","toolName":"read_files","toolCallId":"t1","input":{"path":"<repo>/note.md"}}}
+{"type":"agent_event","event":{"type":"content_end","contentType":"tool","toolCallId":"t1","output":{"content":"SECRET_NOTE_BODY that must not appear in chat"}}}
+{"type":"agent_event","event":{"type":"content_start","contentType":"text","text":"Rewriting the note now."}}
+{"type":"agent_event","event":{"type":"content_end","contentType":"text","text":"Rewriting the note now."}}
+{"type":"agent_event","event":{"type":"content_start","contentType":"tool","toolName":"editor","toolCallId":"t2","input":{"path":"<repo>/note.md","content":"SECRET_WRITE_BODY that must not appear in chat"}}}
+{"type":"agent_event","event":{"type":"content_end","contentType":"tool","toolCallId":"t2","output":{"ok":true}}}
+{"type":"agent_event","event":{"type":"content_start","contentType":"text","text":"Done — the note is updated."}}
+{"type":"agent_event","event":{"type":"content_end","contentType":"text","text":"Done — the note is updated."}}
+{"type":"run_result","text":"I'll read the note and update it.Rewriting the note now.Done — the note is updated."}

@@ -13,7 +13,7 @@ import type {
   SeatId,
 } from '../domain.js';
 import { redact } from '../security/redaction.js';
-import { claudeExtraDirectoryArgs } from '../services/handoffPaths.js';
+import { extraAddDirArgs } from '../services/handoffPaths.js';
 import { ollamaCcDoorFor } from '../services/ollamaCloud.js';
 import type { McpServerLaunch } from '../services/privateRuntime.js';
 import { processInvocation } from '../services/processInvocation.js';
@@ -202,6 +202,7 @@ export function invocationFor(
             '-c',
             `model_reasoning_effort="${effort}"`,
             ...codexMcpArgs(mcpServers),
+            ...extraAddDirArgs(),
             '--skip-git-repo-check',
             nativeSession,
             '-',
@@ -223,6 +224,7 @@ export function invocationFor(
           '-c',
           `model_reasoning_effort="${effort}"`,
           ...codexMcpArgs(mcpServers),
+          ...extraAddDirArgs(),
           '-C',
           cwd,
         ],
@@ -243,6 +245,7 @@ export function invocationFor(
             '--output-format',
             'stream-json',
             '--stream-partial-output',
+            ...extraAddDirArgs(),
             groundedPrompt,
           ],
           label: `Claude Fable 5 via Cursor · ${effortLabel(effort)}`,
@@ -271,7 +274,7 @@ export function invocationFor(
           writeCapable ? 'acceptEdits' : 'plan',
           '--effort',
           effort,
-          ...claudeExtraDirectoryArgs(),
+          ...extraAddDirArgs(),
           ...claudeMcpPermissionArgs(claudeMcpServers),
           ...claudeMcpArgs(claudeMcpServers),
         ],
@@ -289,6 +292,7 @@ export function invocationFor(
           groundedPrompt,
           '--output-format',
           'stream-json',
+          ...extraAddDirArgs(),
         ],
         label: 'Kimi for Coding (configured default) · provider default effort',
         effort,
@@ -323,6 +327,7 @@ export function invocationFor(
           '--output-format',
           'stream-json',
           '--stream-partial-output',
+          ...extraAddDirArgs(),
           groundedPrompt,
         ],
         label: 'Cursor auto-selected model · provider default effort',
@@ -354,6 +359,7 @@ export function invocationFor(
           '--output-format',
           'stream-json',
           '--stream-partial-output',
+          ...extraAddDirArgs(),
           groundedPrompt,
         ],
         label: `Grok 4.6 via Cursor fallback · ${effortLabel(effort)}`,
@@ -385,7 +391,7 @@ export function invocationFor(
           writeCapable ? 'acceptEdits' : 'plan',
           '--effort',
           effort,
-          ...claudeExtraDirectoryArgs(),
+          ...extraAddDirArgs(),
           ...claudeMcpPermissionArgs(ccMcpServers),
           ...claudeMcpArgs(ccMcpServers),
         ],
@@ -511,6 +517,225 @@ export function speaksClaudeProtocol(laneId: LaneId): boolean {
   return laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
 }
 
+function titleCaseToolBase(base: string): string {
+  if (!base) return 'tool';
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+/** Cursor stream-json nests tools under `tool_call.readToolCall` / `writeToolCall` / … */
+export function cursorToolCallName(toolCall: unknown): string | undefined {
+  if (typeof toolCall !== 'object' || toolCall === null || Array.isArray(toolCall)) return undefined;
+  const record = toolCall as Record<string, unknown>;
+  for (const [key, value] of Object.entries(record)) {
+    if (key.endsWith('ToolCall')) {
+      return titleCaseToolBase(key.slice(0, -'ToolCall'.length));
+    }
+    if (key === 'function' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const name = textAt(value, ['name']);
+      if (name) return name;
+    }
+  }
+  return undefined;
+}
+
+function normalizeCodexLine(record: Record<string, unknown>, type: string): RunEvent | RunEvent[] | undefined {
+  if (type === 'thread.started' || type === 'turn.started') {
+    return { type: 'status', text: type.replace(/\./g, ' ') };
+  }
+  if (type === 'turn.completed' || type === 'turn.failed') {
+    if (type === 'turn.failed') {
+      const error =
+        textAt(record, ['message', 'text']) ??
+        (typeof record.error === 'object' && record.error !== null
+          ? textAt(record.error as Record<string, unknown>, ['message', 'text'])
+          : undefined) ??
+        'The selected lane reported an error.';
+      return { type: 'error', text: error };
+    }
+    return { type: 'status', text: 'turn completed' };
+  }
+  if (type !== 'item.started' && type !== 'item.completed' && type !== 'item.updated') {
+    return undefined;
+  }
+  const item = record.item;
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) return undefined;
+  const itemRecord = item as Record<string, unknown>;
+  const itemType = String(itemRecord.type ?? itemRecord.item_type ?? '');
+
+  if (itemType === 'agent_message' || itemType === 'assistant_message') {
+    if (type !== 'item.completed') return undefined;
+    const text = textAt(itemRecord, ['text']);
+    return text ? { type: 'assistant-delta', text } : undefined;
+  }
+  if (itemType === 'command_execution') {
+    // Emit once when the command starts; completed carries aggregated_output (never prose).
+    if (type !== 'item.started') return undefined;
+    const command = textAt(itemRecord, ['command']);
+    return command ? { type: 'tool', text: command } : { type: 'tool', text: 'command' };
+  }
+  if (itemType === 'file_change') {
+    if (type !== 'item.completed') return undefined;
+    const changes = Array.isArray(itemRecord.changes) ? itemRecord.changes : [];
+    const paths = changes
+      .map((change) => {
+        if (typeof change !== 'object' || change === null) return undefined;
+        return textAt(change as Record<string, unknown>, ['path']);
+      })
+      .filter((path): path is string => Boolean(path));
+    return { type: 'tool', text: paths.length ? `file_change ${paths.join(', ')}` : 'file_change' };
+  }
+  if (itemType === 'mcp_tool_call') {
+    if (type === 'item.updated') return undefined;
+    const tool = textAt(itemRecord, ['tool', 'name']) ?? 'mcp';
+    const server = textAt(itemRecord, ['server']);
+    return { type: 'tool', text: server ? `${server}/${tool}` : tool };
+  }
+  if (itemType === 'reasoning' || itemType === 'todo_list' || itemType === 'web_search') {
+    return { type: 'status', text: itemType.replace(/_/g, ' ') };
+  }
+  if (itemType === 'error') {
+    const error = textAt(itemRecord, ['message', 'text', 'error']) ?? 'The selected lane reported an error.';
+    return { type: 'error', text: error };
+  }
+  return undefined;
+}
+
+function normalizeCursorLine(record: Record<string, unknown>, type: string): RunEvent | RunEvent[] | undefined {
+  if (type === 'result' || type === 'run_result' || type === 'system' || type === 'user') {
+    return undefined;
+  }
+  if (type === 'tool_call') {
+    // Only announce on started — completed carries file bodies under result.success.content.
+    if (record.subtype === 'completed') return undefined;
+    const name = cursorToolCallName(record.tool_call) ?? textAt(record, ['name', 'tool', 'command']);
+    return name ? { type: 'tool', text: name } : undefined;
+  }
+  if (type === 'assistant') {
+    // --stream-partial-output: only timestamped deltas without model_call_id are new text.
+    // model_call_id flushes and untimestamped finals duplicate prior prose (Cursor docs).
+    if (record.timestamp_ms === undefined || record.model_call_id !== undefined) return undefined;
+    const events: RunEvent[] = [];
+    for (const name of claudeProtocolToolNames(record)) {
+      events.push({ type: 'tool', text: name });
+    }
+    const text = claudeProtocolAssistantText(record);
+    if (text) events.push({ type: 'assistant-delta', text });
+    return packEvents(events);
+  }
+  if (/error|failed/i.test(type)) {
+    const error = textAt(record, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+    return { type: 'error', text: error };
+  }
+  if (/started|thinking|progress|status/i.test(type)) {
+    return { type: 'status', text: type.replace(/[._-]+/g, ' ') };
+  }
+  return undefined;
+}
+
+function kimiAssistantContent(record: Record<string, unknown>): string | undefined {
+  const content = record.content;
+  if (typeof content === 'string') return content.trim() ? content : undefined;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (typeof block === 'string' && block.trim()) {
+      parts.push(block);
+      continue;
+    }
+    if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+    const item = block as Record<string, unknown>;
+    if (item.type === 'tool_use' || item.type === 'tool_result') continue;
+    if (typeof item.text === 'string' && item.text.trim()) parts.push(item.text);
+  }
+  return parts.length ? parts.join('') : undefined;
+}
+
+function kimiToolNames(record: Record<string, unknown>): string[] {
+  const top = textAt(record, ['name', 'tool']);
+  if (top && /tool/i.test(String(record.type ?? ''))) return [top];
+  const calls = record.tool_calls;
+  if (!Array.isArray(calls)) return [];
+  const names: string[] = [];
+  for (const call of calls) {
+    if (typeof call !== 'object' || call === null || Array.isArray(call)) continue;
+    const item = call as Record<string, unknown>;
+    const direct = textAt(item, ['name', 'tool']);
+    if (direct) {
+      names.push(direct);
+      continue;
+    }
+    const fn = item.function;
+    if (typeof fn === 'object' && fn !== null && !Array.isArray(fn)) {
+      const name = textAt(fn as Record<string, unknown>, ['name']);
+      if (name) names.push(name);
+    }
+  }
+  return names;
+}
+
+function normalizeKimiLine(record: Record<string, unknown>, type: string): RunEvent | RunEvent[] | undefined {
+  const role = String(record.role ?? '');
+  if (role === 'tool' || type === 'tool' || type === 'tool_result') {
+    // Tool results often carry file bodies in `content` — never treat as prose.
+    return undefined;
+  }
+  if (role === 'meta' || role === 'system') return undefined;
+  if (/tool|command|action/i.test(type) && role !== 'assistant') {
+    const tool = textAt(record, ['name', 'tool', 'command', 'text']);
+    return tool ? { type: 'tool', text: tool } : undefined;
+  }
+  if (role === 'assistant' || type === 'assistant' || (!type && role === 'assistant')) {
+    const events: RunEvent[] = [];
+    for (const name of kimiToolNames(record)) {
+      events.push({ type: 'tool', text: name });
+    }
+    const text = kimiAssistantContent(record);
+    if (text) events.push({ type: 'assistant-delta', text });
+    return packEvents(events);
+  }
+  if (/error|failed/i.test(type)) {
+    const error = textAt(record, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+    return { type: 'error', text: error };
+  }
+  return undefined;
+}
+
+function normalizeClineLine(record: Record<string, unknown>, type: string): RunEvent | RunEvent[] | undefined {
+  if (type === 'run_result') return undefined;
+  if (type === 'agent_event' && typeof record.event === 'object' && record.event !== null) {
+    const event = record.event as Record<string, unknown>;
+    const eventType = String(event.type ?? '');
+    if (eventType === 'content_end') return undefined;
+    if (eventType === 'content_start') {
+      const contentType = String(event.contentType ?? '');
+      if (contentType === 'text') {
+        const text = textAt(event, ['text']);
+        return text ? { type: 'assistant-delta', text } : undefined;
+      }
+      if (contentType === 'tool' || contentType === 'tool_use' || contentType === 'tool_call') {
+        const tool = textAt(event, ['toolName', 'name', 'tool', 'command']) ?? 'tool';
+        return { type: 'tool', text: tool };
+      }
+      // Unknown content types (thinking, etc.) stay out of the chat bubble.
+      return { type: 'status', text: contentType || eventType };
+    }
+    if (/tool/i.test(eventType)) {
+      const tool = textAt(event, ['toolName', 'name', 'tool', 'command']);
+      return tool ? { type: 'tool', text: tool } : undefined;
+    }
+    if (/error|failed/i.test(eventType)) {
+      const error = textAt(event, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+      return { type: 'error', text: error };
+    }
+    return undefined;
+  }
+  if (/error|failed/i.test(type)) {
+    const error = textAt(record, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+    return { type: 'error', text: error };
+  }
+  return undefined;
+}
+
 export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEvent[] | undefined {
   const safeLine = redact(line.trim());
   if (!safeLine) return undefined;
@@ -519,6 +744,7 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
   try {
     value = JSON.parse(safeLine);
   } catch {
+    // Grok CLI --output-format plain (and similar) emit prose lines, not JSON.
     return { type: 'assistant-delta', text: `${safeLine}\n` };
   }
 
@@ -559,37 +785,19 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
     return undefined;
   }
 
-  // With --stream-partial-output Cursor emits timestamped assistant deltas,
-  // followed by an untimestamped accumulated assistant envelope and a result
-  // envelope. The latter two are receipts, not additional prose.
-  if (laneId === 'cursor') {
-    if (type === 'result' || type === 'run_result') return undefined;
-    if (type === 'assistant' && record.timestamp_ms === undefined) return undefined;
-  }
+  if (laneId === 'codex') return normalizeCodexLine(record, type);
+  // Grok-via-Cursor and Claude-via-Cursor set protocolLaneId to `cursor` at spawn time.
+  if (laneId === 'cursor') return normalizeCursorLine(record, type);
+  if (laneId === 'kimi') return normalizeKimiLine(record, type);
+  if (laneId === 'cline') return normalizeClineLine(record, type);
 
-  if (laneId === 'cline') {
-    if (type === 'run_result') return undefined;
-    if (type === 'agent_event' && typeof record.event === 'object' && record.event !== null) {
-      const event = record.event as Record<string, unknown>;
-      if (event.type === 'content_start' && event.contentType === 'text') {
-        const text = textAt(event, ['text']);
-        if (text) return { type: 'assistant-delta', text };
-      }
-      if (event.type === 'content_end') return undefined;
+  // Grok native CLI uses plain text (handled above). Any unexpected JSON stays quiet.
+  if (laneId === 'grok') {
+    if (/error|failed/i.test(type)) {
+      const error = textAt(record, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+      return { type: 'error', text: error };
     }
-  }
-
-  if (laneId === 'codex' && type === 'item.completed') {
-    const item = record.item;
-    if (typeof item === 'object' && item !== null) {
-      const itemRecord = item as Record<string, unknown>;
-      if (itemRecord.type === 'agent_message') {
-        const text = textAt(itemRecord, ['text', 'content']);
-        if (text) return { type: 'assistant-delta', text };
-      }
-      const command = textAt(itemRecord, ['command', 'name']);
-      if (command) return { type: 'tool', text: command };
-    }
+    return undefined;
   }
 
   if (/tool|command|action/i.test(type)) {

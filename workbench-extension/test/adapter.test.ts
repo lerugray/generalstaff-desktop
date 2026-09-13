@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
@@ -75,7 +75,10 @@ test('nestedText-style payloads on non-Claude lanes still reject tool_use conten
         },
       }),
     ),
-    { type: 'assistant-delta', text: 'Safe prose' },
+    [
+      { type: 'tool', text: 'Write' },
+      { type: 'assistant-delta', text: 'Safe prose' },
+    ],
   );
 });
 
@@ -85,6 +88,21 @@ test('normalizes Codex agent messages', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Verified and complete.' } }),
   );
   assert.deepEqual(event, { type: 'assistant-delta', text: 'Verified and complete.' });
+});
+
+test('skips Cursor model_call_id duplicate flushes', () => {
+  assert.equal(
+    normalizeCliLine(
+      'cursor',
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 12,
+        model_call_id: 'call_1',
+        message: { content: [{ type: 'text', text: 'Duplicate before tool' }] },
+      }),
+    ),
+    undefined,
+  );
 });
 
 test('normalizes tool and error events without exposing credentials', () => {
@@ -409,4 +427,35 @@ test('resolves Windows npm shims to Node without passing prompt text through cmd
   const unsupported = path.join(temporary, 'custom.cmd');
   writeFileSync(unsupported, '@ECHO off\necho custom wrapper\n');
   assert.throws(() => processInvocation(unsupported, [prompt], 'win32'), /Unsupported Windows command shim/);
+});
+
+test('passes expanded Desktop/handoff via --add-dir on lanes that accept it', (context) => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'gs-add-dir-home-'));
+  const previousHome = process.env.HOME;
+  context.after(() => {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+  process.env.HOME = home;
+  const handoff = path.join(home, 'Desktop', 'handoff');
+  mkdirSync(handoff, { recursive: true });
+
+  const expectAddDir = (args: string[]) => {
+    assert.ok(args.includes('--add-dir'));
+    assert.equal(args[args.indexOf('--add-dir') + 1], handoff);
+  };
+
+  expectAddDir(invocationFor('codex', 'build', 'write', '/work/repo', 'Build this.').args);
+  expectAddDir(invocationFor('cursor', 'verify', 'read', '/work/repo', 'Check this.').args);
+  expectAddDir(invocationFor('kimi', 'build', 'write', '/work/repo', 'Build this.').args);
+  expectAddDir(invocationFor('claude', 'orchestrate', 'read', '/work/repo', 'Direct this.').args);
+  expectAddDir(
+    invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'cursor' }).args,
+  );
+  // Native Grok CLI has no --add-dir contract; handoff remains attach-picker only.
+  assert.equal(
+    invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'grok' }).args.includes('--add-dir'),
+    false,
+  );
 });

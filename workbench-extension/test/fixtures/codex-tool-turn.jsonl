@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll read the note and update it."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc 'cat <repo>/note.md'","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc 'cat <repo>/note.md'","aggregated_output":"SECRET_NOTE_BODY that must not appear in chat\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"<repo>/note.md","kind":"update"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Updated the note with the handoff summary."}}
+{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":80}}

@@ -11,3 +11,14 @@ Selecting a lane row in the Lanes panel opens a DETAIL view (same webview, a rig
 - Tests: fixture-driven (lane_detail + lane_harvest JSON for a running lane and a failed lane; a gone lane) asserting the fields bound, no path reads, and stale/gone handling; `npm run check` green (87/87 baseline + new).
 - Version 0.4.10; rebuild the VSIX (vsce) — the launcher re-run is the orchestrator's harvest step, do not run it in the cloud.
 Commit on your branch. Do NOT touch credentials, .env, signing, launcher internals, master, src-tauri/, or gs-private.
+
+---
+
+## Transport path taken (2026-09-13)
+
+CLI — same one-shot Lane Desk transport as M1. `privateRuntime.ts` already documents the fallback verbs:
+
+- `python3 lane_desk.py --config … detail LANE_ID --host HOST --lines 40 --json`
+- `python3 lane_desk.py --config … harvest LANE_ID --host HOST --json`
+
+No MCP session is held by the Lanes panel. No CLI subcommands were added under gs-private.

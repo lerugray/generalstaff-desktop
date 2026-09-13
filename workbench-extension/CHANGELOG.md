@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.10 — 2026-09-13
+
+- Lanes row select opens a read-only detail drawer: `detail` + `harvest` via the same Lane Desk CLI transport as status (`detail LANE --host HOST --lines 40 --json`, `harvest LANE --host HOST --json`).
+- Bind host/tree/branch/WANT·HEAD/model/cap/elapsed, sentinel last lines, `run.status` tail, log lines from lane-desk only (no path opens), and harvest preview (files changed, dirty count, commits since WANT, battery).
+- Disabled **Harvest…** affordance (tooltip M3+); stale-on-timeout and gone-lane retention with a gone marker; poll refreshes the selected card with the panel.
+
 ## 0.4.9 — 2026-09-13
 
 - Add the read-only **Lanes** panel for detached Mac / home-PC runs: live `lanes_status` via the existing Lane Desk CLI transport, 30s poll while visible, manual refresh, partial-envelope tolerance.

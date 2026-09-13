@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -32,7 +32,20 @@
       {
         "command": "generalstaff.openCommandDeck",
         "title": "GeneralStaff: Open Command Deck",
-        "category": "GeneralStaff"
+        "category": "GeneralStaff",
+        "icon": {
+          "light": "media/icon-command.svg",
+          "dark": "media/icon-command.svg"
+        }
+      },
+      {
+        "command": "generalstaff.openLanes",
+        "title": "GeneralStaff: Open Lanes",
+        "category": "GeneralStaff",
+        "icon": {
+          "light": "media/icon-lanes.svg",
+          "dark": "media/icon-lanes.svg"
+        }
       },
       {
         "command": "generalstaff.newConversation",
@@ -42,6 +55,11 @@
       {
         "command": "generalstaff.refresh",
         "title": "GeneralStaff: Refresh Fleet",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.refreshLanes",
+        "title": "GeneralStaff: Refresh Lanes",
         "category": "GeneralStaff"
       },
       {
@@ -57,8 +75,47 @@
         "mac": "cmd+shift+g",
         "win": "ctrl+shift+g",
         "linux": "ctrl+shift+g"
+      },
+      {
+        "command": "generalstaff.openLanes",
+        "key": "cmd+shift+l",
+        "mac": "cmd+shift+l",
+        "win": "ctrl+shift+l",
+        "linux": "ctrl+shift+l"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "generalstaff-command",
+          "title": "Command",
+          "icon": "media/icon-command.svg"
+        },
+        {
+          "id": "generalstaff-lanes",
+          "title": "Lanes",
+          "icon": "media/icon-lanes.svg"
+        }
+      ]
+    },
+    "views": {
+      "generalstaff-command": [
+        {
+          "id": "generalstaff.commandNav",
+          "name": "Command",
+          "icon": "media/icon-command.svg",
+          "contextualTitle": "Command"
+        }
+      ],
+      "generalstaff-lanes": [
+        {
+          "id": "generalstaff.lanesNav",
+          "name": "Lanes",
+          "icon": "media/icon-lanes.svg",
+          "contextualTitle": "Lanes · detached runs"
+        }
+      ]
+    },
     "configuration": {
       "title": "GeneralStaff Workbench",
       "properties": {
@@ -119,7 +176,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/composerKeys.js && node --check media/workbench.js && npm run test && npm run compile",
+    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/composerKeys.js && node --check media/workbench.js && node --check media/lanes.js && npm run test && npm run compile",
     "probe:codex-resume-boundary": "node --import tsx scripts/probe-codex-resume-boundary.ts",
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",

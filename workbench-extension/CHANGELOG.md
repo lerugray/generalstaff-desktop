@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.9 — 2026-09-13
+
+- Add the read-only **Lanes** panel for detached Mac / home-PC runs: live `lanes_status` via the existing Lane Desk CLI transport, 30s poll while visible, manual refresh, partial-envelope tolerance.
+- Situation-map register (Kriegspiel): shared Workbench palettes, counters coloured by state, amber only for attention; activity-bar Command + Lanes icons with an attention badge (no OS notifications).
+- Open Command and Lanes side-by-side on launch; keep Workbench activity-bar icons visible in immersive mode while still hiding Explorer/panel chrome.
+
 ## 0.4.8 — 2026-09-13
 
 - Bring every non-Claude seat's chat normalize path to the same parity bar as 0.4.7: assistant bubbles carry only model prose; tool activity is a compact collapsible line; stream/progress/receipt envelopes never become prose.

@@ -1,4 +1,8 @@
 import type {
+  LaneDeskDetailEnvelope,
+  LaneDeskHarvestEnvelope,
+} from './services/laneDeskDetail.js';
+import type {
   LaneDeskHostId,
   LaneDeskLaneState,
   LaneDeskStatusEnvelope,
@@ -264,4 +268,209 @@ export function emptyLanesPanelModel(detail: string, missing = false): LanesPane
     hostSummaries: EXPECTED_HOSTS.map((host) => ({ host, ok: false, message: detail })),
     ...(missing ? { capabilityMissing: detail } : { errorDetail: detail }),
   };
+}
+
+/** Read-only detail drawer for a selected lane counter (M2). */
+export interface LaneDetailField {
+  label: string;
+  value: string;
+  /** Marginalia typography for shas/paths. */
+  marginalia?: boolean;
+}
+
+export interface LaneDetailModel {
+  key: string;
+  laneId: string;
+  host: string;
+  gone: boolean;
+  stale: boolean;
+  loading: boolean;
+  state: string;
+  counterColor: LaneCounterColor;
+  fields: LaneDetailField[];
+  sentinels: Array<{ name: string; present: boolean; lastLine: string }>;
+  statusTail: string[];
+  logLines: string[];
+  harvest: {
+    process: string;
+    gitSummary: string;
+    dirtyCount: string;
+    filesChanged: string[];
+    commitsSinceWant: string;
+    battery: string;
+    tests: string;
+    attention: string[];
+    paths: Array<{ label: string; value: string }>;
+    modelDoor: string;
+  };
+  errorDetail?: string;
+  /** Disabled M3+ affordance — never an action in M2. */
+  harvestActionDisabled: true;
+  harvestActionLabel: 'Harvest…';
+  harvestActionTooltip: 'M3+';
+}
+
+function formatShaPair(want?: string, head?: string, sha?: string): string {
+  const wantSha = want?.trim();
+  const headSha = head?.trim() || sha?.trim();
+  if (wantSha && headSha) return `WANT ${wantSha} · HEAD ${headSha}`;
+  if (headSha) return `HEAD ${headSha}`;
+  if (wantSha) return `WANT ${wantSha}`;
+  return '—';
+}
+
+function formatModelDoor(detail?: LaneDeskDetailEnvelope, harvest?: LaneDeskHarvestEnvelope): string {
+  const model = detail?.model || harvest?.model;
+  const door = detail?.door || harvest?.door || harvest?.harness || detail?.harness;
+  if (model && door) return `${model} · ${door}`;
+  if (model) return model;
+  if (door) return door;
+  return '—';
+}
+
+function formatElapsedDetail(detail: LaneDeskDetailEnvelope | undefined): string {
+  if (!detail) return '—';
+  if (detail.elapsed?.trim()) return detail.elapsed.trim();
+  return formatElapsed(detail.age_min);
+}
+
+function formatProcess(harvest?: LaneDeskHarvestEnvelope): string {
+  const process = harvest?.process;
+  if (!process) return '—';
+  const running = process.running === true ? 'running' : process.running === false ? 'stopped' : '—';
+  const pid = typeof process.pid === 'number' ? `pid ${process.pid}` : '';
+  const pgid = typeof process.pgid === 'number' ? `pgid ${process.pgid}` : '';
+  return [running, pid, pgid].filter(Boolean).join(' · ') || '—';
+}
+
+function envelopeError(
+  detail?: LaneDeskDetailEnvelope,
+  harvest?: LaneDeskHarvestEnvelope,
+  fallback?: string,
+): string | undefined {
+  if (fallback) return fallback;
+  if (detail && detail.ok === false && (detail.code || detail.message)) {
+    return [detail.code, detail.message].filter(Boolean).join(': ');
+  }
+  if (harvest && harvest.ok === false && (harvest.code || harvest.message)) {
+    return [harvest.code, harvest.message].filter(Boolean).join(': ');
+  }
+  return undefined;
+}
+
+/**
+ * Bind lane_detail + lane_harvest envelopes into the Kriegspiel detail card.
+ * Never reads filesystem paths — only fields returned by lane-desk.
+ */
+export function buildLaneDetailModel(
+  key: string,
+  detail: LaneDeskDetailEnvelope | undefined,
+  harvest: LaneDeskHarvestEnvelope | undefined,
+  options: {
+    gone?: boolean;
+    stale?: boolean;
+    loading?: boolean;
+    errorDetail?: string;
+    fallbackId?: string;
+    fallbackHost?: string;
+    fallbackState?: string;
+  } = {},
+): LaneDetailModel {
+  const laneId = detail?.lane_id || harvest?.lane_id || options.fallbackId || '—';
+  const host = detail?.host || harvest?.host || options.fallbackHost || '—';
+  const state = detail?.state || options.fallbackState || 'unknown';
+  const tree = detail?.tree || detail?.cwd || harvest?.paths?.cwd || harvest?.paths?.tree || '—';
+  const branch = detail?.branch || harvest?.git?.branch || '—';
+  const launch = detail?.launched_at || detail?.launch_time || '—';
+  const cap = typeof detail?.cap_min === 'number' ? `${detail.cap_min}m` : '—';
+  const errorDetail = envelopeError(detail, harvest, options.errorDetail);
+
+  const fields: LaneDetailField[] = [
+    { label: 'host', value: host },
+    { label: 'tree', value: tree, marginalia: true },
+    { label: 'branch', value: branch, marginalia: true },
+    {
+      label: 'sha',
+      value: formatShaPair(detail?.want_sha || harvest?.git?.want_sha, detail?.head_sha || harvest?.git?.head_sha, detail?.sha),
+      marginalia: true,
+    },
+    { label: 'model', value: formatModelDoor(detail, harvest) },
+    { label: 'launched', value: launch },
+    { label: 'cap', value: cap },
+    { label: 'elapsed', value: formatElapsedDetail(detail) },
+  ];
+
+  const sentinels: LaneDetailModel['sentinels'] = [];
+  const sentinelSource = detail?.sentinels;
+  for (const name of ['log', 'status', 'done'] as const) {
+    const entry = sentinelSource?.[name];
+    if (!entry) continue;
+    sentinels.push({
+      name: `run.${name}`,
+      present: entry.present !== false,
+      lastLine: entry.last_line?.trim() || '',
+    });
+  }
+
+  const git = harvest?.git;
+  const filesChanged = git?.files_changed ?? [];
+  const dirtyCount = typeof git?.dirty_count === 'number'
+    ? String(git.dirty_count)
+    : git?.dirty === true
+      ? 'dirty'
+      : git?.dirty === false
+        ? '0'
+        : '—';
+  const commitsSinceWant = typeof git?.commits_since_want === 'number'
+    ? String(git.commits_since_want)
+    : '—';
+  const tests = harvest?.tests
+    ? `reported ${harvest.tests.reported === true ? 'yes' : 'no'} · verified ${harvest.tests.verified === true ? 'yes' : 'no'}`
+    : '—';
+  const paths = Object.entries(harvest?.paths ?? {}).map(([label, value]) => ({ label, value }));
+
+  return {
+    key,
+    laneId,
+    host,
+    gone: Boolean(options.gone),
+    stale: Boolean(options.stale),
+    loading: Boolean(options.loading),
+    state,
+    counterColor: laneCounterColor(state),
+    fields,
+    sentinels,
+    statusTail: detail?.status_tail ?? [],
+    logLines: detail?.lines ?? [],
+    harvest: {
+      process: formatProcess(harvest),
+      gitSummary: git?.summary?.trim() || '—',
+      dirtyCount,
+      filesChanged,
+      commitsSinceWant,
+      battery: harvest?.battery?.trim() || '—',
+      tests,
+      attention: harvest?.attention ?? [],
+      paths,
+      modelDoor: formatModelDoor(detail, harvest),
+    },
+    ...(errorDetail ? { errorDetail } : {}),
+    harvestActionDisabled: true,
+    harvestActionLabel: 'Harvest…',
+    harvestActionTooltip: 'M3+',
+  };
+}
+
+export function loadingLaneDetailModel(
+  key: string,
+  laneId: string,
+  host: string,
+  state = 'unknown',
+): LaneDetailModel {
+  return buildLaneDetailModel(key, undefined, undefined, {
+    loading: true,
+    fallbackId: laneId,
+    fallbackHost: host,
+    fallbackState: state,
+  });
 }

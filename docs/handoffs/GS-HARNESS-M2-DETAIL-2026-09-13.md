@@ -22,3 +22,18 @@ CLI — same one-shot Lane Desk transport as M1. `privateRuntime.ts` already doc
 - `python3 lane_desk.py --config … harvest LANE_ID --host HOST --json`
 
 No MCP session is held by the Lanes panel. No CLI subcommands were added under gs-private.
+
+---
+
+## Harvest render proof (2026-09-13)
+
+`docs/handoffs/GS-HARNESS-M2-PROOF-2026-09-13.png` — same standalone-shim method as M1
+(`media/workbench.css` + unmodified `media/lanes.js` over local HTTP, the ~10-line
+`acquireVsCodeApi()` no-op shim, real `window.postMessage`), extended to also post a
+`{type:'lanes-detail', detail}` message. The detail payload is the actual
+`buildLaneDetailModel` output built from `parseLaneDeskDetail`/`parseLaneDeskHarvest` run
+against `test/fixtures/lane-detail-running.json` + `lane-harvest-running.json` for the
+`mac:gs-harness-m1` row selected out of the M1 status fixture. Rendered headless Chromium
+(`--mute-audio`), 1204x753 @2x, matching the M1 proof's frame size. `docs/handoffs/GS-HARNESS-M1-PROOF-b.png` — the same M1 status fixture (no row selected) re-rendered at the same
+size through the current (post-M2) `lanes.js`/`workbench.css`, as a regression check that
+the unselected Lanes panel still renders unchanged.

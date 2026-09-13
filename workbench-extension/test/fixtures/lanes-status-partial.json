@@ -1,0 +1,73 @@
+{
+  "ok": false,
+  "partial": true,
+  "generated_at": "2026-09-13T21:00:00Z",
+  "hosts": {
+    "mac": { "ok": true, "latency_ms": 18 },
+    "home-pc": { "ok": false, "code": "ssh_timeout", "message": "home-pc unreachable" }
+  },
+  "counts": {
+    "running": 1,
+    "failed": 1,
+    "stalled": 1,
+    "inconsistent": 1,
+    "done": 1,
+    "total": 5
+  },
+  "lanes": [
+    {
+      "id": "gs-harness-m1",
+      "host": "mac",
+      "repo": "generalstaff-desktop",
+      "state": "running",
+      "sha": "d2eb411",
+      "dirty": true,
+      "age_min": 12,
+      "last_log_line": "compiling lanes panel"
+    },
+    {
+      "id": "orderly-authz",
+      "host": "mac",
+      "repo": "generalstaff-private",
+      "state": "failed",
+      "sha": "abc1234",
+      "dirty": false,
+      "age_min": 42,
+      "last_log_line": "probe timed out after 30s",
+      "sentinels": { "log": true, "status": true, "done": false }
+    },
+    {
+      "id": "wrapup-stale",
+      "host": "mac",
+      "repo": "generalstaff-private",
+      "state": "stalled",
+      "sha": "deadbee",
+      "dirty": false,
+      "age_min": 95,
+      "last_log_line": "waiting on ping"
+    },
+    {
+      "id": "board-drift",
+      "host": "mac",
+      "repo": "generalstaff-private",
+      "state": "inconsistent",
+      "sha": "c0ffee1",
+      "dirty": true,
+      "age_min": 7,
+      "last_log_line": "status says running but done present"
+    },
+    {
+      "id": "harvest-ok",
+      "host": "mac",
+      "repo": "generalstaff-desktop",
+      "state": "done",
+      "sha": "111aaaa",
+      "dirty": false,
+      "age_min": 180,
+      "last_log_line": "exit 0"
+    }
+  ],
+  "errors": [
+    { "host": "home-pc", "code": "ssh_timeout", "message": "home-pc unreachable" }
+  ]
+}

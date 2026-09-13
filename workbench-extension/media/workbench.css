@@ -2362,3 +2362,247 @@ select:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Lanes panel (detached runs / Kriegspiel situation map) ─────────────── */
+
+.lanes-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-rows: auto auto auto auto 1fr auto;
+  gap: 12px;
+  padding: 18px 22px 24px;
+  background:
+    linear-gradient(rgb(var(--text-rgb) / 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--text-rgb) / 0.012) 1px, transparent 1px),
+    var(--ink);
+  background-size: 32px 32px;
+}
+
+.lanes-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lanes-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.lanes-title strong {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.lanes-title span {
+  color: var(--paper-faint);
+  font-size: 12px;
+}
+
+.lanes-stale,
+.lanes-omitted {
+  color: var(--brass);
+  font-size: 11px;
+}
+
+.lanes-refresh {
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--ink-2);
+  color: var(--paper-muted);
+  cursor: pointer;
+}
+
+.lanes-refresh:hover {
+  color: var(--paper);
+  border-color: var(--brass);
+}
+
+.lanes-hosts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lanes-host-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--paper-muted);
+}
+
+.lanes-host-chip.is-down {
+  border-color: rgb(var(--warn-rgb) / 0.55);
+  color: var(--brass-pale);
+}
+
+.lanes-host-name {
+  color: var(--paper);
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.lanes-host-meta {
+  color: var(--paper-faint);
+}
+
+.lanes-banner {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--paper-muted);
+  font-size: 12px;
+}
+
+.lanes-banner.is-partial,
+.lanes-banner.is-warn {
+  border-color: rgb(var(--warn-rgb) / 0.45);
+  color: var(--brass-pale);
+}
+
+.lanes-banner.is-miss {
+  border-color: var(--line-strong);
+}
+
+.lanes-counts {
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.lanes-badge-note {
+  color: var(--brass);
+}
+
+.lanes-map {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.lanes-empty {
+  padding: 28px 8px;
+  color: var(--paper-faint);
+  font-size: 13px;
+}
+
+.lane-counter {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(var(--surface-2-rgb) / 0.55);
+}
+
+.lane-counter.is-attention {
+  border-color: rgb(var(--accent-rgb) / 0.55);
+}
+
+.lane-counter-mark {
+  width: 10px;
+  min-height: 100%;
+  border-radius: 2px;
+  background: var(--paper-faint);
+}
+
+.counter-iron-red .lane-counter-mark {
+  background: var(--rust-readable);
+}
+
+.counter-dust .lane-counter-mark {
+  background: var(--paper-faint);
+}
+
+.counter-ink .lane-counter-mark {
+  background: var(--paper);
+}
+
+.counter-quiet .lane-counter-mark {
+  background: rgb(var(--text-rgb) / 0.22);
+}
+
+.counter-amber .lane-counter-mark {
+  background: var(--brass);
+}
+
+.counter-iron-red.is-attention {
+  box-shadow: inset 3px 0 0 var(--brass);
+}
+
+.lane-counter-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.lane-unit {
+  font-family: Georgia, serif;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.lane-board {
+  color: var(--paper-muted);
+  font-size: 12px;
+}
+
+.lane-state {
+  margin-left: auto;
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.counter-iron-red .lane-state {
+  color: var(--rust-readable);
+}
+
+.counter-amber .lane-state {
+  color: var(--brass);
+}
+
+.lane-counter-meta,
+.lane-marginalia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 4px;
+  color: var(--paper-faint);
+  font-size: 11px;
+}
+
+.lane-door {
+  color: var(--paper-muted);
+}
+
+.lanes-log {
+  margin-top: 6px;
+  color: var(--paper-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lanes-theme {
+  margin-top: 8px;
+}
+
+.lanes-notice {
+  color: var(--brass);
+  font-size: 12px;
+}

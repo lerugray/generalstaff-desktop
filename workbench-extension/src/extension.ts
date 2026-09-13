@@ -29,6 +29,7 @@ import {
   type PrivateRuntimeOptions,
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
+import { LanesPanel, WorkbenchNavProvider } from './lanesPanel.js';
 
 const viewType = 'generalstaff.commandDeck';
 
@@ -770,15 +771,57 @@ class CommandDeckPanel {
   }
 }
 
+function applyLanesBadge(tree: vscode.TreeView<string>, count: number): void {
+  tree.badge = count > 0
+    ? { value: count, tooltip: `${count} detached lane${count === 1 ? '' : 's'} need attention` }
+    : undefined;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
+  const commandNav = vscode.window.createTreeView('generalstaff.commandNav', {
+    treeDataProvider: new WorkbenchNavProvider('Command'),
+    showCollapseAll: false,
+  });
+  const lanesNav = vscode.window.createTreeView('generalstaff.lanesNav', {
+    treeDataProvider: new WorkbenchNavProvider('Lanes'),
+    showCollapseAll: false,
+  });
+  let badgeWired = false;
+  const wireLanesBadge = (panel: LanesPanel): void => {
+    if (badgeWired) return;
+    badgeWired = true;
+    context.subscriptions.push(panel.onBadge((count) => applyLanesBadge(lanesNav, count)));
+  };
+
+  context.subscriptions.push(commandNav, lanesNav);
+  context.subscriptions.push(
+    commandNav.onDidChangeVisibility((event) => {
+      if (event.visible) CommandDeckPanel.show(context);
+    }),
+    lanesNav.onDidChangeVisibility((event) => {
+      if (event.visible) wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
+    }),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('generalstaff.openCommandDeck', () => CommandDeckPanel.show(context)),
+    vscode.commands.registerCommand('generalstaff.openLanes', () => {
+      const panel = LanesPanel.show(context, vscode.ViewColumn.Beside);
+      wireLanesBadge(panel);
+      return panel;
+    }),
     vscode.commands.registerCommand('generalstaff.newConversation', () => {
       const panel = CommandDeckPanel.show(context);
       panel.focusComposer();
     }),
     vscode.commands.registerCommand('generalstaff.refresh', async () => {
       await CommandDeckPanel.show(context).refresh();
+      await LanesPanel.current?.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.refreshLanes', async () => {
+      const panel = LanesPanel.show(context);
+      wireLanesBadge(panel);
+      await panel.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.openRawTerminal', () => {
       vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
@@ -788,9 +831,16 @@ export function activate(context: vscode.ExtensionContext): void {
   if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('openOnLaunch', true)) {
     const timer = setTimeout(() => {
       CommandDeckPanel.show(context);
+      wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
       if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', false)) {
+        // Keep the Workbench activity-bar icons visible for Command / Lanes + badge;
+        // still hide Explorer chrome and the bottom panel.
+        void vscode.workspace.getConfiguration('workbench').update(
+          'activityBar.location',
+          'default',
+          vscode.ConfigurationTarget.Workspace,
+        );
         void Promise.all([
-          vscode.commands.executeCommand('workbench.action.closeSidebar'),
           vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar'),
           vscode.commands.executeCommand('workbench.action.closePanel'),
         ]);
@@ -801,5 +851,6 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  LanesPanel.shutdown();
   CommandDeckPanel.shutdown();
 }

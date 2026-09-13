@@ -41,6 +41,35 @@ The extension discovers installed, authenticated command-line lanes and exposes 
 
 Codex, Fable, Cline, and the Grok trial lane expose the effort values supported by their non-interactive CLI paths. Kimi, Cursor, and both Ollama Cloud lanes use the provider default. The Ollama entries are additional, distinctly labeled direct-API picker options; the existing Cline / GLM lane remains unchanged, and Fable remains the default orchestrator seat. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
+## Lanes and Desk
+
+Two panels stand beside the conversation, both read-only and both built on the same one-shot
+`lane_desk.py` CLI the operator already runs — no second transport and no held-open session.
+
+**Lanes** is a situation map of detached work across every configured host. Each row is a lane: its
+identifier first, its state in colour, its elapsed time and commit as marginalia. Rows that want
+attention sort to the top, an unreachable host is synthesised as a row rather than silently omitted, and
+a partial envelope is tolerated rather than discarded. Selecting a row opens **lane detail** — the log
+tail as the CLI reports it, plus a harvest preview that previews only; harvesting itself is disabled with
+a tooltip. Alerts are a badge count on the activity bar and nothing else. The rail carries the Kriegspiel
+Paper and Kriegspiel Night palettes for this surface: ink and iron-red and dust on paper, with amber
+reserved for the thing that actually needs the operator.
+
+**Desk** presents `~/Desktop/handoff` as a folio — one leaf per staged packet, its WHAT-TO-JUDGE rendered
+as a sanitised plate, with actions to open the packet in Finder or its annotation page in a browser.
+Recording a ruling is the panel's only write: it invokes the repository's own `ping.sh` with an argument
+array, and sweeps the packet to `session-artifacts` only when that call exits cleanly.
+
+**Versions.** `0.4.11` is the installed package — chat polish, chat parity across every seat, the Lanes
+panel, lane detail, and the Kriegspiel register pass. `0.4.12` adds the Desk panel and is **merged but
+not installed**, pending verification of two palette observations. The Workbench's working branch is
+**`publish-v23`**; `master` carries the older v2.3 line.
+
+These panels are the first milestones of a larger, deliberately personal direction: a command surface
+whose layout and register belong to this workflow rather than to a general-purpose editor. It extends
+this extension host rather than replacing it, because the adapter, normalisation, redaction and session
+machinery here is already hardened, and the editor, diff viewer and preview are already paid for.
+
 ## Skills and private runtime tools
 
 Workbench 2.5 can apply canonical procedures from `skills/<id>/SKILL.md` in the selected GeneralStaff root across every lane. The composer lists discovered skills and accepts a leading `/skill-name`. The extension host bundles the selected `SKILL.md` with safe text companions, rejects symlinked skill directories, excludes the `lean-ctx` tombstone, enforces file and character limits, and redacts common credential shapes before dispatch.

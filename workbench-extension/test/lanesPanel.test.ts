@@ -73,6 +73,40 @@ test('counter colours and badge ignore non-attention states', () => {
   assert.equal(laneCounterColor('stalled'), 'dust');
 });
 
+test('register: state→colour class mapping (iron-red/dust/ink/quiet)', () => {
+  assert.equal(laneCounterColor('failed'), 'iron-red');
+  assert.equal(laneCounterColor('inconsistent'), 'iron-red');
+  assert.equal(laneCounterColor('stalled'), 'dust');
+  assert.equal(laneCounterColor('orphaned'), 'dust');
+  assert.equal(laneCounterColor('running'), 'ink');
+  assert.equal(laneCounterColor('done'), 'quiet');
+  assert.equal(laneCounterColor('unknown'), 'quiet');
+});
+
+test('register: amber counterColour only on unreachable host rows', async () => {
+  const raw = JSON.parse(await readFile(fixturePath, 'utf8')) as unknown;
+  const model = buildLanesPanelModel(parseLaneDeskStatus(raw));
+
+  const amberRows = model.rows.filter((row) => row.counterColor === 'amber');
+  assert.ok(amberRows.length >= 1);
+  for (const row of amberRows) {
+    assert.equal(row.kind, 'host-unreachable');
+  }
+
+  for (const row of model.rows) {
+    if (row.kind === 'lane') {
+      assert.notEqual(row.counterColor, 'amber');
+    }
+    if (row.state === 'failed' || row.state === 'inconsistent') {
+      assert.equal(row.counterColor, 'iron-red');
+      assert.equal(row.attention, true);
+    }
+    if (row.state === 'stalled') assert.equal(row.counterColor, 'dust');
+    if (row.state === 'running') assert.equal(row.counterColor, 'ink');
+    if (row.state === 'done') assert.equal(row.counterColor, 'quiet');
+  }
+});
+
 test('parseLaneDeskStatus tolerates sparse / invalid rows without inventing hosts', () => {
   const envelope = parseLaneDeskStatus({
     ok: true,

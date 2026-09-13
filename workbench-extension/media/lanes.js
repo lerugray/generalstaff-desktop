@@ -11,7 +11,7 @@
     { id: 'carbon', name: 'Carbon Folio' },
   ];
   const themeIds = new Set(themes.map((theme) => theme.id));
-  const initialTheme = themeIds.has(saved.selectedTheme) ? saved.selectedTheme : 'carbon';
+  const initialTheme = themeIds.has(saved.selectedTheme) ? saved.selectedTheme : 'paper';
   document.body.dataset.theme = initialTheme;
 
   const state = {
@@ -72,15 +72,19 @@
   }
 
   function renderRow(row) {
-    const attention = row.attention ? ' is-attention' : '';
     const selected = state.selectedKey === row.key ? ' is-selected' : '';
     const dirty = row.dirty ? ' · dirty' : '';
     const log = row.lastLogLine
       ? `<div class="lanes-log">${escapeHtml(row.lastLogLine)}</div>`
       : '';
     const selectable = row.kind === 'lane';
-    return `<article class="lane-counter ${counterClass(row.counterColor)}${attention}${selected}" data-kind="${escapeHtml(row.kind)}" data-state="${escapeHtml(row.state)}" data-key="${escapeHtml(row.key)}" data-id="${escapeHtml(row.id)}" data-host="${escapeHtml(row.host)}"${selectable ? ' role="button" tabindex="0"' : ''}>
-      <div class="lane-counter-mark" aria-hidden="true"></div>
+    /* Amber attention mark only on failed/inconsistent iron-red counters */
+    const attentionMark = row.counterColor === 'iron-red' && row.attention
+      ? '<span class="lane-attention-mark lanes-amber" aria-hidden="true" title="needs attention"></span>'
+      : '';
+    const attentionClass = row.attention ? ' is-attention' : '';
+    return `<article class="lane-counter ${counterClass(row.counterColor)}${attentionClass}${selected}" data-kind="${escapeHtml(row.kind)}" data-state="${escapeHtml(row.state)}" data-key="${escapeHtml(row.key)}" data-id="${escapeHtml(row.id)}" data-host="${escapeHtml(row.host)}"${selectable ? ' role="button" tabindex="0"' : ''}>
+      ${attentionMark}
       <div class="lane-counter-body">
         <div class="lane-counter-head">
           <strong class="lane-unit">${escapeHtml(row.id)}</strong>
@@ -115,7 +119,7 @@
     }
 
     const markers = [
-      detail.gone ? '<span class="lanes-gone">gone</span>' : '',
+      detail.gone ? '<span class="lanes-gone lanes-amber">gone</span>' : '',
       detail.stale ? '<span class="lanes-stale">stale</span>' : '',
       detail.loading ? '<span class="lanes-loading">reading…</span>' : '',
     ].filter(Boolean).join('');
@@ -139,7 +143,7 @@
       ? `<ul class="lanes-files">${harvest.filesChanged.map((file) => `<li class="lane-marginalia">${escapeHtml(file)}</li>`).join('')}</ul>`
       : '<div class="lanes-detail-empty">No changed files reported.</div>';
     const attention = (harvest.attention || []).length
-      ? `<div class="lanes-attention">${harvest.attention.map((item) => `<span class="lanes-attention-chip">${escapeHtml(item)}</span>`).join('')}</div>`
+      ? `<div class="lanes-attention">${harvest.attention.map((item) => `<span class="lanes-attention-item">${escapeHtml(item)}</span>`).join('')}</div>`
       : '';
     const paths = (harvest.paths || []).length
       ? `<div class="lanes-detail-paths">${harvest.paths.map((path) => `
@@ -150,10 +154,15 @@
       : '';
 
     const error = detail.errorDetail
-      ? `<div class="lanes-banner is-warn">${escapeHtml(detail.errorDetail)}</div>`
+      ? `<div class="lanes-error">${escapeHtml(detail.errorDetail)}</div>`
+      : '';
+
+    const detailAttentionMark = detail.counterColor === 'iron-red'
+      ? '<span class="lane-attention-mark lanes-amber" aria-hidden="true"></span>'
       : '';
 
     return `<aside class="lanes-detail ${counterClass(detail.counterColor)}" aria-label="Lane detail for ${escapeHtml(detail.laneId)}">
+      ${detailAttentionMark}
       <header class="lanes-detail-header">
         <div class="lanes-detail-title">
           <strong class="lane-unit">${escapeHtml(detail.laneId)}</strong>
@@ -203,21 +212,18 @@
       return;
     }
 
-    const themeName = themes.find((theme) => theme.id === state.selectedTheme)?.name || 'Carbon Folio';
-    const countBits = Object.entries(model.counts || {})
-      .filter(([, value]) => typeof value === 'number')
-      .map(([key, value]) => `${escapeHtml(key)} ${value}`)
-      .join(' · ');
+    const themeName = themes.find((theme) => theme.id === state.selectedTheme)?.name || 'Kriegspiel Paper';
     const banner = model.capabilityMissing
-      ? `<div class="lanes-banner is-miss">${escapeHtml(model.capabilityMissing)}</div>`
-      : model.errorDetail
-        ? `<div class="lanes-banner is-warn">${escapeHtml(model.errorDetail)}</div>`
-        : model.partial
-          ? `<div class="lanes-banner is-partial">Partial envelope — one or more hosts unreachable. Live rows still shown.</div>`
-          : '';
+      ? `<div class="lanes-banner">${escapeHtml(model.capabilityMissing)}</div>`
+      : model.errorDetail && !model.partial
+        ? `<div class="lanes-banner">${escapeHtml(model.errorDetail)}</div>`
+        : '';
     const stale = model.stale ? `<span class="lanes-stale">stale</span>` : '';
     const omitted = typeof model.omitted === 'number'
       ? `<span class="lanes-omitted">omitted: ${model.omitted}</span>`
+      : '';
+    const badge = model.badgeCount
+      ? `<span class="lanes-badge-count lanes-amber">attention ${model.badgeCount}</span>`
       : '';
     const rows = (model.rows || []).length
       ? model.rows.map(renderRow).join('')
@@ -228,6 +234,7 @@
         <div class="lanes-title">
           <strong>Lanes</strong>
           <span>detached runs</span>
+          ${badge}
           ${stale}
           ${omitted}
         </div>
@@ -237,7 +244,6 @@
       </header>
       <div class="lanes-hosts">${(model.hostSummaries || []).map(hostChip).join('')}</div>
       ${banner}
-      <div class="lanes-counts">${countBits || 'counts —'}${model.badgeCount ? ` · <span class="lanes-badge-note">attention ${model.badgeCount}</span>` : ''}</div>
       <div class="lanes-body">
         <div class="lanes-map" role="list">${rows}</div>
         ${renderDetail(state.detail)}

@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -188,6 +188,7 @@
     "@types/vscode": "^1.134.0",
     "@vscode/vsce": "^3.6.2",
     "esbuild": "^0.27.0",
+    "playwright": "^1.55.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

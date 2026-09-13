@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.11 — 2026-09-13
+
+- Lanes + Detail register pass: situation-map counters (chits) coloured by state — iron-red / dust / ink / quiet grey — with amber reserved for the badge count, failed/inconsistent attention marks, and unreachable-host rows.
+- Drop dashboard chrome on Lanes (alert banner, summary counts line, host pills, state text badges); elapsed/sha stay marginalia; Detail reads as the counter turned over.
+
 ## 0.4.10 — 2026-09-13
 
 - Lanes row select opens a read-only detail drawer: `detail` + `harvest` via the same Lane Desk CLI transport as status (`detail LANE --host HOST --lines 40 --json`, `harvest LANE --host HOST --json`).

@@ -13,6 +13,11 @@ body[data-theme="carbon"] {
   --brass-pale: #ffb98a;
   --rust: #e89766;
   --rust-readable: #e89766;
+  /* Lanes counters: iron-red ≠ amber; dust for stalled; quiet for done */
+  --iron-red: #c24a38;
+  --iron-red-rgb: 194 74 56;
+  --dust: #8a7d62;
+  --quiet-grey: #6e6550;
   --green: #8fc0d6;
   --blue: #8fc0d6;
   --on-accent: #0b0a06;
@@ -42,6 +47,10 @@ body[data-theme="night"] {
   --brass-pale: #b46a3a;
   --rust: #d18a5a;
   --rust-readable: #d18a5a;
+  --iron-red: #b84334;
+  --iron-red-rgb: 184 67 52;
+  --dust: #7d7158;
+  --quiet-grey: #635a48;
   --green: #7fa3b7;
   --blue: #7fa3b7;
   --on-accent: #1a1812;
@@ -71,6 +80,10 @@ body[data-theme="paper"] {
   --brass-pale: #5e2410;
   --rust: #8a3a1c;
   --rust-readable: #5e2410;
+  --iron-red: #a12818;
+  --iron-red-rgb: 161 40 24;
+  --dust: #6e6550;
+  --quiet-grey: #8a816c;
   --green: #34505f;
   --blue: #34505f;
   --on-accent: #f1e7d3;
@@ -100,6 +113,10 @@ body[data-theme="linen"] {
   --brass-pale: #5b2110;
   --rust: #8e3823;
   --rust-readable: #5b2110;
+  --iron-red: #9e2a1a;
+  --iron-red-rgb: 158 42 26;
+  --dust: #655e4c;
+  --quiet-grey: #827a68;
   --green: #2d4a5a;
   --blue: #2d4a5a;
   --on-accent: #ece5d5;
@@ -129,6 +146,10 @@ body[data-theme="vellum"] {
   --brass-pale: #532912;
   --rust: #804623;
   --rust-readable: #532912;
+  --iron-red: #962818;
+  --iron-red-rgb: 150 40 24;
+  --dust: #5f5a48;
+  --quiet-grey: #7a7560;
   --green: #2f5f54;
   --blue: #2f5f54;
   --on-accent: #e7e0c0;
@@ -158,6 +179,10 @@ body[data-theme="iron"] {
   --brass-pale: #481608;
   --rust: #6f2614;
   --rust-readable: #481608;
+  --iron-red: #8c1f12;
+  --iron-red-rgb: 140 31 18;
+  --dust: #564f3e;
+  --quiet-grey: #6e6650;
   --green: #1f3a4a;
   --blue: #1f3a4a;
   --on-accent: #ebe2cb;
@@ -2363,25 +2388,23 @@ select:focus-visible {
   }
 }
 
-/* ── Lanes panel (detached runs / Kriegspiel situation map) ─────────────── */
-
-/* ── Lanes panel (detached runs / Kriegspiel situation map) ─────────────── */
+/* ── Lanes panel — Kriegspiel situation map (register pass) ─────────────── */
 
 .lanes-shell {
   display: grid;
   min-height: 100vh;
-  grid-template-rows: auto auto auto auto 1fr auto;
-  gap: 12px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 14px;
   padding: 18px 22px 24px;
   background:
-    linear-gradient(rgb(var(--text-rgb) / 0.012) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--text-rgb) / 0.012) 1px, transparent 1px),
+    linear-gradient(rgb(var(--text-rgb) / 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--text-rgb) / 0.018) 1px, transparent 1px),
     var(--ink);
-  background-size: 32px 32px;
+  background-size: 28px 28px;
 }
 
 .lanes-shell.has-detail {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .lanes-header {
@@ -2394,39 +2417,51 @@ select:focus-visible {
 .lanes-title {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
 }
 
 .lanes-title strong {
-  font-family: Georgia, serif;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
   font-size: 22px;
   font-weight: 500;
   letter-spacing: 0.01em;
 }
 
-.lanes-title span {
+.lanes-title > span:not(.lanes-amber):not(.lanes-badge-count) {
   color: var(--paper-faint);
   font-size: 12px;
 }
 
+/* Amber ONLY via .lanes-amber — badge count, iron-red attention mark, unreachable chit */
+.lanes-amber {
+  color: var(--brass);
+}
+
+.lanes-badge-count {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
 .lanes-stale,
 .lanes-omitted,
-.lanes-gone,
 .lanes-loading {
-  color: var(--brass);
+  color: var(--paper-faint);
   font-size: 11px;
 }
 
-.lanes-gone {
+.lanes-gone.lanes-amber {
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  font-size: 11px;
 }
 
 .lanes-refresh,
 .lanes-harvest-action {
   padding: 6px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--ink-2);
   color: var(--paper-muted);
   cursor: pointer;
@@ -2434,7 +2469,7 @@ select:focus-visible {
 
 .lanes-refresh:hover {
   color: var(--paper);
-  border-color: var(--brass);
+  border-color: var(--line-strong);
 }
 
 .lanes-harvest-action:disabled {
@@ -2443,70 +2478,52 @@ select:focus-visible {
   color: var(--paper-faint);
 }
 
+/* Board labels — not pills */
 .lanes-hosts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 14px 22px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--line);
 }
 
 .lanes-host-chip {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
   font-size: 11px;
   color: var(--paper-muted);
 }
 
 .lanes-host-chip.is-down {
-  border-color: rgb(var(--warn-rgb) / 0.55);
-  color: var(--brass-pale);
+  color: var(--paper-faint);
 }
 
 .lanes-host-name {
-  color: var(--paper);
-  font-weight: 600;
+  color: var(--paper-muted);
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
 .lanes-host-meta {
   color: var(--paper-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
 }
 
+/* Capability miss only — quiet, never amber */
 .lanes-banner {
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--paper-muted);
-  font-size: 12px;
-}
-
-.lanes-banner.is-partial,
-.lanes-banner.is-warn {
-  border-color: rgb(var(--warn-rgb) / 0.45);
-  color: var(--brass-pale);
-}
-
-.lanes-banner.is-miss {
-  border-color: var(--line-strong);
-}
-
-.lanes-counts {
+  padding: 0;
+  border: 0;
   color: var(--paper-faint);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-
-.lanes-badge-note {
-  color: var(--brass);
+  font-size: 12px;
 }
 
 .lanes-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  gap: 16px;
   min-height: 0;
   align-items: start;
 }
@@ -2523,7 +2540,7 @@ select:focus-visible {
 
 .lanes-map {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-content: start;
 }
 
@@ -2533,14 +2550,14 @@ select:focus-visible {
   font-size: 13px;
 }
 
+/* Counters = bordered chits; colour IS the state (no left accent bar, no state pills) */
 .lane-counter {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: rgb(var(--surface-2-rgb) / 0.55);
+  position: relative;
+  display: block;
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 2px;
+  background: rgb(var(--surface-2-rgb) / 0.42);
 }
 
 .lane-counter[data-kind="lane"] {
@@ -2548,124 +2565,186 @@ select:focus-visible {
 }
 
 .lane-counter[data-kind="lane"]:hover {
-  border-color: var(--line-strong);
+  background: rgb(var(--surface-2-rgb) / 0.62);
 }
 
 .lane-counter.is-selected {
-  border-color: var(--brass);
   background: rgb(var(--surface-2-rgb) / 0.78);
+  outline: 1px solid var(--line-strong);
+  outline-offset: 2px;
 }
 
-.lane-counter.is-attention {
-  border-color: rgb(var(--accent-rgb) / 0.55);
-}
-
-.lane-counter-mark {
-  width: 10px;
-  min-height: 100%;
-  border-radius: 2px;
-  background: var(--paper-faint);
-}
-
-.counter-iron-red .lane-counter-mark {
-  background: var(--rust-readable);
-}
-
-.counter-dust .lane-counter-mark {
-  background: var(--paper-faint);
-}
-
-.counter-ink .lane-counter-mark {
-  background: var(--paper);
-}
-
-.counter-quiet .lane-counter-mark {
-  background: rgb(var(--text-rgb) / 0.22);
-}
-
-.counter-amber .lane-counter-mark {
+.lane-attention-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
   background: var(--brass);
 }
 
-.counter-iron-red.is-attention {
-  box-shadow: inset 3px 0 0 var(--brass);
+.counter-iron-red {
+  border-color: var(--iron-red);
+  color: var(--iron-red);
+  background: rgb(var(--iron-red-rgb) / 0.07);
+}
+
+.counter-iron-red .lane-unit {
+  color: var(--iron-red);
+}
+
+.counter-dust {
+  border-color: var(--dust);
+  color: var(--dust);
+  background: rgb(var(--text-rgb) / 0.03);
+}
+
+.counter-dust .lane-unit {
+  color: var(--dust);
+}
+
+.counter-ink {
+  border-color: var(--paper);
+  color: var(--paper);
+  background: rgb(var(--text-rgb) / 0.04);
+}
+
+.counter-ink .lane-unit {
+  color: var(--paper);
+}
+
+.counter-quiet {
+  border-color: var(--quiet-grey);
+  color: var(--quiet-grey);
+  background: transparent;
+  opacity: 0.92;
+}
+
+.counter-quiet .lane-unit {
+  color: var(--quiet-grey);
+}
+
+.counter-amber {
+  border-color: var(--brass);
+  color: var(--brass);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+
+.counter-amber .lane-unit {
+  color: var(--brass);
+}
+
+.lane-counter-body {
+  display: grid;
+  gap: 4px;
 }
 
 .lane-counter-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 12px;
+  gap: 6px 10px;
+  padding-right: 14px;
 }
 
 .lane-unit {
-  font-family: Georgia, serif;
-  font-size: 15px;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  font-size: 17px;
   font-weight: 500;
+  letter-spacing: 0.005em;
+  line-height: 1.2;
 }
 
 .lane-board {
-  color: var(--paper-muted);
-  font-size: 12px;
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
 }
 
 .lane-state {
-  margin-left: auto;
-  color: var(--paper-faint);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.counter-iron-red .lane-state {
-  color: var(--rust-readable);
-}
-
-.counter-amber .lane-state {
-  color: var(--brass);
-}
-
-.lane-counter-meta,
-.lane-marginalia {
+.lane-counter-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 4px;
+  gap: 8px 12px;
   color: var(--paper-faint);
   font-size: 11px;
-}
-
-.lane-marginalia {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: 0.01em;
 }
 
 .lane-door,
 .lane-sentinel {
-  color: var(--paper-muted);
+  color: var(--paper-faint);
+}
+
+.lane-marginalia {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  margin-top: 2px;
+  color: var(--paper-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  opacity: 0.85;
 }
 
 .lanes-log {
-  margin-top: 6px;
-  color: var(--paper-muted);
+  margin-top: 2px;
+  color: var(--paper-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 0.9;
 }
 
+/* Detail = counter card turned over */
 .lanes-detail {
+  position: relative;
   display: grid;
   gap: 12px;
   align-content: start;
   min-height: 240px;
+  max-height: calc(100vh - 160px);
+  overflow: auto;
   padding: 14px 16px 18px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background:
-    linear-gradient(180deg, rgb(var(--surface-2-rgb) / 0.72), rgb(var(--surface-2-rgb) / 0.4)),
-    var(--ink);
+  border: 1.5px solid var(--line-strong);
+  border-radius: 2px;
+  background: rgb(var(--surface-2-rgb) / 0.5);
+}
+
+.lanes-detail.counter-iron-red {
+  border-color: var(--iron-red);
+}
+
+.lanes-detail.counter-dust {
+  border-color: var(--dust);
+}
+
+.lanes-detail.counter-ink {
+  border-color: var(--paper);
+}
+
+.lanes-detail.counter-quiet {
+  border-color: var(--quiet-grey);
+}
+
+.lanes-detail.counter-amber {
+  border-color: var(--brass);
 }
 
 .lanes-detail.is-empty {
@@ -2711,10 +2790,16 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.lanes-detail .lane-marginalia {
+  justify-content: flex-start;
+  margin-top: 0;
+  font-size: 11px;
+}
+
 .lanes-detail-section h3 {
   margin: 0 0 6px;
   color: var(--paper-muted);
-  font-family: Georgia, serif;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
   font-size: 13px;
   font-weight: 500;
 }
@@ -2725,7 +2810,7 @@ select:focus-visible {
   overflow: auto;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 2px;
   background: rgb(var(--text-rgb) / 0.04);
   color: var(--paper-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -2764,14 +2849,14 @@ select:focus-visible {
 .lanes-attention {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px 14px;
+  color: var(--paper-faint);
+  font-size: 11px;
 }
 
-.lanes-attention-chip {
-  padding: 2px 8px;
-  border: 1px solid rgb(var(--warn-rgb) / 0.45);
-  border-radius: 4px;
-  color: var(--brass);
+.lanes-attention-item {
+  color: var(--paper-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
 }
 
@@ -2792,6 +2877,11 @@ select:focus-visible {
 }
 
 .lanes-notice {
-  color: var(--brass);
+  color: var(--paper-faint);
+  font-size: 12px;
+}
+
+.lanes-error {
+  color: var(--paper-muted);
   font-size: 12px;
 }

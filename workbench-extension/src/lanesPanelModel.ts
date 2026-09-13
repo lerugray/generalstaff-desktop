@@ -395,9 +395,9 @@ export function buildLaneDetailModel(
       marginalia: true,
     },
     { label: 'model', value: formatModelDoor(detail, harvest) },
-    { label: 'launched', value: launch },
-    { label: 'cap', value: cap },
-    { label: 'elapsed', value: formatElapsedDetail(detail) },
+    { label: 'launched', value: launch, marginalia: true },
+    { label: 'cap', value: cap, marginalia: true },
+    { label: 'elapsed', value: formatElapsedDetail(detail), marginalia: true },
   ];
 
   const sentinels: LaneDetailModel['sentinels'] = [];

@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -101,6 +101,15 @@
           "type": "boolean",
           "default": false,
           "description": "Give the Command Deck the full window by closing VS Code's supporting sidebars and panel on launch. The packaged GeneralStaff workspace enables this."
+        },
+        "generalstaff.grokRunner": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "cursor"
+          ],
+          "default": "auto",
+          "description": "Which runner backs the Grok 4.6 seat. \"auto\" prefers the Grok CLI and falls back to Cursor at discovery. Choose \"cursor\" when the Grok subscription is out of credits: the CLI still reports itself logged in in that state, then fails every request and echoes the prompt back as if it were an answer."
         }
       }
     }

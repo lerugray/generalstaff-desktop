@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.6 — 2026-09-13
+
+- Add the `DeepSeek V4.1 Flash (Ollama)` read-only direct-API seat, wired like the existing GLM seats and gated on the same authenticated catalog probe.
+- Add two CC-door seats, `DeepSeek V4.1 Flash · Workbench seat` and `GLM 5.3 · Workbench seat`, which run the real Claude Code binary against Ollama Cloud's Anthropic-compatible endpoint. They are agentic, support the read and write boundaries and native session resume, and carry the operator's skills, user `CLAUDE.md`, project rules chain, memory and hooks — none of which a single-shot direct-API seat can.
+- State the true 1,048,576-token context window on every Ollama seat. Claude Code assumes 200k for a model it does not recognise, so an unstated window silently discards four fifths of these models.
+- Keep the Ollama credential out of extension state: CC-door seats spawn the private repository's `gsd-cc-door.sh` launcher, which reads `~/.generalstaff/.env` itself. A regression test asserts no lane summary can carry the key.
+- Probe the Grok CLI with `grok models` so a signed-out CLI demotes to the Cursor Grok 4.6 runner at discovery instead of being discovered mid-run.
+- Add the `generalstaff.grokRunner` setting (`auto` | `cursor`). Entitlement is not discoverable: probed live on 2026-09-13 the Grok CLI reported itself logged in while every request 402'd `personal-team-blocked:spending-limit` and echoed the prompt back to stdout — output indistinguishable from a real answer — and a real-request probe never returns because the CLI's leader process holds stdout open. Setting `cursor` pins the seat to the working Cursor door for the same model.
+- Close stdin on every lane authentication probe. Provider CLIs in prompt mode block on an open stdin pipe, which turned fast probes into timeouts and left a dead runner selected.
+- Add `scripts/make-launcher-app.sh`, which builds a double-clickable `GeneralStaff Workbench.app` carrying the original GeneralStaff Desktop icon.
+
 ## 0.4.5 — 2026-09-01
 
 - Generalize operator identity in the Command Deck via the `generalstaff.operatorDisplayName` setting.

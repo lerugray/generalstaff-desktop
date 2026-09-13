@@ -13,6 +13,7 @@ import type {
   SeatId,
 } from '../domain.js';
 import { redact } from '../security/redaction.js';
+import { ollamaCcDoorFor } from '../services/ollamaCloud.js';
 import type { McpServerLaunch } from '../services/privateRuntime.js';
 import { processInvocation } from '../services/processInvocation.js';
 
@@ -84,7 +85,7 @@ function claudeMcpPermissionArgs(servers: readonly McpServerLaunch[]): string[] 
 }
 
 export function supportsNativeResume(laneId: LaneId): boolean {
-  return !['cline', 'glm-ollama', 'glm-ollama-flash'].includes(laneId);
+  return !['cline', 'glm-ollama', 'glm-ollama-flash', 'deepseek-ollama'].includes(laneId);
 }
 
 const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
@@ -96,6 +97,9 @@ const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
   grok: new Set(['default', 'low', 'medium', 'high', 'xhigh']),
   'glm-ollama': new Set(['default']),
   'glm-ollama-flash': new Set(['default']),
+  'deepseek-ollama': new Set(['default']),
+  'deepseek-ollama-cc': new Set(['default', 'low', 'medium', 'high', 'xhigh']),
+  'glm-ollama-cc': new Set(['default', 'low', 'medium', 'high', 'xhigh']),
 };
 
 export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: EffortId = 'default'): EffortId {
@@ -107,6 +111,7 @@ export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: Effo
   if (laneId === 'claude') return seat === 'assist' ? 'high' : 'max';
   if (laneId === 'grok') return 'high';
   if (laneId === 'cline') return seat === 'assist' ? 'medium' : 'high';
+  if (laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc') return 'high';
   return 'default';
 }
 
@@ -352,8 +357,42 @@ export function invocationFor(
         label: `Grok 4.6 via Cursor fallback · ${effortLabel(effort)}`,
         effort,
       };
+    case 'deepseek-ollama-cc':
+    case 'glm-ollama-cc': {
+      // The CC door runs the real Claude Code binary, so the operator's plan-mode read
+      // boundary, effort levels and session resume all behave exactly as they do on the Fable
+      // seat. Only the provider behind it differs. MCP servers are withheld on read-only runs
+      // for the same reason they are on the Claude lane.
+      const ccMcpServers = writeCapable ? mcpServers : [];
+      return {
+        args: [
+          ollamaCcDoorFor(laneId).door,
+          '-p',
+          groundedPrompt,
+          ...(nativeSession
+            ? ['--resume', nativeSession]
+            : options.initialSessionId
+              ? ['--session-id', options.initialSessionId]
+              : []),
+          '--model',
+          'sonnet',
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--permission-mode',
+          writeCapable ? 'acceptEdits' : 'plan',
+          '--effort',
+          effort,
+          ...claudeMcpPermissionArgs(ccMcpServers),
+          ...claudeMcpArgs(ccMcpServers),
+        ],
+        label: `${ollamaCcDoorFor(laneId).model} via Claude Code · ${effortLabel(effort)}`,
+        effort,
+      };
+    }
     case 'glm-ollama':
     case 'glm-ollama-flash':
+    case 'deepseek-ollama':
       throw new Error(`${laneId} uses the Ollama Cloud API adapter.`);
   }
 }
@@ -374,7 +413,10 @@ export function providerSessionIdFromLine(laneId: LaneId, line: string): string 
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (laneId === 'codex') return safeProviderSessionId(record.thread_id);
-  if (laneId === 'kimi' || laneId === 'cursor' || laneId === 'claude') {
+  if (
+    laneId === 'kimi' || laneId === 'cursor' || laneId === 'claude' ||
+    laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc'
+  ) {
     return safeProviderSessionId(record.session_id);
   }
   return undefined;
@@ -436,7 +478,8 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | undef
   // Claude's terminal `result` repeats the accumulated assistant response that
   // has already arrived as assistant stream events. Suppress that known final
   // envelope without deduplicating arbitrary text from other lanes.
-  if (laneId === 'claude' && (type === 'result' || type === 'run_result')) {
+  const speaksClaudeProtocol = laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
+  if (speaksClaudeProtocol && (type === 'result' || type === 'run_result')) {
     return undefined;
   }
 

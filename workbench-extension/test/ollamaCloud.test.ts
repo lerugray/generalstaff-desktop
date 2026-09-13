@@ -47,16 +47,53 @@ test('catalog discovery adds both distinctly labeled seats and fails closed per 
     authorization = new Headers(init?.headers).get('authorization');
     return new Response(JSON.stringify({ models: [{ name: 'glm-5.3' }] }), { status: 200 });
   }) as typeof fetch;
-  const lanes = await discoverOllamaCloudLanes({ loadApiKey: async () => 'test-key', fetcher });
+  // canExecute is stubbed false so the assertions below are hermetic: on the operator's own
+  // machine the launcher and the claude binary really are present.
+  const lanes = await discoverOllamaCloudLanes({
+    loadApiKey: async () => 'test-key',
+    fetcher,
+    canExecute: async () => false,
+  });
   assert.equal(calls, 1);
   assert.equal(catalogUrl, 'https://ollama.com/api/tags');
   assert.equal(authorization, 'Bearer test-key');
-  assert.deepEqual(lanes.map((lane) => lane.name), ['GLM 5.3 (Ollama)', 'GLM 5.3 Flash (Ollama)']);
+  assert.deepEqual(lanes.map((lane) => lane.name), [
+    'GLM 5.3 (Ollama)',
+    'GLM 5.3 Flash (Ollama)',
+    'DeepSeek V4.1 Flash (Ollama)',
+    'DeepSeek V4.1 Flash \u00b7 Workbench seat',
+    'GLM 5.3 \u00b7 Workbench seat',
+  ]);
   assert.equal(lanes[0]?.state, 'available');
   assert.equal(lanes[1]?.state, 'unavailable');
+  assert.equal(lanes[2]?.state, 'unavailable', 'deepseek fails closed when its tag is absent');
   assert.deepEqual(lanes[0]?.permissions, ['read']);
+  // The direct-API seats are read-only single-shot calls; the CC-door seats run the real
+  // Claude Code binary and therefore carry the operator's write boundary too.
+  assert.deepEqual(lanes[4]?.permissions, ['read', 'write']);
+  assert.equal(lanes[4]?.state, 'unavailable', 'the CC door fails closed when its launcher is absent');
+
+  // A CC-door seat only becomes available when the catalog tag, the launcher and the claude
+  // binary are all present. Its executable is the launcher, never a raw credential.
+  const ready = await discoverOllamaCloudLanes({
+    loadApiKey: async () => 'test-key',
+    fetcher: (async () => new Response(
+      JSON.stringify({ models: [{ name: 'glm-5.3' }, { name: 'deepseek-v4.1-flash' }] }),
+      { status: 200 },
+    )) as typeof fetch,
+    canExecute: async () => true,
+  });
+  const ccSeat = ready.find((lane) => lane.id === 'deepseek-ollama-cc');
+  assert.equal(ccSeat?.state, 'available');
+  assert.match(ccSeat?.executable ?? '', /gsd-cc-door\.sh$/u);
+  assert.equal(
+    ready.every((lane) => !JSON.stringify(lane).includes('test-key')),
+    true,
+    'no lane summary may carry the Ollama credential into webview state',
+  );
 
   const missing = await discoverOllamaCloudLanes({
+    canExecute: async () => false,
     loadApiKey: async () => undefined,
     fetcher: (() => { throw new Error('fetch must not run without a key'); }) as typeof fetch,
   });

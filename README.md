@@ -63,6 +63,13 @@ Then open the isolated Workbench profile. `GENERALSTAFF_ROOT` may point directly
 GENERALSTAFF_ROOT=/absolute/path/to/generalstaff-private ./scripts/launch-workbench.sh
 ```
 
+For a double-clickable launcher, run `scripts/make-launcher-app.sh` once. It installs the packaged
+extension into the isolated profile and builds `~/Applications/GeneralStaff Workbench.app` with the
+original GeneralStaff Desktop icon. The bundle hands the launch to LaunchServices rather than
+running the shell launcher, because an unsigned bundle has no macOS privacy grant for a repository
+under `~/Desktop`. Rebuild it after any change to the extension so the profile carries the new
+package; its log is `~/Library/Logs/generalstaff-workbench-launcher.log`.
+
 On Windows, use `scripts\build-workbench.cmd` and `scripts\launch-workbench.cmd`. Set `GENERALSTAFF_ROOT` in the environment before launching and set `CODE_BIN` if Visual Studio Code is installed somewhere the launcher does not discover.
 
 The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher force-installs that package into the repo-local, gitignored `.workbench-data/` profile and opens the dedicated Workbench workspace. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, set `GENERALSTAFF_ROOT` or choose the GeneralStaff root that contains `state/`; a chosen root is stored as a machine-scoped setting in the isolated profile. The opening surface is the persistent Orchestrator session, with no project selection required.

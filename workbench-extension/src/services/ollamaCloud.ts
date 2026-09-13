@@ -11,7 +11,36 @@ export const OLLAMA_CLOUD_CHAT_URL = 'https://ollama.com/v1/chat/completions';
 const ollamaModels = {
   'glm-ollama': 'glm-5.3',
   'glm-ollama-flash': 'glm-5.3-flash',
+  'deepseek-ollama': 'deepseek-v4.1-flash',
 } as const satisfies Partial<Record<LaneId, string>>;
+
+/**
+ * CC-door lanes. Each maps to a door name understood by the gsd-cc-door.sh launcher in the
+ * private GeneralStaff repository, which injects the Ollama Cloud credentials and the real
+ * context window before exec'ing claude. The launcher owns the key so it never enters
+ * extension state, and therefore never reaches the webview.
+ */
+const ollamaCcDoors = {
+  'deepseek-ollama-cc': { door: 'ollama-deepseek', model: 'deepseek-v4.1-flash' },
+  'glm-ollama-cc': { door: 'ollama-glm', model: 'glm-5.3' },
+} as const satisfies Partial<Record<LaneId, { door: string; model: string }>>;
+
+/**
+ * Every Ollama Cloud tag the Workbench offers reports context_length 1048576 from
+ * https://ollama.com/api/show (verified 2026-09-13). Claude Code assumes 200k for a model it
+ * does not recognise, so the CC-door launcher states this explicitly.
+ */
+export const OLLAMA_CLOUD_CONTEXT_TOKENS = 1_048_576;
+
+export type OllamaCcLaneId = keyof typeof ollamaCcDoors;
+
+export function isOllamaCcLaneId(laneId: LaneId): laneId is OllamaCcLaneId {
+  return Object.hasOwn(ollamaCcDoors, laneId);
+}
+
+export function ollamaCcDoorFor(laneId: OllamaCcLaneId): { door: string; model: string } {
+  return ollamaCcDoors[laneId];
+}
 
 export type OllamaCloudLaneId = keyof typeof ollamaModels;
 export type FetchLike = typeof fetch;

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ActivityItem, ArtifactSummary, AttentionItem, FleetSnapshot, ProjectSummary } from '../domain.js';
-import { discoverLanes } from './lanes.js';
+import { discoverLanes, type CliLaneDiscoveryOptions } from './lanes.js';
 import { discoverPrivateRuntime, type PrivateRuntimeOptions } from './privateRuntime.js';
 import { discoverSkills } from './skills.js';
 
@@ -190,7 +190,11 @@ export async function resolveGeneralStaffRoot(
   return '';
 }
 
-export async function scanFleet(rootPath: string, runtimeOptions: PrivateRuntimeOptions = {}): Promise<FleetSnapshot> {
+export async function scanFleet(
+  rootPath: string,
+  runtimeOptions: PrivateRuntimeOptions = {},
+  laneOptions: CliLaneDiscoveryOptions = {},
+): Promise<FleetSnapshot> {
   const stateRoot = rootPath ? path.join(rootPath, 'state') : '';
   const repos = rootPath ? await siblingRepoMap(rootPath) : new Map<string, string>();
   const projects: ProjectSummary[] = [];
@@ -292,7 +296,7 @@ export async function scanFleet(rootPath: string, runtimeOptions: PrivateRuntime
   activity.splice(12);
 
   const [lanes, skills, runtime] = await Promise.all([
-    discoverLanes(),
+    discoverLanes(laneOptions),
     discoverSkills(rootPath),
     discoverPrivateRuntime(rootPath, runtimeOptions),
   ]);

@@ -8,6 +8,7 @@ import {
   catalogHasModel,
   fetchOllamaCloudCatalog,
   loadOllamaCloudApiKey,
+  ollamaCcDoorFor,
   ollamaCloudModelFor,
   type FetchLike,
 } from './ollamaCloud.js';
@@ -32,7 +33,7 @@ interface RunnerDefinition {
   probeArgs: string[];
   probeAccept: RegExp;
   requiredFile?: { path: string; issue: string };
-  availabilityProbe?: { args: string[]; accept: RegExp; issue: string };
+  availabilityProbe?: { args: string[]; accept: RegExp; reject?: RegExp; issue: string };
   detailSuffix?: string;
 }
 
@@ -56,6 +57,13 @@ const claudeEfforts: EffortOption[] = [
   { id: 'max', label: 'Max' },
 ];
 const grokEfforts: EffortOption[] = [
+  providerDefault,
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+  { id: 'xhigh', label: 'Extra high' },
+];
+const ccEfforts: EffortOption[] = [
   providerDefault,
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Medium' },
@@ -189,6 +197,22 @@ const laneDefinitions: LaneDefinition[] = [
           path: path.join(home, '.grok/auth.json'),
           issue: 'the Grok CLI auth file is missing',
         },
+        // `grok models` is fast, exits cleanly, and catches a signed-out CLI. It does NOT
+        // catch a lapsed subscription: probed live 2026-09-13, it reported "You are logged in
+        // with grok.com" while every actual request 402'd `personal-team-blocked:spending-limit`
+        // and the CLI echoed the prompt back to stdout - output indistinguishable from a real
+        // answer. Probing with a real request is not an option either: `grok -p` leaves its
+        // leader process holding stdout, so the probe never returns.
+        //
+        // So entitlement is an operator fact, not a discoverable one. `generalstaff.grokRunner`
+        // pins the seat to the working Cursor Grok 4.6 runner when the CLI door is out of
+        // credits; see forceRunner below.
+        availabilityProbe: {
+          args: ['models'],
+          accept: /grok-4\.6/iu,
+          reject: /not authenticated|out of credits|spending-limit|payment required/iu,
+          issue: 'the Grok CLI is signed out or not entitled',
+        },
         detailSuffix: 'Grok CLI primary · every effort selection uses provider default',
       },
       {
@@ -223,11 +247,46 @@ const ollamaLaneDefinitions = [
     name: 'GLM 5.3 Flash (Ollama)',
     detail: 'GLM 5.3 Flash through the Ollama Cloud flat subscription',
   },
+  {
+    id: 'deepseek-ollama',
+    name: 'DeepSeek V4.1 Flash (Ollama)',
+    detail: 'DeepSeek V4.1 Flash through the Ollama Cloud flat subscription · 1M context · vision · reasoning model',
+  },
 ] as const;
+
+/**
+ * CC-door seats. These run the real Claude Code binary against Ollama Cloud's
+ * Anthropic-compatible endpoint through the private repository's gsd-cc-door.sh launcher, so
+ * they are agentic AND they inherit the operator's skills, user CLAUDE.md, project rules chain,
+ * memory and hooks - none of which the single-shot direct-API seats above can carry. This is
+ * the seat to pick for orchestration work that must stay off the Anthropic meter.
+ */
+const ollamaCcLaneDefinitions = [
+  {
+    id: 'deepseek-ollama-cc',
+    name: 'DeepSeek V4.1 Flash · Workbench seat',
+    detail: 'DeepSeek V4.1 Flash running Claude Code with the operator skills, rules and memory · 1M context · vision',
+  },
+  {
+    id: 'glm-ollama-cc',
+    name: 'GLM 5.3 · Workbench seat',
+    detail: 'GLM 5.3 running Claude Code with the operator skills, rules and memory · 1M context · no vision',
+  },
+] as const;
+
+export const CC_DOOR_LAUNCHER = path.join(
+  home,
+  'Desktop',
+  'Dev Work',
+  'generalstaff-private',
+  'scripts',
+  'gsd-cc-door.sh',
+);
 
 export interface OllamaLaneDiscoveryOptions {
   fetcher?: FetchLike;
   loadApiKey?: () => Promise<string | undefined>;
+  canExecute?: (candidate: string) => Promise<boolean>;
 }
 
 export async function discoverOllamaCloudLanes(
@@ -247,7 +306,33 @@ export async function discoverOllamaCloudLanes(
     }
   }
 
-  return ollamaLaneDefinitions.map((definition) => {
+  const ccLanes: LaneSummary[] = [];
+  const launcherReady = await (options.canExecute ?? canExecute)(CC_DOOR_LAUNCHER);
+  const claudeBinary = await (options.canExecute ?? canExecute)(path.join(home, '.local/bin/claude'))
+    ? path.join(home, '.local/bin/claude')
+    : undefined;
+  for (const definition of ollamaCcLaneDefinitions) {
+    const { model } = ollamaCcDoorFor(definition.id);
+    const ccIssue = issue
+      ?? (!launcherReady ? 'the gsd-cc-door.sh launcher is missing from the private repository' : undefined)
+      ?? (!claudeBinary ? 'the claude binary is not installed on this machine' : undefined)
+      ?? (!catalogHasModel(tags, model) ? `the ${model} tag is unavailable` : undefined);
+    ccLanes.push({
+      id: definition.id,
+      runner: definition.id,
+      name: definition.name,
+      detail: ccIssue ? `${definition.detail} · ${ccIssue}` : definition.detail,
+      evidenceLabel: 'Ollama Cloud CC door · skills/rules/memory carry-over probed 2026-09-13',
+      state: ccIssue ? 'unavailable' : 'available',
+      ...(ccIssue ? {} : { executable: CC_DOOR_LAUNCHER }),
+      roles: ['orchestrate', 'build', 'review', 'verify', 'assist'],
+      permissions: ['read', 'write'],
+      efforts: ccEfforts,
+      defaultEffort: 'default',
+    } satisfies LaneSummary);
+  }
+
+  return [...ollamaLaneDefinitions.map((definition) => {
     const model = ollamaCloudModelFor(definition.id);
     const available = !issue && catalogHasModel(tags, model);
     const detailIssue = issue ?? `the ${model} tag is unavailable`;
@@ -263,7 +348,7 @@ export async function discoverOllamaCloudLanes(
       efforts: [{ id: 'default', label: 'Provider default' }],
       defaultEffort: 'default',
     } satisfies LaneSummary;
-  });
+  }), ...ccLanes];
 }
 
 async function canExecute(candidate: string): Promise<boolean> {
@@ -294,6 +379,7 @@ async function findOnPath(binary: string): Promise<string | undefined> {
 export interface ProbeResult {
   authenticated: boolean;
   issue?: string;
+  output?: string;
 }
 
 async function probeLane(executable: string, args: string[], accept: RegExp): Promise<ProbeResult> {
@@ -304,11 +390,14 @@ async function probeLane(executable: string, args: string[], accept: RegExp): Pr
     return { authenticated: false, issue: error instanceof Error ? error.message : 'Unsupported command shim.' };
   }
   return new Promise((resolve) => {
-    execFile(
+    // Close stdin immediately. Provider CLIs in prompt mode block waiting for piped input when
+    // stdin is an open pipe, which turned a two-second entitlement probe into a 12-second
+    // timeout and left a dead runner selected (observed 2026-09-13).
+    const child = execFile(
       processSpec.executable,
       processSpec.args,
       {
-        timeout: 12_000,
+        timeout: 20_000,
         windowsHide: true,
         env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', ...processSpec.env },
         maxBuffer: 256 * 1024,
@@ -320,13 +409,20 @@ async function probeLane(executable: string, args: string[], accept: RegExp): Pr
           resolve({ authenticated: false, ...(timedOut ? { issue: 'Authentication probe timed out.' } : {}) });
           return;
         }
-        resolve({ authenticated: accept.test(output) });
+        resolve({ authenticated: accept.test(output), output });
       },
     );
+    child.stdin?.end();
   });
 }
 
 export interface CliLaneDiscoveryOptions {
+  /**
+   * Pins a lane to one concrete runner, bypassing discovery order. The operator needs this for
+   * a door whose health cannot be probed - notably the Grok CLI, which reports itself logged in
+   * while its subscription is out of credits.
+   */
+  forceRunner?: Partial<Record<LaneId, LaneId>>;
   canExecute?: (candidate: string) => Promise<boolean>;
   findOnPath?: (binary: string) => Promise<string | undefined>;
   probe?: (executable: string, args: string[], accept: RegExp) => Promise<ProbeResult>;
@@ -370,13 +466,17 @@ export async function discoverCliLanes(options: CliLaneDiscoveryOptions = {}): P
             runner.availabilityProbe.args,
             runner.availabilityProbe.accept,
           );
-          if (!availability.authenticated) {
+          const rejected = runner.availabilityProbe.reject?.test(availability.output ?? '') === true;
+          if (!availability.authenticated || rejected) {
             result = { authenticated: false, issue: availability.issue ?? runner.availabilityProbe.issue };
           }
         }
         discovered.push({ ...runner, executable, probe: result });
       }
-      const selected = discovered.find((runner) => runner.probe.authenticated) ?? discovered[0];
+      const pinned = options.forceRunner?.[definition.id];
+      const selected = (pinned ? discovered.find((runner) => runner.id === pinned) : undefined)
+        ?? discovered.find((runner) => runner.probe.authenticated)
+        ?? discovered[0];
       const authenticated = selected?.probe.authenticated === true;
 
       return {
@@ -400,9 +500,9 @@ export async function discoverCliLanes(options: CliLaneDiscoveryOptions = {}): P
   );
 }
 
-export async function discoverLanes(): Promise<LaneSummary[]> {
+export async function discoverLanes(options: CliLaneDiscoveryOptions = {}): Promise<LaneSummary[]> {
   const ollamaLanesPromise = discoverOllamaCloudLanes();
-  const cliLanes = await discoverCliLanes();
+  const cliLanes = await discoverCliLanes(options);
   const ollamaLanes = await ollamaLanesPromise;
   return [...cliLanes, ...ollamaLanes];
 }

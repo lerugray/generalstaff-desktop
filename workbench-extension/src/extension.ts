@@ -18,6 +18,7 @@ import { requireAllowedPath } from './security/paths.js';
 import { ConversationStore } from './services/conversations.js';
 import { extractDecisionCards } from './services/decisions.js';
 import { resolveGeneralStaffRoot, scanFleet } from './services/fleet.js';
+import type { CliLaneDiscoveryOptions } from './services/lanes.js';
 import { ProjectNoteStore } from './services/notes.js';
 import { OrchestratorSessionManager } from './services/orchestratorSession.js';
 import { PreviewServer } from './services/previewServer.js';
@@ -98,12 +99,23 @@ class CommandDeckPanel {
     await this.refreshAndSend();
   }
 
+  /**
+   * The Grok CLI cannot be probed for entitlement: it reports itself logged in while its
+   * subscription is out of credits, and a real request probe never returns because its leader
+   * process holds stdout. `generalstaff.grokRunner` lets the operator pin the seat to the
+   * Cursor Grok 4.6 runner, which is a working door for the same model.
+   */
+  private laneOptions(): CliLaneDiscoveryOptions {
+    const grokRunner = vscode.workspace.getConfiguration('generalstaff').get<string>('grokRunner', 'auto');
+    return grokRunner === 'cursor' ? { forceRunner: { grok: 'cursor' } } : {};
+  }
+
   private async refreshAndSend(): Promise<void> {
     try {
       const configured = vscode.workspace.getConfiguration('generalstaff').get<string>('rootPath');
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const rootPath = await resolveGeneralStaffRoot(configured, workspaceRoot);
-      this.snapshot = await scanFleet(rootPath, this.privateRuntimeOptions());
+      this.snapshot = await scanFleet(rootPath, this.privateRuntimeOptions(), this.laneOptions());
       const orchestratorReady = (item: LaneSummary) =>
         item.state === 'available' && item.roles.includes('orchestrate') && item.permissions.includes('read');
       // Operator ruling 2026-08-28: the orchestrator session defaults to the Claude Fable

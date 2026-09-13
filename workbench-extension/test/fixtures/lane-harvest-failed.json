@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "lane_id": "orderly-authz",
+  "host": "mac",
+  "paths": {
+    "cwd": "/Users/ray/src/generalstaff-private",
+    "log": "/Users/ray/launch-logs/orderly-authz.log"
+  },
+  "process": { "running": false, "pid": 39011, "pgid": 39011 },
+  "git": {
+    "branch": "main",
+    "want_sha": "abc1234",
+    "head_sha": "abc1234",
+    "dirty": false,
+    "dirty_count": 0,
+    "files_changed": [],
+    "commits_since_want": 0,
+    "summary": "clean at WANT"
+  },
+  "tests": { "reported": false, "verified": false },
+  "attention": ["failed", "probe_timeout"],
+  "battery": "n/a · home-pc offline",
+  "model": "fable",
+  "door": "claude"
+}

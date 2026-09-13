@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "lane_id": "wrapup-stale",
+  "host": "mac",
+  "code": "missing_lane",
+  "message": "lane wrapup-stale is no longer on the board"
+}

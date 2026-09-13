@@ -16,6 +16,8 @@
 
   const state = {
     model: null,
+    detail: null,
+    selectedKey: typeof saved.selectedKey === 'string' ? saved.selectedKey : null,
     selectedTheme: initialTheme,
     notice: null,
   };
@@ -30,7 +32,10 @@
   }
 
   function remember() {
-    vscode.setState({ selectedTheme: state.selectedTheme });
+    vscode.setState({
+      selectedTheme: state.selectedTheme,
+      selectedKey: state.selectedKey,
+    });
   }
 
   function applyTheme(id) {
@@ -59,20 +64,22 @@
   function hostChip(host) {
     const ok = host.ok;
     const latency = typeof host.latencyMs === 'number' ? `${host.latencyMs}ms` : '';
-    const detail = ok ? latency : (host.code || host.message || 'unreachable');
-    return `<span class="lanes-host-chip ${ok ? 'is-ok' : 'is-down'}" title="${escapeHtml(detail)}">
+    const meta = ok ? latency : (host.code || host.message || 'unreachable');
+    return `<span class="lanes-host-chip ${ok ? 'is-ok' : 'is-down'}" title="${escapeHtml(meta)}">
       <span class="lanes-host-name">${escapeHtml(host.host)}</span>
-      <span class="lanes-host-meta">${escapeHtml(detail || (ok ? 'ok' : 'down'))}</span>
+      <span class="lanes-host-meta">${escapeHtml(meta || (ok ? 'ok' : 'down'))}</span>
     </span>`;
   }
 
   function renderRow(row) {
     const attention = row.attention ? ' is-attention' : '';
+    const selected = state.selectedKey === row.key ? ' is-selected' : '';
     const dirty = row.dirty ? ' · dirty' : '';
     const log = row.lastLogLine
       ? `<div class="lanes-log">${escapeHtml(row.lastLogLine)}</div>`
       : '';
-    return `<article class="lane-counter ${counterClass(row.counterColor)}${attention}" data-kind="${escapeHtml(row.kind)}" data-state="${escapeHtml(row.state)}">
+    const selectable = row.kind === 'lane';
+    return `<article class="lane-counter ${counterClass(row.counterColor)}${attention}${selected}" data-kind="${escapeHtml(row.kind)}" data-state="${escapeHtml(row.state)}" data-key="${escapeHtml(row.key)}" data-id="${escapeHtml(row.id)}" data-host="${escapeHtml(row.host)}"${selectable ? ' role="button" tabindex="0"' : ''}>
       <div class="lane-counter-mark" aria-hidden="true"></div>
       <div class="lane-counter-body">
         <div class="lane-counter-head">
@@ -91,6 +98,101 @@
         ${log}
       </div>
     </article>`;
+  }
+
+  function renderMonoBlock(lines, emptyLabel) {
+    if (!lines || !lines.length) {
+      return `<div class="lanes-detail-empty">${escapeHtml(emptyLabel)}</div>`;
+    }
+    return `<pre class="lanes-mono-tail" role="log">${lines.map((line) => escapeHtml(line)).join('\n')}</pre>`;
+  }
+
+  function renderDetail(detail) {
+    if (!detail) {
+      return `<aside class="lanes-detail is-empty" aria-label="Lane detail">
+        <div class="lanes-detail-empty">Select a counter to turn its card.</div>
+      </aside>`;
+    }
+
+    const markers = [
+      detail.gone ? '<span class="lanes-gone">gone</span>' : '',
+      detail.stale ? '<span class="lanes-stale">stale</span>' : '',
+      detail.loading ? '<span class="lanes-loading">reading…</span>' : '',
+    ].filter(Boolean).join('');
+
+    const fields = (detail.fields || []).map((field) => `
+      <div class="lanes-detail-field">
+        <span class="lanes-detail-label">${escapeHtml(field.label)}</span>
+        <span class="${field.marginalia ? 'lane-marginalia' : 'lanes-detail-value'}">${escapeHtml(field.value)}</span>
+      </div>`).join('');
+
+    const sentinels = (detail.sentinels || []).length
+      ? `<div class="lanes-detail-sentinels">${detail.sentinels.map((entry) => `
+          <div class="lanes-sentinel-row">
+            <span class="lanes-sentinel-name">${escapeHtml(entry.name)}${entry.present ? '' : ' · absent'}</span>
+            ${entry.lastLine ? `<span class="lane-marginalia">${escapeHtml(entry.lastLine)}</span>` : ''}
+          </div>`).join('')}</div>`
+      : '';
+
+    const harvest = detail.harvest || {};
+    const files = (harvest.filesChanged || []).length
+      ? `<ul class="lanes-files">${harvest.filesChanged.map((file) => `<li class="lane-marginalia">${escapeHtml(file)}</li>`).join('')}</ul>`
+      : '<div class="lanes-detail-empty">No changed files reported.</div>';
+    const attention = (harvest.attention || []).length
+      ? `<div class="lanes-attention">${harvest.attention.map((item) => `<span class="lanes-attention-chip">${escapeHtml(item)}</span>`).join('')}</div>`
+      : '';
+    const paths = (harvest.paths || []).length
+      ? `<div class="lanes-detail-paths">${harvest.paths.map((path) => `
+          <div class="lanes-detail-field">
+            <span class="lanes-detail-label">${escapeHtml(path.label)}</span>
+            <span class="lane-marginalia">${escapeHtml(path.value)}</span>
+          </div>`).join('')}</div>`
+      : '';
+
+    const error = detail.errorDetail
+      ? `<div class="lanes-banner is-warn">${escapeHtml(detail.errorDetail)}</div>`
+      : '';
+
+    return `<aside class="lanes-detail ${counterClass(detail.counterColor)}" aria-label="Lane detail for ${escapeHtml(detail.laneId)}">
+      <header class="lanes-detail-header">
+        <div class="lanes-detail-title">
+          <strong class="lane-unit">${escapeHtml(detail.laneId)}</strong>
+          <span class="lane-board">${escapeHtml(detail.host)}</span>
+          <span class="lane-state">${escapeHtml(detail.state)}</span>
+          ${markers}
+        </div>
+        <button type="button" class="lanes-harvest-action" disabled title="${escapeHtml(detail.harvestActionTooltip || 'M3+')}">${escapeHtml(detail.harvestActionLabel || 'Harvest…')}</button>
+      </header>
+      ${error}
+      <div class="lanes-detail-fields">${fields}</div>
+      ${sentinels}
+      <section class="lanes-detail-section">
+        <h3>run.status</h3>
+        ${renderMonoBlock(detail.statusTail, 'No status tail.')}
+      </section>
+      <section class="lanes-detail-section">
+        <h3>log tail</h3>
+        ${renderMonoBlock(detail.logLines, 'No log lines from lane_detail.')}
+      </section>
+      <section class="lanes-detail-section lanes-harvest-preview">
+        <h3>harvest preview</h3>
+        <div class="lanes-detail-fields">
+          <div class="lanes-detail-field"><span class="lanes-detail-label">process</span><span class="lanes-detail-value">${escapeHtml(harvest.process || '—')}</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">git</span><span class="lanes-detail-value">${escapeHtml(harvest.gitSummary || '—')}</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">dirty</span><span class="lanes-detail-value">${escapeHtml(harvest.dirtyCount || '—')}</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">since WANT</span><span class="lanes-detail-value">${escapeHtml(harvest.commitsSinceWant || '—')} commits</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">battery</span><span class="lanes-detail-value">${escapeHtml(harvest.battery || '—')}</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">tests</span><span class="lanes-detail-value">${escapeHtml(harvest.tests || '—')}</span></div>
+          <div class="lanes-detail-field"><span class="lanes-detail-label">model</span><span class="lanes-detail-value">${escapeHtml(harvest.modelDoor || '—')}</span></div>
+        </div>
+        ${attention}
+        ${paths}
+        <div class="lanes-files-wrap">
+          <span class="lanes-detail-label">files changed</span>
+          ${files}
+        </div>
+      </section>
+    </aside>`;
   }
 
   function render() {
@@ -121,7 +223,7 @@
       ? model.rows.map(renderRow).join('')
       : `<div class="lanes-empty">No detached runs on the map.</div>`;
 
-    app.innerHTML = `<div class="lanes-shell">
+    app.innerHTML = `<div class="lanes-shell ${state.detail || state.selectedKey ? 'has-detail' : ''}">
       <header class="lanes-header">
         <div class="lanes-title">
           <strong>Lanes</strong>
@@ -136,7 +238,10 @@
       <div class="lanes-hosts">${(model.hostSummaries || []).map(hostChip).join('')}</div>
       ${banner}
       <div class="lanes-counts">${countBits || 'counts —'}${model.badgeCount ? ` · <span class="lanes-badge-note">attention ${model.badgeCount}</span>` : ''}</div>
-      <div class="lanes-map" role="list">${rows}</div>
+      <div class="lanes-body">
+        <div class="lanes-map" role="list">${rows}</div>
+        ${renderDetail(state.detail)}
+      </div>
       <div class="theme-picker lanes-theme">
         <div class="theme-picker-heading"><span>Palette</span><strong>${escapeHtml(themeName)}</strong></div>
         <div class="theme-swatches" role="group" aria-label="Workbench palette">
@@ -147,12 +252,32 @@
     </div>`;
   }
 
+  function selectLane(article) {
+    const kind = article.getAttribute('data-kind') || '';
+    const key = article.getAttribute('data-key') || '';
+    const id = article.getAttribute('data-id') || '';
+    const host = article.getAttribute('data-host') || '';
+    const laneState = article.getAttribute('data-state') || 'unknown';
+    if (kind !== 'lane' || !key) return;
+    state.selectedKey = key;
+    remember();
+    render();
+    vscode.postMessage({ type: 'select-lane', key, id, host, kind, state: laneState });
+  }
+
   window.addEventListener('message', (event) => {
     const message = event.data;
     if (!message || typeof message !== 'object') return;
     if (message.type === 'lanes-model') {
       state.model = message.model;
       state.notice = null;
+      render();
+      return;
+    }
+    if (message.type === 'lanes-detail') {
+      state.detail = message.detail || null;
+      if (state.detail?.key) state.selectedKey = state.detail.key;
+      remember();
       render();
       return;
     }
@@ -172,7 +297,20 @@
     }
     if (target.closest('[data-action="refresh"]')) {
       vscode.postMessage({ type: 'refresh' });
+      return;
     }
+    const article = target.closest('.lane-counter[data-kind="lane"]');
+    if (article) selectLane(article);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const article = target.closest('.lane-counter[data-kind="lane"]');
+    if (!article || article !== target) return;
+    event.preventDefault();
+    selectLane(article);
   });
 
   render();

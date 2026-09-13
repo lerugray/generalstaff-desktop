@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "lane_id": "orderly-authz",
+  "host": "mac",
+  "state": "failed",
+  "repo": "generalstaff-private",
+  "cwd": "/Users/ray/src/generalstaff-private",
+  "branch": "main",
+  "want_sha": "abc1234",
+  "head_sha": "abc1234",
+  "model": "fable",
+  "door": "claude",
+  "launched_at": "2026-09-13T19:30:00Z",
+  "cap_min": 60,
+  "age_min": 42,
+  "elapsed": "42m",
+  "dirty": false,
+  "sentinels": {
+    "log": { "present": true, "last_line": "probe timed out after 30s" },
+    "status": { "present": true, "last_line": "state=failed code=probe_timeout" },
+    "done": { "present": false }
+  },
+  "status_tail": [
+    "state=failed",
+    "code=probe_timeout",
+    "last_ok=never"
+  ],
+  "lines": [
+    "starting orderly-authz",
+    "calling authz probe",
+    "probe timed out after 30s",
+    "marking failed"
+  ]
+}

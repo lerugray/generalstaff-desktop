@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "lane_id": "gs-harness-m1",
+  "host": "mac",
+  "state": "running",
+  "repo": "generalstaff-desktop",
+  "cwd": "/Users/ray/src/generalstaff-desktop",
+  "tree": "/Users/ray/src/generalstaff-desktop",
+  "branch": "cursor/gs-harness-m1-lanes-bb9a",
+  "want_sha": "a435628",
+  "head_sha": "d2eb411",
+  "model": "composer",
+  "door": "cursor",
+  "launched_at": "2026-09-13T20:48:00Z",
+  "cap_min": 120,
+  "age_min": 12,
+  "elapsed": "12m",
+  "dirty": true,
+  "sentinels": {
+    "log": { "present": true, "last_line": "compiling lanes panel" },
+    "status": { "present": true, "last_line": "state=running elapsed=12m" },
+    "done": { "present": false }
+  },
+  "status_tail": [
+    "state=running",
+    "elapsed=12m",
+    "want=a435628 head=d2eb411"
+  ],
+  "lines": [
+    "activating workbench extension",
+    "fetching lanes_status",
+    "compiling lanes panel",
+    "waiting on poll tick"
+  ]
+}

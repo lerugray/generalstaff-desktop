@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "lane_id": "gs-harness-m1",
+  "host": "mac",
+  "paths": {
+    "cwd": "/Users/ray/src/generalstaff-desktop",
+    "log": "/Users/ray/launch-logs/gs-harness-m1.log",
+    "repo": "generalstaff-desktop"
+  },
+  "process": { "running": true, "pid": 44102, "pgid": 44100 },
+  "git": {
+    "branch": "cursor/gs-harness-m1-lanes-bb9a",
+    "want_sha": "a435628",
+    "head_sha": "d2eb411",
+    "dirty": true,
+    "dirty_count": 3,
+    "files_changed": [
+      "workbench-extension/src/lanesPanel.ts",
+      "workbench-extension/media/lanes.js",
+      "workbench-extension/package.json"
+    ],
+    "commits_since_want": 2,
+    "summary": "2 commits ahead of WANT · 3 dirty paths"
+  },
+  "tests": { "reported": false, "verified": false },
+  "attention": ["dirty tree"],
+  "battery": "ok · Mac on AC",
+  "model": "composer",
+  "harness": "cursor"
+}

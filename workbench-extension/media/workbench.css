@@ -3217,6 +3217,24 @@ select:focus-visible {
   letter-spacing: 0;
 }
 
+.desk-field.desk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 12px;
+  color: var(--paper-muted);
+}
+
+.desk-field.desk-check input {
+  width: auto;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--ink);
+  accent-color: var(--brass);
+}
+
 .desk-ruling-actions {
   display: flex;
   flex-wrap: wrap;

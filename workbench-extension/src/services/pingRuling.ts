@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { buildRulingBody, readAnnotateNotes } from './annotateNotes.js';
 import { sessionArtifactsDirectory } from './handoffPaths.js';
 import { processInvocation } from './processInvocation.js';
 
@@ -15,6 +16,13 @@ export interface RulingInput {
   verdict: string;
   /** Optional extra tags appended after game,ray,ruling */
   tags?: string;
+  /**
+   * When true, append ANNOTATE notes (NOTES.txt / JSON export / ANNOTATE.html)
+   * to the ping body after "<PACKET-NAME>: <verdict>".
+   */
+  attachAnnotateNotes?: boolean;
+  /** Pre-read notes (tests); otherwise read from the packet when attaching. */
+  annotateNotes?: string;
   home?: string;
 }
 
@@ -78,7 +86,9 @@ export function buildPingArgv(input: {
   session: string;
   game: string;
   gate: string;
+  folderName: string;
   verdict: string;
+  annotateNotes?: string;
   tags?: string;
 }): string[] {
   const gameTag = input.game.trim().toLowerCase().replace(/\s+/g, '-') || 'packet';
@@ -89,7 +99,8 @@ export function buildPingArgv(input: {
     .filter((tag) => !['ray', 'ruling', gameTag].includes(tag.toLowerCase()));
   const tagList = [gameTag, 'ray', 'ruling', ...extras].join(',');
   const title = `${input.game}-${input.gate} — RULED (Ray)`;
-  return [input.pingScript, '-s', input.session, '-t', tagList, title, input.verdict];
+  const body = buildRulingBody(input.folderName, input.verdict, input.annotateNotes);
+  return [input.pingScript, '-s', input.session, '-t', tagList, title, body];
 }
 
 export function pingScriptPath(rootPath: string): string {
@@ -205,13 +216,24 @@ export async function recordRuling(
     };
   }
 
+  let annotateNotes: string | undefined;
+  if (input.attachAnnotateNotes) {
+    if (typeof input.annotateNotes === 'string' && input.annotateNotes.trim()) {
+      annotateNotes = input.annotateNotes.trim();
+    } else {
+      annotateNotes = await readAnnotateNotes(input.packetPath);
+    }
+  }
+
   const script = pingScriptPath(input.rootPath);
   const argv = buildPingArgv({
     pingScript: script,
     session,
     game: input.game,
     gate: input.gate,
+    folderName: input.folderName,
     verdict,
+    ...(annotateNotes ? { annotateNotes } : {}),
     ...(input.tags ? { tags: input.tags } : {}),
   });
 

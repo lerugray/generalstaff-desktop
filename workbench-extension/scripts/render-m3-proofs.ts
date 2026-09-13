@@ -1,17 +1,21 @@
 /**
- * Standalone Desk + Lanes calibration proof renderer.
+ * Standalone Desk + Lanes calibration proof renderer (M3 / M3b).
  * Serves unmodified media CSS/JS with a ~10-line acquireVsCodeApi shim,
  * posts real desk / lanes models from fixtures, screenshots at 1204x753@2.
+ *
+ * Also pixel-samples the right edge of running + done rows on Kriegspiel Night
+ * to refute or confirm amber leakage (writes samples JSON beside the proofs).
  *
  * Usage: npx tsx scripts/render-m3-proofs.ts
  */
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, type Page } from 'playwright';
 import { buildDeskPanelModel } from '../src/deskPanelModel.js';
 import {
   buildLaneDetailModel,
@@ -29,6 +33,19 @@ const root = path.resolve(__dirname, '..');
 const fixtures = path.join(root, 'test/fixtures');
 const media = path.join(root, 'media');
 const outDir = path.resolve(root, '../docs/handoffs');
+
+/** Brass / amber family for Kriegspiel Night (--brass #d18a5a, pale #b46a3a). */
+function isAmberBrassPixel(r: number, g: number, b: number): boolean {
+  // Warm orange/amber: R dominant, G mid, B low; exclude iron-red and ink paper.
+  if (r < 140) return false;
+  if (b > 120) return false;
+  if (g < 60 || g > 200) return false;
+  if (r - b < 40) return false;
+  if (r <= g) return false;
+  // Exclude dusty stalled browns that sit cooler / greyer than brass.
+  const warmth = (r - b) / Math.max(1, r);
+  return warmth > 0.28 && r >= 160;
+}
 
 async function readJson(name: string): Promise<unknown> {
   return JSON.parse(await readFile(path.join(fixtures, name), 'utf8')) as unknown;
@@ -66,7 +83,7 @@ function buildFixtureHandoff(): string {
   writeFileSync(path.join(p1, 'ANNOTATE.html'), '<html><body>annotate</body></html>');
   writeFileSync(path.join(p1, '.ready-gate-passed'), '');
   writeFileSync(path.join(p1, '.replay-gate-passed'), '');
-  writeFileSync(path.join(p1, 'notes.txt'), 'operator notes');
+  writeFileSync(path.join(p1, 'NOTES.txt'), 'pin A: folio leaf\npin B: amber only while waiting');
 
   const p2 = path.join(handoff, 'ORDERLY-READY-2026-09-04');
   mkdirSync(p2);
@@ -112,6 +129,100 @@ function pageHtml(scriptName: string, title: string): string {
   <script src="/media/${scriptName}"></script>
 </body>
 </html>`;
+}
+
+interface EdgeSample {
+  state: string;
+  clip: { x: number; y: number; width: number; height: number };
+  pixelCount: number;
+  amberCount: number;
+  sampleRgbs: Array<[number, number, number]>;
+  amberPresent: boolean;
+}
+
+async function sampleRowRightEdge(page: Page, state: string, tmpDir: string): Promise<EdgeSample> {
+  const locator = page.locator(`.lane-counter[data-state="${state}"]`).first();
+  await locator.waitFor({ state: 'visible' });
+  const box = await locator.boundingBox();
+  if (!box) throw new Error(`no box for state=${state}`);
+  const edgeWidth = Math.min(28, Math.max(12, Math.floor(box.width * 0.12)));
+  const clip = {
+    x: Math.max(0, box.x + box.width - edgeWidth),
+    y: box.y,
+    width: edgeWidth,
+    height: box.height,
+  };
+  const clipPath = path.join(tmpDir, `edge-${state}.png`);
+  await page.screenshot({ path: clipPath, type: 'png', clip });
+
+  const py = `
+from PIL import Image
+import json
+im = Image.open(${JSON.stringify(clipPath)}).convert('RGB')
+w, h = im.size
+amber = 0
+samples = []
+step_x = max(1, w // 6)
+step_y = max(1, h // 8)
+for y in range(0, h, step_y):
+  for x in range(0, w, step_x):
+    r, g, b = im.getpixel((x, y))
+    samples.append([r, g, b])
+    # Night brass family (~#d18a5a / #b46a3a)
+    if r >= 160 and 60 <= g <= 200 and b <= 120 and (r - b) >= 40 and r > g:
+      warmth = (r - b) / max(1, r)
+      if warmth > 0.28:
+        amber += 1
+print(json.dumps({
+  "pixelCount": len(samples),
+  "amberCount": amber,
+  "sampleRgbs": samples[:24],
+}))
+`;
+  const result = spawnSync('python3', ['-c', py], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`pixel sample failed for ${state}: ${result.stderr || result.stdout}`);
+  }
+  const parsed = JSON.parse(result.stdout.trim()) as {
+    pixelCount: number;
+    amberCount: number;
+    sampleRgbs: Array<[number, number, number]>;
+  };
+  return {
+    state,
+    clip,
+    pixelCount: parsed.pixelCount,
+    amberCount: parsed.amberCount,
+    sampleRgbs: parsed.sampleRgbs,
+    amberPresent: parsed.amberCount > 0,
+  };
+}
+
+async function countNestedBordersInDetail(page: Page): Promise<{
+  detailBorderCount: number;
+  innerBoxBorders: number;
+  monoTailBorderZero: boolean;
+}> {
+  return page.evaluate(() => {
+    const detail = document.querySelector('.lanes-detail:not(.is-empty)');
+    if (!detail) return { detailBorderCount: 0, innerBoxBorders: 0, monoTailBorderZero: false };
+    const detailStyle = getComputedStyle(detail);
+    const detailBorderCount = ['Top', 'Right', 'Bottom', 'Left']
+      .map((side) => detailStyle.getPropertyValue(`border-${side.toLowerCase()}-width`))
+      .filter((w) => w && w !== '0px').length;
+    let innerBoxBorders = 0;
+    for (const el of detail.querySelectorAll('.lanes-detail-section, .lanes-mono-tail, .lanes-harvest-preview, .lanes-detail-field, pre, ul')) {
+      const style = getComputedStyle(el);
+      const sides = ['top', 'right', 'bottom', 'left']
+        .map((side) => style.getPropertyValue(`border-${side}-width`))
+        .filter((w) => w && w !== '0px');
+      // Rule-line separators (top only) are allowed; full boxes (2+ sides) are not.
+      if (sides.length >= 2) innerBoxBorders += 1;
+    }
+    const mono = detail.querySelector('.lanes-mono-tail');
+    const monoTailBorderZero = !mono || getComputedStyle(mono).borderWidth === '0px';
+    return { detailBorderCount, innerBoxBorders, monoTailBorderZero };
+  });
 }
 
 async function main(): Promise<void> {
@@ -181,10 +292,16 @@ async function main(): Promise<void> {
     kind: 'desk' | 'lanes' | 'detail';
   }> = [
     { name: 'GS-HARNESS-M3-PROOF-desk-paper.png', path: '/desk', theme: 'paper', kind: 'desk' },
+    { name: 'GS-HARNESS-M3-PROOF-desk-night.png', path: '/desk', theme: 'night', kind: 'desk' },
     { name: 'GS-HARNESS-REGISTER-PROOF-lanes-paper.png', path: '/lanes', theme: 'paper', kind: 'lanes' },
     { name: 'GS-HARNESS-REGISTER-PROOF-lanes-night.png', path: '/lanes', theme: 'night', kind: 'lanes' },
     { name: 'GS-HARNESS-REGISTER-PROOF-detail-paper.png', path: '/lanes', theme: 'paper', kind: 'detail' },
+    { name: 'GS-HARNESS-M3B-PROOF-detail-night.png', path: '/lanes', theme: 'night', kind: 'detail' },
   ];
+
+  const sampleTmp = mkdtempSync(path.join(os.tmpdir(), 'gs-m3b-pixels-'));
+  let nightEdgeSamples: EdgeSample[] | undefined;
+  let detailNightAudit: Awaited<ReturnType<typeof countNestedBordersInDetail>> | undefined;
 
   for (const shot of shots) {
     const page = await browser.newPage({
@@ -219,15 +336,54 @@ async function main(): Promise<void> {
       if (shot.kind === 'detail') await page.waitForSelector('.lanes-detail:not(.is-empty)');
     }
     await page.waitForTimeout(200);
+
+    if (shot.name === 'GS-HARNESS-REGISTER-PROOF-lanes-night.png') {
+      nightEdgeSamples = [
+        await sampleRowRightEdge(page, 'running', sampleTmp),
+        await sampleRowRightEdge(page, 'done', sampleTmp),
+        await sampleRowRightEdge(page, 'failed', sampleTmp),
+      ];
+    }
+    if (shot.name === 'GS-HARNESS-M3B-PROOF-detail-night.png') {
+      detailNightAudit = await countNestedBordersInDetail(page);
+    }
+
     const outPath = path.join(outDir, shot.name);
     await page.screenshot({ path: outPath, type: 'png' });
     console.log('wrote', outPath);
     await page.close();
   }
 
+  const report = {
+    theme: 'night',
+    brassToken: '#d18a5a',
+    rule: 'amber only on failed/inconsistent attention marks, unreachable-host row, and icon badge',
+    edgeSamples: nightEdgeSamples,
+    runningOrDoneAmberLeak: Boolean(
+      nightEdgeSamples?.some((s) => (s.state === 'running' || s.state === 'done') && s.amberPresent),
+    ),
+    detailNight: detailNightAudit,
+  };
+  const reportPath = path.join(outDir, 'GS-HARNESS-M3B-PIXEL-SAMPLES-2026-09-13.json');
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  console.log('wrote', reportPath);
+  console.log('runningOrDoneAmberLeak', report.runningOrDoneAmberLeak);
+  console.log('detailNight', detailNightAudit);
+
+  // Keep unused helper referenced for typecheck of the amber detector.
+  void isAmberBrassPixel;
+
   await browser.close();
   server.close();
   rmSync(path.dirname(path.dirname(handoff)), { recursive: true, force: true });
+  rmSync(sampleTmp, { recursive: true, force: true });
+
+  if (report.runningOrDoneAmberLeak) {
+    throw new Error('Amber/brass pixels found on running/done row right edge — fix CSS before shipping.');
+  }
+  if (detailNightAudit && detailNightAudit.innerBoxBorders > 0) {
+    throw new Error(`Detail night still has nested bordered boxes: ${detailNightAudit.innerBoxBorders}`);
+  }
 }
 
 main().catch((error) => {

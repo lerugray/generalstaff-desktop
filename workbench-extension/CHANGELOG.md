@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.13 — 2026-09-13
+
+- Ruling ping body is now `"<PACKET-NAME>: <verdict>"` (founding-spec closed shape).
+- Opt-in **Attach ANNOTATE notes** checkbox on the ruling form when the packet has NOTES.txt / JSON export / ANNOTATE.html notes; notes append only when checked (default on when notes exist).
+- Night-palette look audit: pixel-sample running/done row right edges (amber leak refutation) + detail folio rule-lines (not nested boxes); proofs include desk-night / detail-night.
+
 ## 0.4.12 — 2026-09-13
 
 - Add the **Desk** panel: folio of `~/Desktop/handoff/` packets (one leaf per folder), WHAT-TO-JUDGE plate in a sandboxed iframe, ANNOTATE / Finder open actions, gate stamps, amber waiting badge.

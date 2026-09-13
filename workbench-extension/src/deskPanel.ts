@@ -153,6 +153,7 @@ export class DeskPanel {
       const verdict = typeof (value as { verdict?: unknown }).verdict === 'string' ? (value as { verdict: string }).verdict : '';
       const tags = typeof (value as { tags?: unknown }).tags === 'string' ? (value as { tags: string }).tags : '';
       const session = typeof (value as { session?: unknown }).session === 'string' ? (value as { session: string }).session : '';
+      const attachAnnotateNotes = (value as { attachAnnotateNotes?: unknown }).attachAnnotateNotes === true;
       const leaf = this.leafByKey(key);
       if (!leaf) {
         void this.panel.webview.postMessage({
@@ -173,6 +174,7 @@ export class DeskPanel {
           session: session || this.model.defaultSession || '',
           verdict,
           tags,
+          attachAnnotateNotes,
         });
         void this.panel.webview.postMessage({
           type: 'ruling-result',

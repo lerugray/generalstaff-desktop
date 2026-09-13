@@ -26,6 +26,7 @@
       verdict: '',
       tags: '',
       session: '',
+      attachAnnotateNotes: true,
     },
   };
 
@@ -119,6 +120,12 @@
   function renderRulingForm(leaf) {
     if (!leaf || !state.rulingOpen) return '';
     const sessionDefault = state.form.session || state.model?.defaultSession || '';
+    const notesToggle = leaf.hasAnnotateNotes
+      ? `<label class="desk-field desk-check">
+          <input type="checkbox" name="attachAnnotateNotes" ${state.form.attachAnnotateNotes ? 'checked' : ''} />
+          <span>Attach ANNOTATE notes</span>
+        </label>`
+      : '';
     return `<form class="desk-ruling" data-ruling-form="1">
       <h3>Record ruling</h3>
       <label class="desk-field">
@@ -133,6 +140,7 @@
         <span>Session</span>
         <input type="text" name="session" maxlength="32" autocomplete="off" spellcheck="false" value="${escapeHtml(sessionDefault)}" placeholder="sNNN" required />
       </label>
+      ${notesToggle}
       ${state.rulingError ? `<div class="desk-error">${escapeHtml(state.rulingError)}</div>` : ''}
       ${state.rulingRow ? `<pre class="desk-ruling-row">${escapeHtml(state.rulingRow)}</pre>` : ''}
       <div class="desk-ruling-actions">
@@ -212,7 +220,12 @@
     state.rulingOpen = false;
     state.rulingError = null;
     state.rulingRow = null;
-    state.form = { verdict: '', tags: '', session: state.model?.defaultSession || '' };
+    state.form = {
+      verdict: '',
+      tags: '',
+      session: state.model?.defaultSession || '',
+      attachAnnotateNotes: true,
+    };
     remember();
     render();
     vscode.postMessage({ type: 'select-leaf', key });
@@ -241,7 +254,12 @@
         state.rulingOpen = false;
         state.rulingError = null;
         state.rulingRow = message.stdout || null;
-        state.form = { verdict: '', tags: '', session: state.model?.defaultSession || '' };
+        state.form = {
+          verdict: '',
+          tags: '',
+          session: state.model?.defaultSession || '',
+          attachAnnotateNotes: true,
+        };
       } else {
         state.rulingError = message.errorDetail || 'Ruling failed.';
         if (message.stdout) state.rulingRow = message.stdout;
@@ -314,7 +332,10 @@
     const verdict = String(data.get('verdict') || '').trim();
     const tags = String(data.get('tags') || '').trim();
     const session = String(data.get('session') || '').trim();
-    state.form = { verdict, tags, session };
+    const attachAnnotateNotes = leaf.hasAnnotateNotes
+      ? data.get('attachAnnotateNotes') === 'on'
+      : false;
+    state.form = { verdict, tags, session, attachAnnotateNotes };
     if (!verdict) {
       state.rulingError = 'Verdict is required.';
       render();
@@ -329,6 +350,7 @@
       verdict,
       tags,
       session,
+      attachAnnotateNotes,
     });
   });
 

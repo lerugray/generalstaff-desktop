@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -48,6 +48,15 @@
         }
       },
       {
+        "command": "generalstaff.openDesk",
+        "title": "GeneralStaff: Open Desk",
+        "category": "GeneralStaff",
+        "icon": {
+          "light": "media/icon-desk.svg",
+          "dark": "media/icon-desk.svg"
+        }
+      },
+      {
         "command": "generalstaff.newConversation",
         "title": "GeneralStaff: Focus Orchestrator Session",
         "category": "GeneralStaff"
@@ -60,6 +69,11 @@
       {
         "command": "generalstaff.refreshLanes",
         "title": "GeneralStaff: Refresh Lanes",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.refreshDesk",
+        "title": "GeneralStaff: Refresh Desk",
         "category": "GeneralStaff"
       },
       {
@@ -82,6 +96,13 @@
         "mac": "cmd+shift+l",
         "win": "ctrl+shift+l",
         "linux": "ctrl+shift+l"
+      },
+      {
+        "command": "generalstaff.openDesk",
+        "key": "cmd+shift+d",
+        "mac": "cmd+shift+d",
+        "win": "ctrl+shift+d",
+        "linux": "ctrl+shift+d"
       }
     ],
     "viewsContainers": {
@@ -95,6 +116,11 @@
           "id": "generalstaff-lanes",
           "title": "Lanes",
           "icon": "media/icon-lanes.svg"
+        },
+        {
+          "id": "generalstaff-desk",
+          "title": "Desk",
+          "icon": "media/icon-desk.svg"
         }
       ]
     },
@@ -113,6 +139,14 @@
           "name": "Lanes",
           "icon": "media/icon-lanes.svg",
           "contextualTitle": "Lanes · detached runs"
+        }
+      ],
+      "generalstaff-desk": [
+        {
+          "id": "generalstaff.deskNav",
+          "name": "Desk",
+          "icon": "media/icon-desk.svg",
+          "contextualTitle": "Desk · handoff packets"
         }
       ]
     },
@@ -176,7 +210,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/composerKeys.js && node --check media/workbench.js && node --check media/lanes.js && npm run test && npm run compile",
+    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/composerKeys.js && node --check media/workbench.js && node --check media/lanes.js && node --check media/desk.js && npm run test && npm run compile",
     "probe:codex-resume-boundary": "node --import tsx scripts/probe-codex-resume-boundary.ts",
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",

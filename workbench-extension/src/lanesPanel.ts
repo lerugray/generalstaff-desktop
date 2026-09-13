@@ -335,17 +335,26 @@ export class LanesPanel {
   }
 }
 
-/** Activity-bar nav stubs: focusing the Workbench view reveals Command / Lanes editor panels. */
+/** Activity-bar nav stubs: focusing the Workbench view reveals Command / Lanes / Desk editor panels. */
 export class WorkbenchNavProvider implements vscode.TreeDataProvider<string> {
-  constructor(private readonly label: 'Command' | 'Lanes') {}
+  constructor(private readonly label: 'Command' | 'Lanes' | 'Desk') {}
 
   getTreeItem(element: string): vscode.TreeItem {
     const item = new vscode.TreeItem(element, vscode.TreeItemCollapsibleState.None);
+    const command = this.label === 'Command'
+      ? 'generalstaff.openCommandDeck'
+      : this.label === 'Lanes'
+        ? 'generalstaff.openLanes'
+        : 'generalstaff.openDesk';
     item.command = {
-      command: this.label === 'Command' ? 'generalstaff.openCommandDeck' : 'generalstaff.openLanes',
+      command,
       title: `Open ${this.label}`,
     };
-    item.description = this.label === 'Lanes' ? 'detached runs' : 'orchestrator';
+    item.description = this.label === 'Lanes'
+      ? 'detached runs'
+      : this.label === 'Desk'
+        ? 'handoff packets'
+        : 'orchestrator';
     return item;
   }
 

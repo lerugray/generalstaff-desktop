@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.12 — 2026-09-13
+
+- Add the **Desk** panel: folio of `~/Desktop/handoff/` packets (one leaf per folder), WHAT-TO-JUDGE plate in a sandboxed iframe, ANNOTATE / Finder open actions, gate stamps, amber waiting badge.
+- Closed ruling write set: `scripts/ping.sh -s <session> -t "<game>,ray,ruling" …` then sweep to `~/Documents/session-artifacts/` only on exit 0 (never a direct pings write).
+- Lanes calibration: state word is plain text; dust vs quiet-grey luminance separated in all six palettes; elapsed/sha as edge marginalia; detail plate uses rules not nested boxes; no amber on persistent accents.
+
 ## 0.4.11 — 2026-09-13
 
 - Lanes + Detail register pass: situation-map counters (chits) coloured by state — iron-red / dust / ink / quiet grey — with amber reserved for the badge count, failed/inconsistent attention marks, and unreachable-host rows.

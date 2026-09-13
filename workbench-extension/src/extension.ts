@@ -29,6 +29,7 @@ import {
   type PrivateRuntimeOptions,
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
+import { DeskPanel } from './deskPanel.js';
 import { LanesPanel, WorkbenchNavProvider } from './lanesPanel.js';
 
 const viewType = 'generalstaff.commandDeck';
@@ -777,6 +778,12 @@ function applyLanesBadge(tree: vscode.TreeView<string>, count: number): void {
     : undefined;
 }
 
+function applyDeskBadge(tree: vscode.TreeView<string>, count: number): void {
+  tree.badge = count > 0
+    ? { value: count, tooltip: `${count} packet${count === 1 ? '' : 's'} waiting on the desk` }
+    : undefined;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const commandNav = vscode.window.createTreeView('generalstaff.commandNav', {
     treeDataProvider: new WorkbenchNavProvider('Command'),
@@ -786,20 +793,33 @@ export function activate(context: vscode.ExtensionContext): void {
     treeDataProvider: new WorkbenchNavProvider('Lanes'),
     showCollapseAll: false,
   });
-  let badgeWired = false;
+  const deskNav = vscode.window.createTreeView('generalstaff.deskNav', {
+    treeDataProvider: new WorkbenchNavProvider('Desk'),
+    showCollapseAll: false,
+  });
+  let lanesBadgeWired = false;
+  let deskBadgeWired = false;
   const wireLanesBadge = (panel: LanesPanel): void => {
-    if (badgeWired) return;
-    badgeWired = true;
+    if (lanesBadgeWired) return;
+    lanesBadgeWired = true;
     context.subscriptions.push(panel.onBadge((count) => applyLanesBadge(lanesNav, count)));
   };
+  const wireDeskBadge = (panel: DeskPanel): void => {
+    if (deskBadgeWired) return;
+    deskBadgeWired = true;
+    context.subscriptions.push(panel.onBadge((count) => applyDeskBadge(deskNav, count)));
+  };
 
-  context.subscriptions.push(commandNav, lanesNav);
+  context.subscriptions.push(commandNav, lanesNav, deskNav);
   context.subscriptions.push(
     commandNav.onDidChangeVisibility((event) => {
       if (event.visible) CommandDeckPanel.show(context);
     }),
     lanesNav.onDidChangeVisibility((event) => {
       if (event.visible) wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
+    }),
+    deskNav.onDidChangeVisibility((event) => {
+      if (event.visible) wireDeskBadge(DeskPanel.show(context, vscode.ViewColumn.Beside));
     }),
   );
 
@@ -810,6 +830,11 @@ export function activate(context: vscode.ExtensionContext): void {
       wireLanesBadge(panel);
       return panel;
     }),
+    vscode.commands.registerCommand('generalstaff.openDesk', () => {
+      const panel = DeskPanel.show(context, vscode.ViewColumn.Beside);
+      wireDeskBadge(panel);
+      return panel;
+    }),
     vscode.commands.registerCommand('generalstaff.newConversation', () => {
       const panel = CommandDeckPanel.show(context);
       panel.focusComposer();
@@ -817,10 +842,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('generalstaff.refresh', async () => {
       await CommandDeckPanel.show(context).refresh();
       await LanesPanel.current?.refresh();
+      await DeskPanel.current?.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.refreshLanes', async () => {
       const panel = LanesPanel.show(context);
       wireLanesBadge(panel);
+      await panel.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.refreshDesk', async () => {
+      const panel = DeskPanel.show(context);
+      wireDeskBadge(panel);
       await panel.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.openRawTerminal', () => {
@@ -832,8 +863,9 @@ export function activate(context: vscode.ExtensionContext): void {
     const timer = setTimeout(() => {
       CommandDeckPanel.show(context);
       wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
+      wireDeskBadge(DeskPanel.show(context, vscode.ViewColumn.Beside));
       if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', false)) {
-        // Keep the Workbench activity-bar icons visible for Command / Lanes + badge;
+        // Keep the Workbench activity-bar icons visible for Command / Lanes / Desk + badges;
         // still hide Explorer chrome and the bottom panel.
         void vscode.workspace.getConfiguration('workbench').update(
           'activityBar.location',
@@ -851,6 +883,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  DeskPanel.shutdown();
   LanesPanel.shutdown();
   CommandDeckPanel.shutdown();
 }

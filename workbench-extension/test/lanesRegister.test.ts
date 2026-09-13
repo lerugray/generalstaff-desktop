@@ -33,7 +33,17 @@ test('register CSS: iron-red/dust/ink/quiet counters; amber class only for permi
   assert.doesNotMatch(js, /lanes-counts/);
   assert.doesNotMatch(js, /Partial envelope/);
   assert.doesNotMatch(js, /lanes-attention-chip/);
-  // State is not a visible badge — screen-reader only class retained.
+  // State word is plain visible text — colour belongs on the counter only.
   assert.match(js, /class="lane-state"/);
-  assert.match(css, /\.lane-state\s*\{[^}]*clip:\s*rect/s);
+  assert.match(css, /\.lane-state\s*\{[^}]*color:\s*var\(--paper-faint\)/s);
+  assert.doesNotMatch(css, /\.lane-state\s*\{[^}]*clip:\s*rect/s);
+  // Marginalia are edge-set and muted.
+  assert.match(css, /\.lane-marginalia\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.lane-marginalia\s*\{[^}]*font-size:\s*9px/s);
+  // dust vs quiet-grey luminance separation documented numerically.
+  assert.match(css, /ΔL≈0\.\d+/);
+  assert.match(css, /dust #[0-9a-fA-F]{6} L≈/);
+  // Detail plate: rules not nested boxes for mono tail.
+  assert.match(css, /\.lanes-mono-tail\s*\{[^}]*border:\s*0/s);
+  assert.match(css, /\.lanes-detail-section\s*\{[^}]*border-top:\s*1px solid var\(--line\)/s);
 });

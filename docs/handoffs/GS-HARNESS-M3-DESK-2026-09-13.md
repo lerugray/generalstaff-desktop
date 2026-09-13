@@ -8,3 +8,15 @@ Read first: docs/handoffs/GS-HARNESS-FOUNDING-SPEC-2026-09-13.md (§3 "Desk (NEW
 3. Lanes calibration (the nits): counter colour only — the state word is plain text; dust vs quiet-grey separated by luminance in all six palettes (state it numerically in the CSS comment); elapsed/cap/launched as true marginalia (small, muted, edge); no amber on any persistent accent in night; detail folio without nested boxes (one plate, rules not boxes).
 4. Tests: Desk model from a fixture directory tree (3 packets incl. one with stamps and one with no card), ruling flow with a stubbed ping.sh (asserts the exact argv, no write on non-zero exit, move only on zero), sanitiser drops scripts; Lanes calibration tests updated; `npm run check` green (94/94 + new).
 5. Version 0.4.12; VSIX (vsce); regenerate the standalone proofs incl. a `GS-HARNESS-M3-PROOF-desk-paper.png` with the fixture packets; commit them. Nothing outside workbench-extension/ + this doc + proofs; never touch master, src-tauri/, credentials, or gs-private.
+
+---
+
+## Harvest (2026-09-13)
+
+Workbench **0.4.12**. Desk panel + ruling path + Lanes calibration:
+
+- Desk lists `~/Desktop/handoff/` packet folders as folio leaves (ignores START-HERE.html / README.txt / dotfiles); WHAT-TO-JUDGE.html as a sanitised sandboxed plate; ANNOTATE + Finder actions; `.ready-gate-passed` / `.replay-gate-passed` stamps; amber badge = packets waiting.
+- Ruling calls `scripts/ping.sh -s <session> -t "<game>,ray,ruling" "<GAME>-<GATE> — RULED (Ray)" "<verdict>"` against the resolved GENERALSTAFF_ROOT; sweep to `~/Documents/session-artifacts/` only on exit 0 (suffix `-2` on collision).
+- Lanes nits: counter colour only on chit border/unit; plain state word; dust/quiet ΔL documented in CSS; edge marginalia; detail plate without nested mono boxes.
+- Proofs via `workbench-extension/scripts/render-m3-proofs.ts`: `GS-HARNESS-M3-PROOF-desk-paper.png` (+ regenerated register proofs).
+- Tests: 101/101 (`desk` fixture tree + stubbed ping argv/sweep + sanitiser + Lanes calibration asserts).

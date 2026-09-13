@@ -20,6 +20,11 @@ export function desktopHandoffDirectory(home = os.homedir()): string | undefined
   return undefined;
 }
 
+/** Swept packets land here after a successful ruling (`~/Documents/session-artifacts`). */
+export function sessionArtifactsDirectory(home = os.homedir()): string {
+  return path.join(home, 'Documents', 'session-artifacts');
+}
+
 /** `--add-dir <absolute Desktop/handoff>` when the folder exists; empty otherwise. */
 export function extraAddDirArgs(home = os.homedir()): string[] {
   const handoff = desktopHandoffDirectory(home);

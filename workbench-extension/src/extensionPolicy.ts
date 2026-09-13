@@ -96,13 +96,24 @@ export function resolveOpenFilePath(
   return requireAllowedPath(candidate, allowedRoots);
 }
 
-export function contentSecurityPolicy(cspSource: string, nonce: string): string {
-  return [
+export function contentSecurityPolicy(
+  cspSource: string,
+  nonce: string,
+  options: { frameSrc?: boolean } = {},
+): string {
+  const parts = [
     "default-src 'none'",
     `img-src ${cspSource} data:`,
     `font-src ${cspSource}`,
-    `style-src ${cspSource}`,
+    options.frameSrc
+      ? `style-src ${cspSource} 'unsafe-inline'`
+      : `style-src ${cspSource}`,
     `script-src 'nonce-${nonce}'`,
     "connect-src 'none'",
-  ].join('; ');
+  ];
+  // Desk plate: sanitised WHAT-TO-JUDGE HTML in a sandboxed srcdoc iframe.
+  if (options.frameSrc) {
+    parts.push("frame-src data: blob: about:");
+  }
+  return parts.join('; ');
 }

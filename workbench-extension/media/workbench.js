@@ -35,6 +35,7 @@
     pendingContext: [],
     creatingConversation: false,
     runStatus: {},
+    runActivity: {},
     pendingActionConversationId: null,
     notice: null,
     operatorDisplayName: '',
@@ -333,10 +334,11 @@
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
           <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${orchestrator ? 'One continuous GeneralStaff seat rooted in the private repository.' : escapeHtml(seat?.[1] || '')}</small></div>
         </div>
-        ${!compact ? `<div class="context-row">
+        ${`<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
-          ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
-        </div>` : ''}
+          ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : item.kind === 'folder' ? '▣' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
+        </div>
+        <p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>`}
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
         <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
@@ -604,7 +606,14 @@
             ${renderRecovery(conversation, Boolean(run))}
           </section>
           <div class="conversation-compose-wrap">
-            ${run ? `<div class="run-strip"><span class="spinner"></span><span>${escapeHtml(run)}</span><button data-action="stop-run">Stop</button></div>` : ''}
+            ${run ? `<div class="run-strip">
+              <span class="spinner"></span>
+              <details class="run-activity">
+                <summary>${escapeHtml(run)}</summary>
+                <ol>${(state.runActivity[conversation.id] || []).map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
+              </details>
+              <button data-action="stop-run">Stop</button>
+            </div>` : ''}
             ${renderComposer(true)}
           </div>
         </div>
@@ -765,6 +774,7 @@
       if (id && !state.runStatus[id]) {
         state.pendingActionConversationId = id;
         state.runStatus[id] = action === 'retry-run' ? 'Preparing a safe retry…' : 'Preparing transcript recovery…';
+        state.runActivity[id] = [state.runStatus[id]];
         vscode.postMessage({
           type: 'retry-run',
           conversationId: id,
@@ -777,6 +787,7 @@
       if (id && !state.runStatus[id]) {
         state.pendingActionConversationId = id;
         state.runStatus[id] = 'Recording your decision…';
+        state.runActivity[id] = [state.runStatus[id]];
         vscode.postMessage({ type: 'answer-decision', conversationId: id, decisionId, optionId });
         render();
       }
@@ -838,7 +849,7 @@
   });
 
   app.addEventListener('keydown', (event) => {
-    if (event.target.id === 'prompt' && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    if (typeof GSComposerKeys !== 'undefined' && GSComposerKeys.shouldSendOnEnter(event)) {
       event.preventDefault();
       issueCommand();
     }
@@ -945,17 +956,23 @@
       }
       if (message.status !== 'streaming') {
         delete state.runStatus[message.conversationId];
+        delete state.runActivity[message.conversationId];
         if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
       }
       patchConversationDelta(message);
     } else if (message.type === 'run-event') {
       if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
+      const lines = state.runActivity[message.conversationId] || [];
+      lines.push(message.event.text);
+      if (lines.length > 48) lines.splice(0, lines.length - 48);
+      state.runActivity[message.conversationId] = lines;
       state.runStatus[message.conversationId] = message.event.text;
       render();
     } else if (message.type === 'notice') {
       if (message.tone === 'error') state.creatingConversation = false;
       if (message.conversationId && state.pendingActionConversationId === message.conversationId) {
         delete state.runStatus[message.conversationId];
+        delete state.runActivity[message.conversationId];
         state.pendingActionConversationId = null;
       }
       state.notice = { text: message.text, tone: message.tone };

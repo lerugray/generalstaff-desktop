@@ -119,7 +119,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/workbench.js && npm run test && npm run compile",
+    "check": "npm run typecheck && node --check media/operatorIdentity.js && node --check media/composerKeys.js && node --check media/workbench.js && npm run test && npm run compile",
     "probe:codex-resume-boundary": "node --import tsx scripts/probe-codex-resume-boundary.ts",
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",

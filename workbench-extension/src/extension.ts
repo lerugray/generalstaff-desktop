@@ -441,6 +441,9 @@ class CommandDeckPanel {
       let output = '';
       let encounteredError = false;
       let outputClipped = false;
+      // Track whether the last streamed chunk was assistant prose so tool-loop
+      // turns get paragraph breaks instead of gluing every preamble together.
+      let lastStreamKind: 'assistant' | 'other' | undefined;
       const appendOutput = (chunk: string) => {
         const limit = 200_000;
         if (output.length >= limit) return;
@@ -468,13 +471,17 @@ class CommandDeckPanel {
         },
         (event) => {
           if (event.type === 'assistant-delta') {
-            appendOutput(event.text);
+            const separator = output && lastStreamKind !== 'assistant' ? '\n\n' : '';
+            appendOutput(`${separator}${event.text}`);
+            lastStreamKind = 'assistant';
             void this.stream(conversationId, assistant.id, output, 'streaming');
           } else if (event.type === 'error') {
             encounteredError = true;
+            lastStreamKind = 'other';
             appendOutput(`${output ? '\n\n' : ''}${event.text}`);
             void this.stream(conversationId, assistant.id, output, 'error');
           } else if (event.type === 'status' || event.type === 'tool') {
+            lastStreamKind = 'other';
             void this.panel.webview.postMessage({
               type: 'run-event',
               conversationId,
@@ -654,10 +661,10 @@ class CommandDeckPanel {
     const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
     if (!target) return;
     const selection = await vscode.window.showOpenDialog({
-      title: `Reference local files in ${target.name}`,
+      title: `Reference local files or folders in ${target.name}`,
       defaultUri: vscode.Uri.file(target.workingDirectory),
       canSelectFiles: true,
-      canSelectFolders: false,
+      canSelectFolders: true,
       canSelectMany: true,
       filters: {
         'Useful context': ['md', 'txt', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'svg', 'json', 'csv'],
@@ -676,6 +683,10 @@ class CommandDeckPanel {
       try {
         const resolved = requireAllowedPath(candidate, target.contextRoots);
         const stat = await vscode.workspace.fs.stat(vscode.Uri.file(resolved));
+        if ((stat.type & vscode.FileType.Directory) !== 0) {
+          items.push({ label: path.basename(resolved), path: resolved, kind: 'folder' });
+          continue;
+        }
         if ((stat.type & vscode.FileType.File) === 0) continue;
         const extension = path.extname(resolved).toLowerCase();
         const kind: ConversationContextItem['kind'] = /\.(png|jpe?g|gif|webp|svg)$/u.test(extension)
@@ -685,7 +696,8 @@ class CommandDeckPanel {
             : 'document';
         items.push({ label: path.basename(resolved), path: resolved, kind });
       } catch {
-        // The picker and bridge may only attach files inside the selected command target.
+        // The picker and bridge may only attach paths inside the selected command target
+        // (plus the standing Desktop/handoff staging folder when present).
       }
     }
     return items;
@@ -722,6 +734,7 @@ class CommandDeckPanel {
     const nonce = crypto.randomBytes(18).toString('base64');
     const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
     const operatorIdentity = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'operatorIdentity.js'));
+    const composerKeys = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'composerKeys.js'));
     const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.js'));
     const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce);
     return `<!doctype html>
@@ -741,6 +754,7 @@ class CommandDeckPanel {
       </div>
     </div>
     <script nonce="${nonce}" src="${operatorIdentity}"></script>
+    <script nonce="${nonce}" src="${composerKeys}"></script>
     <script nonce="${nonce}" src="${script}"></script>
   </body>
 </html>`;

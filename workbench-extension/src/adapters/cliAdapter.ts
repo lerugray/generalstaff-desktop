@@ -13,6 +13,7 @@ import type {
   SeatId,
 } from '../domain.js';
 import { redact } from '../security/redaction.js';
+import { claudeExtraDirectoryArgs } from '../services/handoffPaths.js';
 import { ollamaCcDoorFor } from '../services/ollamaCloud.js';
 import type { McpServerLaunch } from '../services/privateRuntime.js';
 import { processInvocation } from '../services/processInvocation.js';
@@ -270,6 +271,7 @@ export function invocationFor(
           writeCapable ? 'acceptEdits' : 'plan',
           '--effort',
           effort,
+          ...claudeExtraDirectoryArgs(),
           ...claudeMcpPermissionArgs(claudeMcpServers),
           ...claudeMcpArgs(claudeMcpServers),
         ],
@@ -383,6 +385,7 @@ export function invocationFor(
           writeCapable ? 'acceptEdits' : 'plan',
           '--effort',
           effort,
+          ...claudeExtraDirectoryArgs(),
           ...claudeMcpPermissionArgs(ccMcpServers),
           ...claudeMcpArgs(ccMcpServers),
         ],
@@ -451,6 +454,9 @@ function nestedText(value: unknown, depth = 0): string | undefined {
   }
   if (typeof value !== 'object' || value === null) return undefined;
   const record = value as Record<string, unknown>;
+  // tool_use / tool_result blocks often contain a `content` key (e.g. Write
+  // tool input). Never treat those payloads as assistant prose.
+  if (record.type === 'tool_use' || record.type === 'tool_result') return undefined;
   for (const key of ['text', 'result', 'content', 'message', 'delta']) {
     if (record[key] !== undefined) {
       const found = nestedText(record[key], depth + 1);
@@ -460,7 +466,52 @@ function nestedText(value: unknown, depth = 0): string | undefined {
   return undefined;
 }
 
-export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | undefined {
+function claudeMessageContent(record: Record<string, unknown>): unknown[] | undefined {
+  const message = record.message;
+  if (typeof message !== 'object' || message === null || Array.isArray(message)) return undefined;
+  const content = (message as Record<string, unknown>).content;
+  return Array.isArray(content) ? content : undefined;
+}
+
+/** Explicit Claude-protocol assistant text: only `type: "text"` content blocks. */
+export function claudeProtocolAssistantText(record: Record<string, unknown>): string | undefined {
+  const content = claudeMessageContent(record);
+  if (!content) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+    const item = block as Record<string, unknown>;
+    if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
+      parts.push(item.text);
+    }
+  }
+  return parts.length ? parts.join('') : undefined;
+}
+
+function claudeProtocolToolNames(record: Record<string, unknown>): string[] {
+  const content = claudeMessageContent(record);
+  if (!content) return [];
+  const names: string[] = [];
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+    const item = block as Record<string, unknown>;
+    if (item.type !== 'tool_use') continue;
+    const name = textAt(item, ['name', 'tool']);
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+function packEvents(events: RunEvent[]): RunEvent | RunEvent[] | undefined {
+  if (!events.length) return undefined;
+  return events.length === 1 ? events[0] : events;
+}
+
+export function speaksClaudeProtocol(laneId: LaneId): boolean {
+  return laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
+}
+
+export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEvent[] | undefined {
   const safeLine = redact(line.trim());
   if (!safeLine) return undefined;
 
@@ -478,8 +529,33 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | undef
   // Claude's terminal `result` repeats the accumulated assistant response that
   // has already arrived as assistant stream events. Suppress that known final
   // envelope without deduplicating arbitrary text from other lanes.
-  const speaksClaudeProtocol = laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
-  if (speaksClaudeProtocol && (type === 'result' || type === 'run_result')) {
+  if (speaksClaudeProtocol(laneId) && (type === 'result' || type === 'run_result')) {
+    return undefined;
+  }
+
+  // Claude-protocol lanes: walk message.content[] explicitly. Never use the
+  // generic nestedText key-name crawl — it leaks Write/Edit tool payloads.
+  if (speaksClaudeProtocol(laneId)) {
+    if (type === 'assistant') {
+      const events: RunEvent[] = [];
+      for (const name of claudeProtocolToolNames(record)) {
+        events.push({ type: 'tool', text: name });
+      }
+      const text = claudeProtocolAssistantText(record);
+      if (text) events.push({ type: 'assistant-delta', text });
+      return packEvents(events);
+    }
+    if (/tool|command|action/i.test(type)) {
+      const tool = textAt(record, ['name', 'tool', 'command', 'text']);
+      return tool ? { type: 'tool', text: tool } : undefined;
+    }
+    if (/error|failed/i.test(type)) {
+      const error = textAt(record, ['error', 'message', 'text']) ?? 'The selected lane reported an error.';
+      return { type: 'error', text: error };
+    }
+    if (/started|thinking|progress|status/i.test(type)) {
+      return { type: 'status', text: type.replace(/[._-]+/g, ' ') };
+    }
     return undefined;
   }
 
@@ -630,9 +706,11 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
     } catch {
       // Plain-text lanes still produce normalized assistant output.
     }
-    const event = normalizeCliLine(protocolLaneId, line);
-    if (!event) return;
-    onEvent(event);
+    const normalized = normalizeCliLine(protocolLaneId, line);
+    if (!normalized) return;
+    for (const event of Array.isArray(normalized) ? normalized : [normalized]) {
+      onEvent(event);
+    }
   });
 
   const stderr = readline.createInterface({ input: child.stderr });

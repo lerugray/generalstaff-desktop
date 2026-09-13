@@ -15,6 +15,70 @@ import {
 } from '../src/adapters/cliAdapter.js';
 import { processInvocation } from '../src/services/processInvocation.js';
 
+test('Claude-protocol lanes extract only text blocks and never leak tool_use payloads', () => {
+  const writeEnvelope = {
+    type: 'assistant',
+    message: {
+      content: [
+        { type: 'text', text: 'I will update the handoff note.' },
+        {
+          type: 'tool_use',
+          name: 'Write',
+          input: {
+            file_path: '/tmp/handoff.md',
+            content: 'SECRET_FILE_BODY that must not appear in chat',
+          },
+        },
+      ],
+    },
+  };
+  for (const laneId of ['claude', 'deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
+    const events = normalizeCliLine(laneId, JSON.stringify(writeEnvelope));
+    const list = Array.isArray(events) ? events : [events];
+    assert.deepEqual(list, [
+      { type: 'tool', text: 'Write' },
+      { type: 'assistant-delta', text: 'I will update the handoff note.' },
+    ]);
+    assert.equal(JSON.stringify(list).includes('SECRET_FILE_BODY'), false);
+  }
+
+  assert.deepEqual(
+    normalizeCliLine(
+      'claude',
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/a.md' } }] },
+      }),
+    ),
+    { type: 'tool', text: 'Read' },
+  );
+
+  assert.equal(
+    normalizeCliLine('claude', JSON.stringify({ type: 'result', result: 'I will update the handoff note.' })),
+    undefined,
+  );
+});
+
+test('nestedText-style payloads on non-Claude lanes still reject tool_use content keys', () => {
+  // Cursor uses the same message.content shape; after the tool_use guard, only text blocks contribute.
+  assert.deepEqual(
+    normalizeCliLine(
+      'cursor',
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 12,
+        message: {
+          content: [
+            { type: 'text', text: 'Safe prose' },
+            { type: 'tool_use', name: 'Write', input: { content: 'LEAK' } },
+          ],
+        },
+      }),
+    ),
+    { type: 'assistant-delta', text: 'Safe prose' },
+  );
+});
+
 test('normalizes Codex agent messages', () => {
   const event = normalizeCliLine(
     'codex',

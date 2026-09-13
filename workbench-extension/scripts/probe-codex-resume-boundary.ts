@@ -59,8 +59,12 @@ async function main(): Promise<void> {
       root,
     );
     const lines = second.stdout.split(/\r?\n/u);
-    const events = lines.map((line) => normalizeCliLine('codex', line));
-    const attemptedWrite = events.some((event) => event?.type === 'tool' && event.text.includes('/usr/bin/touch'))
+    const events = lines.flatMap((line) => {
+      const normalized = normalizeCliLine('codex', line);
+      if (!normalized) return [];
+      return Array.isArray(normalized) ? normalized : [normalized];
+    });
+    const attemptedWrite = events.some((event) => event.type === 'tool' && event.text.includes('/usr/bin/touch'))
       || lines.some((line) => {
         try {
           const envelope = JSON.parse(line) as Record<string, unknown>;
@@ -71,8 +75,8 @@ async function main(): Promise<void> {
         }
       });
     const assistantOutput = events
-      .filter((event) => event?.type === 'assistant-delta')
-      .map((event) => event?.text ?? '')
+      .filter((event) => event.type === 'assistant-delta')
+      .map((event) => event.text)
       .join('\n')
       .trim();
     if (second.status !== 0) throw new Error('The resumed Codex turn did not complete.');

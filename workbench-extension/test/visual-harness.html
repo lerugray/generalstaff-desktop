@@ -115,7 +115,7 @@
         persisted.selectedSeat = 'orchestrate';
       } else if (mode === 'active') {
         conversations = [{
-          id: 'active-conversation', title: 'Reconcile the release evidence', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
+          id: 'active-conversation', title: 'Reconcile the release evidence', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'deepseek-ollama-cc', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
           messages: [
             { id: 'active-user', role: 'user', text: 'Reconcile every release claim with primary evidence.', status: 'complete', createdAt: now - 45000 },
             { id: 'active-assistant', role: 'assistant', text: '', status: 'streaming', createdAt: now - 43000 },
@@ -123,7 +123,7 @@
         }];
         persisted.activeConversationId = 'active-conversation';
         persisted.selectedProjectId = 'generalstaff';
-        persisted.selectedLaneId = 'codex';
+        persisted.selectedLaneId = 'deepseek-ollama-cc';
         persisted.selectedSeat = 'verify';
       }
       const orchestratorSession = {
@@ -145,7 +145,16 @@
               if (selected) setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation: selected }, '*'), 25);
             }
             if (mode === 'active') {
-              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'status', text: 'Comparing claims with the packaged artifact' } }, '*'), 35);
+              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'status', text: 'Starting deepseek-ollama-cc' } }, '*'), 35);
+              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'tool', text: 'Read' } }, '*'), 120);
+              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'tool', text: 'Write' } }, '*'), 220);
+              setTimeout(() => window.postMessage({
+                type: 'conversation-delta',
+                conversationId: 'active-conversation',
+                messageId: 'active-assistant',
+                text: 'I checked the governing context and updated the handoff note.\n\nThe packaged artifact matches the claim.',
+                status: 'streaming',
+              }, '*'), 320);
             }
           }
           if (message.type === 'new-conversation') {
@@ -195,6 +204,7 @@
       });
     </script>
     <script src="../media/operatorIdentity.js"></script>
+    <script src="../media/composerKeys.js"></script>
     <script src="../media/workbench.js"></script>
   </body>
 </html>

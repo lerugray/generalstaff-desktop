@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.7 — 2026-09-13
+
+- Stop Claude-protocol chat (`claude`, `deepseek-ollama-cc`, `glm-ollama-cc`) from leaking raw tool-input/tool-output payloads into the message bubble: assistant text is now extracted explicitly from `message.content[]` text blocks only, never the generic key-name crawl that could pick up a `tool_use` block's file content.
+- Insert a paragraph break between assistant-text segments separated by tool activity, instead of gluing every turn's text into one run-on string.
+- Enter sends from the composer; Shift+Enter inserts a newline; Cmd/Ctrl+Enter still sends.
+- Make `~/Desktop/handoff` reachable without depending on a lane expanding a literal tilde path: pass it via `--add-dir` on Claude-protocol lane invocations, and add it (plus folder selection) to the context attach picker as a standing staging root.
+
 ## 0.4.6 — 2026-09-13
 
 - Add the `DeepSeek V4.1 Flash (Ollama)` read-only direct-API seat, wired like the existing GLM seats and gated on the same authenticated catalog probe.

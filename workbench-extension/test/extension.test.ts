@@ -65,8 +65,10 @@ test('routing gates lane state, seat, effort, permission, and target-backed writ
     projects: [{ ...stateOnlyProject, id: 'state-only' }],
   });
   assert.equal(general?.workingDirectory, '/fleet/private');
-  assert.deepEqual(general?.contextRoots, ['/fleet/private']);
+  assert.ok(general?.contextRoots.includes('/fleet/private'));
   assert.equal(project?.workingDirectory, '/work/alpha');
+  assert.ok(project?.contextRoots.includes('/fleet/private/state/alpha'));
+  assert.ok(project?.contextRoots.includes('/work/alpha'));
   assert.equal(targetSupportsPermission('write', general as NonNullable<typeof general>), true);
   assert.equal(targetSupportsPermission('write', project as NonNullable<typeof project>), true);
   assert.equal(targetSupportsPermission('read', stateOnly as NonNullable<typeof stateOnly>), true);

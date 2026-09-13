@@ -165,7 +165,7 @@ export interface ConversationReceipt {
 export interface ConversationContextItem {
   label: string;
   path: string;
-  kind: 'document' | 'image' | 'data';
+  kind: 'document' | 'image' | 'data' | 'folder';
 }
 
 export interface Conversation {

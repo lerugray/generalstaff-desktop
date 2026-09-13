@@ -80,6 +80,12 @@ shell-expanded — a literal `~/Desktop/handoff` string will not resolve to `$HO
 unless the model or the tool layer expands it) or to hedge/refuse on an out-of-repo path it
 reads as "outside my workspace."
 
+**Answered 2026-09-13:** Claude Code's Read/Glob tools do **not** expand a literal `~/…`
+path (anthropics/claude-code#7605, #11521). That alone explains failed handoff reads when the
+model emits a tilde path. Fix shipped: absolute `--add-dir` for `~/Desktop/handoff` when the
+folder exists, plus an attach-picker hint (folders allowed; Desktop/handoff is a standing
+context root).
+
 **Fix:**
 - Confirm whether Claude Code's Read/Glob tools expand a literal `~` in the path argument. If
   not, this is enough on its own to explain the symptom — no code change needed beyond #2/#3

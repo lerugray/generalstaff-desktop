@@ -976,6 +976,13 @@ select:focus-visible {
   scrollbar-width: none;
 }
 
+.composer-hint {
+  margin: -2px 0 8px;
+  color: var(--paper-faint);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
 .context-button,
 .context-chip {
   flex: 0 0 auto;
@@ -2232,6 +2239,35 @@ select:focus-visible {
   background: rgb(var(--accent-rgb) / 0.04);
   color: var(--paper-muted);
   font-size: 8px;
+}
+
+.run-activity {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.run-activity summary {
+  cursor: pointer;
+  overflow: hidden;
+  list-style: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-activity summary::-webkit-details-marker {
+  display: none;
+}
+
+.run-activity ol {
+  margin: 6px 0 0;
+  padding-left: 14px;
+  max-height: 120px;
+  overflow: auto;
+  color: var(--paper-faint);
+}
+
+.run-activity li {
+  margin: 2px 0;
 }
 
 .run-strip button {

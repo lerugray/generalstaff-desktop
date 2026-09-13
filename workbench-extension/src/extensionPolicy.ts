@@ -1,5 +1,6 @@
 import type { CommandTarget, EffortId, FleetSnapshot, LaneSummary, PermissionMode, ProjectSummary, SeatId } from './domain.js';
 import { requireAllowedPath } from './security/paths.js';
+import { desktopHandoffDirectory } from './services/handoffPaths.js';
 
 type RoutingLane = Pick<LaneSummary, 'state' | 'roles' | 'permissions' | 'efforts'>;
 type OpenFileProject = Pick<ProjectSummary, 'statePath' | 'repoPath'>;
@@ -24,17 +25,24 @@ export interface ResolvedCommandTarget {
   canWrite: boolean;
 }
 
+/** Extra roots the composer may attach — Desktop/handoff is Ray's standing staging surface. */
+export function standingContextRoots(): string[] {
+  const handoff = desktopHandoffDirectory();
+  return handoff ? [handoff] : [];
+}
+
 export function resolveCommandTarget(
   target: CommandTarget,
   snapshot: Pick<FleetSnapshot, 'rootPath' | 'projects'>,
 ): ResolvedCommandTarget | undefined {
+  const extra = standingContextRoots();
   if (target.kind === 'general') {
     if (!snapshot.rootPath) return undefined;
     return {
       target,
       name: 'General Staff — orchestrator',
       workingDirectory: snapshot.rootPath,
-      contextRoots: [snapshot.rootPath],
+      contextRoots: [snapshot.rootPath, ...extra],
       canWrite: true,
     };
   }
@@ -44,7 +52,7 @@ export function resolveCommandTarget(
     target,
     name: project.name,
     workingDirectory: project.repoPath ?? project.statePath,
-    contextRoots: [project.statePath, ...(project.repoPath ? [project.repoPath] : [])],
+    contextRoots: [project.statePath, ...(project.repoPath ? [project.repoPath] : []), ...extra],
     canWrite: project.repoPath !== undefined,
   };
 }

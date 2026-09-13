@@ -1,0 +1,15 @@
+{
+  "id": "chatcmpl-fixture",
+  "model": "glm-5.3",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "thinking": "SECRET_THINKING that must not appear in chat — plan to invent tools",
+        "content": "Direct Ollama seats have no tool loop. Here is the answer only."
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.8 — 2026-09-13
+
+- Bring every non-Claude seat's chat normalize path to the same parity bar as 0.4.7: assistant bubbles carry only model prose; tool activity is a compact collapsible line; stream/progress/receipt envelopes never become prose.
+- Codex (`item.*`): emit `command_execution` / `file_change` / MCP as tools; keep `aggregated_output` and patch bodies out of the bubble; map reasoning to status.
+- Cursor / Grok-via-Cursor (`stream-json`): skip `model_call_id` duplicate flushes and untimestamped finals; name tools from `readToolCall` / `writeToolCall`; never surface read/write file bodies.
+- Kimi: assistant `content` only; `tool_calls[].function.name` as activity; suppress `role:tool` bodies.
+- Cline: `contentType:text` only for prose; tool `content_start` as activity; keep suppressing `run_result`.
+- Direct Ollama API seats remain answer-only (no tool loop); `message.thinking` stays hidden.
+- Pass expanded `~/Desktop/handoff` via `--add-dir` on Codex, Cursor, Kimi, Claude-protocol, and Cursor-backed Grok/Claude runners. Native Grok CLI and direct Ollama seats use the context attach picker only.
+- Add protocol fixtures under `test/fixtures/*-tool-turn.jsonl` (and ollama JSON) with per-lane parity tests.
+
 ## 0.4.7 — 2026-09-13
 
 - Stop Claude-protocol chat (`claude`, `deepseek-ollama-cc`, `glm-ollama-cc`) from leaking raw tool-input/tool-output payloads into the message bubble: assistant text is now extracted explicitly from `message.content[]` text blocks only, never the generic key-name crawl that could pick up a `tool_use` block's file content.

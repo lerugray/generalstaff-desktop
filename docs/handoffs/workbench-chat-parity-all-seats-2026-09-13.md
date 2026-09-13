@@ -39,5 +39,5 @@ Report per lane: REAL FIX / ALREADY CLEAN / NOT APPLICABLE with file:line.
 ### Packaging
 
 - Version **0.4.8** (`package.json`).
-- VSIX: `npm run package:distribution` → `distribution/generalstaff-workbench.vsix`.
-- `scripts/make-launcher-app.sh`: re-run after VSIX build (macOS + VS Code required; may no-op/fail on Linux cloud agents — report outcome in the commit).
+- VSIX: `npm run package:distribution` → `distribution/generalstaff-workbench.vsix` (rebuilt).
+- `scripts/make-launcher-app.sh`: re-run; exited because this Linux cloud agent has no `/Applications/Visual Studio Code.app` (macOS-only script). No launcher-app internals changed.

@@ -16,3 +16,15 @@ Detail pane (M2): the same register — the counter's card turned over: same fie
 - Regenerate the standalone render proofs the same way the M1/M2 harvest did (shim + fixtures, headless Chromium --mute-audio, 1204x753@2): docs/handoffs/GS-HARNESS-REGISTER-PROOF-lanes-paper.png, -lanes-night.png, -detail-paper.png. Commit them.
 - Tests: extend the render/model tests to assert the state→colour class mapping (iron-red/dust/ink/grey) and that the amber class appears only on the three permitted elements; `npm run check` green (91/91 + new).
 - Version 0.4.11; rebuild the VSIX (vsce). Commit on your branch. Nothing outside workbench-extension/ + this doc + the proof PNGs.
+
+---
+
+## Register pass landed (2026-09-13)
+
+Workbench **0.4.11**. Lanes + Detail restyled to the ruled Kriegspiel register (look only — same model, poll, detail CLI transport):
+
+- Counters are bordered chits; `--iron-red` / `--dust` / ink (`--paper`) / `--quiet-grey` carry state; state text is visually hidden (sr-only).
+- Amber (`.lanes-amber` / `counter-amber`) only on: badge count, iron-red attention marks, unreachable-host rows (+ detail `gone`). Host chips, stale/loading, banners, harvest notes: muted, not amber.
+- Removed partial-envelope alert banner, counts summary line, host pills, left accent bars, state badges, attention chips.
+- Proofs via `workbench-extension/scripts/render-lanes-register-proofs.ts` (shim + fixtures, Chromium `--mute-audio`, 1204×753@2): `GS-HARNESS-REGISTER-PROOF-lanes-paper.png`, `-lanes-night.png`, `-detail-paper.png`.
+- Tests: 94/94 (`lanesPanel` colour/amber model asserts + `lanesRegister` CSS/markup contract).

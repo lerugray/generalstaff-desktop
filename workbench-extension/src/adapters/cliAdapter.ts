@@ -743,6 +743,11 @@ export function speaksClaudeProtocol(laneId: LaneId): boolean {
   return laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
 }
 
+/** Stderr lines that must not become the displayed error on a non-zero exit. */
+export function isFilteredCliStderrNoise(line: string): boolean {
+  return /\bwarn(?:ing)?\b|deprecated|unrecognized_model/i.test(line);
+}
+
 function titleCaseToolBase(base: string): string {
   if (!base) return 'tool';
   return base.charAt(0).toUpperCase() + base.slice(1);
@@ -1272,7 +1277,9 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
   stderr.on('line', (line) => {
     rememberEvidence('stderr', line);
     const safe = redact(line.trim());
-    if (safe && !/\bwarn(?:ing)?\b|deprecated/i.test(safe)) {
+    // Claude Code prints [claude-code:unrecognized_model] on every Ollama-door run;
+    // treat it as filtered noise so a non-zero exit surfaces the real cause.
+    if (safe && !isFilteredCliStderrNoise(safe)) {
       stderrLines.push(safe.slice(0, 240));
       stderrLines.splice(0, Math.max(0, stderrLines.length - 4));
     }

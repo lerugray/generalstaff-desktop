@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   effectiveEffortFor,
   invocationFor,
+  isFilteredCliStderrNoise,
   normalizeCliLine,
   providerSessionIdFromLine,
   redactProviderSessionEvidence,
@@ -470,4 +471,13 @@ test('passes expanded Desktop/handoff via --add-dir on lanes that accept it', (c
     invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'grok' }).args.includes('--add-dir'),
     false,
   );
+});
+
+test('filters unrecognized_model stderr so the real exit cause can surface', () => {
+  assert.equal(
+    isFilteredCliStderrNoise('[claude-code:unrecognized_model] {"model":"glm-5.3","fallback":"sonnet"}'),
+    true,
+  );
+  assert.equal(isFilteredCliStderrNoise('warning: experimental flag'), true);
+  assert.equal(isFilteredCliStderrNoise('Error: permission denied writing CLAUDE.md'), false);
 });

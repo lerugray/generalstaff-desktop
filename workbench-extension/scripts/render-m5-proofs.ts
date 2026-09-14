@@ -263,11 +263,24 @@ async function assertMeterFill(page: Page, usedTokens: number, expectedPercent: 
   assert.match(measured.label, new RegExp(`\\(${expectedPercent}%\\)`));
 }
 
+async function resolveChromiumExecutable(): Promise<string | undefined> {
+  // R2-7: same resolve-or-skip treatment as the behavioural test harness.
+  const pinned = chromium.executablePath();
+  const override = process.env.GS_CHROMIUM_EXECUTABLE;
+  if (fs.existsSync(pinned)) return undefined; // use playwright default
+  if (override && fs.existsSync(override)) return override;
+  throw new Error(
+    `no chromium for playwright's pinned revision (${pinned}); set GS_CHROMIUM_EXECUTABLE or run: npx playwright install chromium`,
+  );
+}
+
 async function main(): Promise<void> {
   await mkdir(outDir, { recursive: true });
   const server = await startServer();
+  const executablePath = await resolveChromiumExecutable();
   const browser = await chromium.launch({
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    ...(executablePath ? { executablePath } : {}),
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
   });
   const conversation = loadConversation();
   const scrollProof: Record<string, unknown> = {};
@@ -286,6 +299,17 @@ async function main(): Promise<void> {
         if (!stream || !shell) return 0;
         return stream.getBoundingClientRect().height / shell.getBoundingClientRect().height;
       });
+
+      // R2-1: Send must sit inside the pane (restored context row must not push it below the fold).
+      const sendFit = await page.evaluate(() => {
+        const send = document.querySelector('.send-button') as HTMLElement | null;
+        if (!send) return null;
+        return { bottom: send.getBoundingClientRect().bottom, innerHeight: window.innerHeight };
+      });
+      if (!sendFit) throw new Error(`send button missing at ${viewport.tag}`);
+      if (sendFit.bottom > sendFit.innerHeight) {
+        throw new Error(`R2-1 send.bottom ${sendFit.bottom} > innerHeight ${sendFit.innerHeight} at ${viewport.tag}`);
+      }
 
       const framePath = path.join(outDir, `proof-live-strip-composer-${viewport.tag}-${stamp}.png`);
       await page.screenshot({ path: framePath, fullPage: false });

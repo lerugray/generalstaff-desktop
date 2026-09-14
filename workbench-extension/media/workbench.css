@@ -1840,6 +1840,15 @@ select:focus-visible {
   flex: 0 1 11rem;
 }
 
+.meta-chips .permission-chip,
+.meta-chips .root-chip {
+  /* R2-2: short-by-construction chips must never ellipsis to a bare letter. */
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .session-identity {
   flex: 1 1 12rem;
   min-width: 0;
@@ -1853,7 +1862,7 @@ select:focus-visible {
 
 .message-stream {
   position: relative;
-  min-height: 0;
+  min-height: 70%;
   flex: 1 1 auto;
   flex-grow: 1;
   overflow: auto;
@@ -1862,6 +1871,7 @@ select:focus-visible {
   scrollbar-color: rgb(var(--text-rgb) / 0.13) transparent;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
+  
 }
 
 .message {
@@ -2550,7 +2560,8 @@ details[open] > summary > .card-chevron {
   position: relative;
   flex: 0 0 auto;
   max-height: 22%;
-  padding: 0 0 8px;
+  overflow: hidden;
+  padding: 0 0 4px;
   background: linear-gradient(transparent, var(--ink) 13%);
 }
 
@@ -2584,11 +2595,31 @@ details[open] > summary > .card-chevron {
 .composer.compact .context-row {
   display: flex;
   min-height: 0;
-  padding: 0 0 4px;
-  gap: 6px;
+  padding: 0 0 2px;
+  gap: 4px;
+}
+
+.composer.compact .context-row .context-button {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+.composer.compact .composer-footer {
+  padding-top: 4px;
+}
+
+.composer.compact .send-button {
+  padding: 6px 10px;
+  min-height: 0;
 }
 
 .run-strip,
+.conversation-compose-wrap .activity-strip {
+  margin-bottom: 2px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
 .activity-strip {
   display: flex;
   max-width: 800px;

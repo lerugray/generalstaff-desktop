@@ -800,8 +800,8 @@
               <span title="${escapeHtml(lane?.name || conversation.laneId)}">${escapeHtml(lane?.name || conversation.laneId)}</span>
               <span class="door-chip" title="${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}">${escapeHtml(shortDoorLabel(lane?.evidenceLabel || 'Evidence class not recorded'))}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
-              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
-              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
+              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}" title="${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
+              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip" title="GENERALSTAFF_ROOT">GENERALSTAFF_ROOT</span>'}
             </div>
             ${renderContextMeter(lane?.contextCeiling, conversation.id)}
           </div>
@@ -1376,15 +1376,17 @@
       } else if (/^woke on:/i.test(text)) {
         live.wokeOn = text.replace(/^woke on:\s*/i, '').replace(/\s*finished$/i, '');
         live.phase = 'running';
-      } else if (/^tool_progress\s+/i.test(text)) {
-        // Authoritative per-call elapsed from the seat (FIX 8).
-        const match = text.match(/^tool_progress\s+(\S+)\s+(\d+)/i);
+      } else if (/^tool_progress\s+/i.test(text) || /\s·\s\d+s$/i.test(text)) {
+        // Authoritative per-call elapsed from the seat (FIX 8 / R2-3 plain words).
+        const match = text.match(/^tool_progress\s+(\S+)\s+(\d+)/i) || text.match(/^(.+?)\s·\s(\d+)s$/i);
         if (match) {
           const seconds = Number(match[2]);
           live.toolLabel = live.toolLabel || match[1];
           live.toolStartedAt = Date.now() - seconds * 1000;
           live.toolElapsedSeconds = seconds;
           live.phase = 'running';
+          // Prefer the human line in the strip fallback, never the jargon form.
+          state.runStatus[message.conversationId] = `${match[1]} · ${seconds}s`;
         }
       } else if (message.event.type === 'tool' || message.event.name) {
         live.toolLabel = String(toolLine).slice(0, 120);

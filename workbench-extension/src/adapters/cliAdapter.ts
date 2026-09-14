@@ -1013,10 +1013,11 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
     if (type === 'user') {
       return packEvents(claudeProtocolToolResultEvents(record));
     }
-    // M3 "woke on:" — system/task_notification with status completed (FIX 6).
+    // M3 "woke on:" — system/task_notification with status completed (FIX 6 / R2-4).
+    // Require a task-notification subtype; a bare status:completed must not claim the wake branch.
     if (type === 'system') {
       const subtype = String(record.subtype ?? record.kind ?? '');
-      if (/task_notification|task-notification|task_complete/i.test(subtype) || record.status === 'completed') {
+      if (/task_notification|task-notification|task_complete/i.test(subtype)) {
         const summary = textAt(record, ['summary', 'description', 'text', 'message'])
           ?? (typeof record.task_id === 'string' ? record.task_id : undefined)
           ?? 'background task';
@@ -1038,7 +1039,8 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
       if (Number.isFinite(elapsed) && elapsed >= 0) {
         return {
           type: 'status',
-          text: `tool_progress ${tool} ${Math.floor(elapsed)}`,
+          // Plain words for the activity-strip fallback (R2-3); webview also parses this form.
+          text: `${tool} · ${Math.floor(elapsed)}s`,
         };
       }
     }
@@ -1202,15 +1204,9 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
       }
       return; // one follow-up per flush
     }
-    // Round complete and nothing queued — close stdin so the door can exit (idle / your turn).
-    if (!turnBusy && !awaitingFollowUpAck && !stdinClosed && child.stdin && !child.stdin.destroyed) {
-      try {
-        child.stdin.end();
-      } catch {
-        // ignore
-      }
-      stdinClosed = true;
-    }
+    // R2-6: keep stdin open across rounds so the next follow-up reuses this process
+    // instead of paying a fresh spawn. Stop / dispose still closes the channel.
+
   };
 
   if (invocation.stdin !== undefined) {
@@ -1257,8 +1253,6 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
           awaitingFollowUpAck = false;
           onEvent({ type: 'status', text: 'follow-up delivered' });
         }
-      } else if (event.type === 'status' && event.text.startsWith('woke on:')) {
-        // Pass through task_notification wake-ups for the activity strip.
       }
       onEvent(event);
     }

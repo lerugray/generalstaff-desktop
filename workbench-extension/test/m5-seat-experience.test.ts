@@ -50,6 +50,13 @@ test('M1: streamJsonUserLine is one NDJSON user envelope', () => {
   assert.equal(parsed.message.content[0]?.text, 'hello mid-run');
 });
 
+
+test('M1: live channel stays open across rounds (R2-6)', () => {
+  const src = fs.readFileSync(path.join(root, 'src/adapters/cliAdapter.ts'), 'utf8');
+  assert.ok(!/Round complete and nothing queued/.test(src), 'idle turn must not close stdin');
+  assert.match(src, /R2-6: keep stdin open across rounds/);
+});
+
 test('M1: result envelopes emit turn-boundary', () => {
   const events = normalizeCliLine(
     'glm-ollama-cc',
@@ -78,6 +85,20 @@ test('M3: system/task_notification normalizes to woke-on status', () => {
   assert.ok(list.some((event) => event.type === 'status' && /woke on:.*Sleep for 150 seconds/i.test(event.text)));
 });
 
+test('M3: woke-on requires a task_notification subtype (R2-4)', () => {
+  const events = normalizeCliLine(
+    'glm-ollama-cc',
+    JSON.stringify({
+      type: 'system',
+      subtype: 'session_state',
+      status: 'completed',
+      summary: 'should not wake',
+    }),
+  );
+  const list = Array.isArray(events) ? events : events ? [events] : [];
+  assert.ok(!list.some((event) => event.type === 'status' && /^woke on:/i.test(event.text)));
+});
+
 test('M3: tool_progress carries authoritative elapsed seconds', () => {
   const events = normalizeCliLine(
     'glm-ollama-cc',
@@ -88,7 +109,7 @@ test('M3: tool_progress carries authoritative elapsed seconds', () => {
     }),
   );
   const list = Array.isArray(events) ? events : events ? [events] : [];
-  assert.deepEqual(list, [{ type: 'status', text: 'tool_progress Bash 90' }]);
+  assert.deepEqual(list, [{ type: 'status', text: 'Bash · 90s' }]);
 });
 
 test('M7: meter percent equals occupancy/ceiling for 5%, 13%, 50%', () => {
@@ -322,7 +343,7 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
     if (!stream || !shell) return 0;
     return stream.getBoundingClientRect().height / shell.getBoundingClientRect().height;
   });
-  // Compact composer budget: wrap capped near 22% so the stream keeps the pane.
+  // Compact composer budget: wrap capped near 30% so the stream keeps the pane.
   const composeBudget = await page.evaluate(() => {
     const wrap = document.querySelector('.conversation-compose-wrap') as HTMLElement | null;
     const shell = document.querySelector('.conversation-shell') as HTMLElement | null;
@@ -336,7 +357,7 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
     }
   });
   assert.ok(composeBudget, 'compose wrap and shell must exist');
-  assert.match(composeBudget!.maxHeight, /2[0-9]%|\d+px/);
+  assert.match(composeBudget!.maxHeight, /(?:2\d|30)%|\d+px/);
   assert.ok(composeBudget!.wrapShare <= 0.32, `compose wrap share ${composeBudget!.wrapShare} > 0.32`);
   assert.ok(streamRatio >= 0.65, `transcript ratio ${streamRatio} < 0.65`);
 
@@ -395,26 +416,51 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
   await assertMeter(page, Math.round(ceiling * 0.13), 13);
   await assertMeter(page, Math.round(ceiling * 0.5), 50);
 
+
+  // R2-2: permission/root chips must expose full text (title) and not letter-ellipsis.
+  // Use a string evaluate so tsx does not inject __name helpers into the browser realm.
+  type ChipMeasure = { text: string; title: string; scrollWider: boolean } | null;
+  const chipState = (await page.evaluate(`(() => {
+    const measure = (el) => {
+      if (!el) return null;
+      return {
+        text: (el.textContent || '').trim(),
+        title: el.getAttribute('title') || '',
+        scrollWider: el.scrollWidth > el.clientWidth + 1,
+      };
+    };
+    return {
+      permission: measure(document.querySelector('.permission-chip')),
+      root: measure(document.querySelector('.root-chip')),
+    };
+  })()`)) as { permission: ChipMeasure; root: ChipMeasure };
+  assert.ok(chipState.permission, 'permission chip missing');
+  assert.match(chipState.permission!.text, /Read only|Can edit repo/i);
+  assert.equal(chipState.permission!.title, chipState.permission!.text);
+  assert.equal(chipState.permission!.scrollWider, false, 'permission chip must not ellipsis');
+  if (chipState.root) {
+    assert.match(chipState.root.text, /GENERALSTAFF_ROOT/);
+    assert.equal(chipState.root.title, 'GENERALSTAFF_ROOT');
+    assert.equal(chipState.root.scrollWider, false, 'root chip must not ellipsis');
+  }
+
   // Jump pill is anchored above the compose wrap (not covering Stop).
-  const jumpGeometry = await page.evaluate(() => {
-    const wrap = document.querySelector('.conversation-compose-wrap') as HTMLElement | null;
+  const jumpGeometry = (await page.evaluate(`(() => {
+    const wrap = document.querySelector('.conversation-compose-wrap');
     if (!wrap) return null;
-    // Force the pill into the DOM the same way the live UI does when scrolled up.
-    const stream = document.querySelector('.message-stream') as HTMLElement | null;
+    const stream = document.querySelector('.message-stream');
     if (stream) stream.scrollTop = 0;
-    const shell = document.querySelector('.conversation-shell');
-    let pill = document.querySelector('.jump-latest') as HTMLElement | null;
-    if (!pill && shell) {
+    let pill = document.querySelector('.jump-latest');
+    if (!pill) {
       pill = document.createElement('button');
       pill.className = 'jump-latest';
       pill.textContent = '↓ jump to latest';
       wrap.prepend(pill);
     }
-    if (!pill) return null;
     const wrapBox = wrap.getBoundingClientRect();
     const pillBox = pill.getBoundingClientRect();
-    const stop = document.querySelector('[data-action="stop-run"]') as HTMLElement | null;
-    const stopBox = stop?.getBoundingClientRect();
+    const stop = document.querySelector('[data-action="stop-run"]');
+    const stopBox = stop ? stop.getBoundingClientRect() : null;
     return {
       pillBottom: pillBox.bottom,
       wrapTop: wrapBox.top,
@@ -426,8 +472,39 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
           pillBox.bottom > stopBox.top,
       ),
     };
-  });
+  })()`)) as { pillBottom: number; wrapTop: number; overlapsStop: boolean } | null;
+
   assert.ok(jumpGeometry, 'jump pill should exist above the compose wrap');
   assert.ok(jumpGeometry!.pillBottom <= jumpGeometry!.wrapTop + 1, 'pill must sit above the compose wrap');
   assert.equal(jumpGeometry!.overlapsStop, false, 'pill must not cover Stop');
+
+  // R2-1: Send and gear must sit inside the pane at both deck and sidebar widths.
+  for (const size of [
+    { width: 1100, height: 700 },
+    { width: 760, height: 700 },
+  ] as const) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(30);
+    const fit = (await page.evaluate(`(() => {
+      const send = document.querySelector('.send-button');
+      const gear = document.querySelector('.composer-gear');
+      if (!send) return null;
+      return {
+        sendBottom: send.getBoundingClientRect().bottom,
+        gearBottom: gear ? gear.getBoundingClientRect().bottom : null,
+        innerHeight: window.innerHeight,
+      };
+    })()`)) as { sendBottom: number; gearBottom: number | null; innerHeight: number } | null;
+    assert.ok(fit, `send button missing at ${size.width}x${size.height}`);
+    assert.ok(
+      fit!.sendBottom <= fit!.innerHeight,
+      `R2-1 send.bottom ${fit!.sendBottom} > innerHeight ${fit!.innerHeight} at ${size.width}x${size.height}`,
+    );
+    if (fit!.gearBottom != null) {
+      assert.ok(
+        fit!.gearBottom <= fit!.innerHeight,
+        `R2-1 gear.bottom ${fit!.gearBottom} > innerHeight ${fit!.innerHeight} at ${size.width}x${size.height}`,
+      );
+    }
+  }
 });

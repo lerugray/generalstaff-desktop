@@ -123,6 +123,7 @@ const laneEfforts: Record<LaneId, ReadonlySet<EffortId>> = {
   'deepseek-ollama': new Set(['default']),
   'deepseek-ollama-cc': new Set(['default', 'low', 'medium', 'high', 'xhigh']),
   'glm-ollama-cc': new Set(['default', 'low', 'medium', 'high', 'xhigh']),
+  'glm-flash-ollama-cc': new Set(['default', 'low', 'medium', 'high', 'xhigh']),
 };
 
 export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: EffortId = 'default'): EffortId {
@@ -134,7 +135,7 @@ export function effectiveEffortFor(laneId: LaneId, seat: SeatId, requested: Effo
   if (laneId === 'claude') return seat === 'assist' ? 'high' : 'max';
   if (laneId === 'grok') return 'high';
   if (laneId === 'cline') return seat === 'assist' ? 'medium' : 'high';
-  if (laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc') return 'high';
+  if (laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc' || laneId === 'glm-flash-ollama-cc') return 'high';
   return 'default';
 }
 
@@ -429,7 +430,8 @@ export function invocationFor(
         effort,
       };
     case 'deepseek-ollama-cc':
-    case 'glm-ollama-cc': {
+    case 'glm-ollama-cc':
+    case 'glm-flash-ollama-cc': {
       // The CC door runs the real Claude Code binary, so the operator's plan-mode read
       // boundary, effort levels and session resume all behave exactly as they do on the Fable
       // seat. Only the provider behind it differs. MCP servers are withheld on read-only runs
@@ -493,7 +495,7 @@ export function providerSessionIdFromLine(laneId: LaneId, line: string): string 
   if (laneId === 'codex') return safeProviderSessionId(record.thread_id);
   if (
     laneId === 'kimi' || laneId === 'cursor' || laneId === 'claude' ||
-    laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc'
+    laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc' || laneId === 'glm-flash-ollama-cc'
   ) {
     return safeProviderSessionId(record.session_id);
   }
@@ -758,7 +760,10 @@ function packEvents(events: RunEvent[]): RunEvent | RunEvent[] | undefined {
 }
 
 export function speaksClaudeProtocol(laneId: LaneId): boolean {
-  return laneId === 'claude' || laneId === 'deepseek-ollama-cc' || laneId === 'glm-ollama-cc';
+  return laneId === 'claude'
+    || laneId === 'deepseek-ollama-cc'
+    || laneId === 'glm-ollama-cc'
+    || laneId === 'glm-flash-ollama-cc';
 }
 
 /** Stderr lines that must not become the displayed error on a non-zero exit. */

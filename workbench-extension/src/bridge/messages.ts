@@ -32,6 +32,7 @@ const laneIds = new Set<LaneId>([
   'deepseek-ollama',
   'deepseek-ollama-cc',
   'glm-ollama-cc',
+  'glm-flash-ollama-cc',
 ]);
 const seatIds = new Set<SeatId>(['orchestrate', 'build', 'review', 'verify', 'assist']);
 const permissionModes = new Set<PermissionMode>(['read', 'write']);

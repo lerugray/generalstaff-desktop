@@ -156,6 +156,11 @@ export const CONTEXT_CEILING_BY_LANE: Record<LaneId, ContextCeiling> = {
     provenance: 'stated',
     modelLabel: 'glm-5.3',
   },
+  'glm-flash-ollama-cc': {
+    tokens: CC_DOOR_STATED_CONTEXT_TOKENS,
+    provenance: 'stated',
+    modelLabel: 'glm-5.3-flash',
+  },
 };
 
 export function contextCeilingFor(laneId: LaneId): ContextCeiling {
@@ -248,12 +253,18 @@ export function contextCeilingFromModelDoor(modelDoor: string): ContextCeiling {
   if (text.includes('deepseek')) {
     return CONTEXT_CEILING_BY_LANE['deepseek-ollama'];
   }
-  if ((text.includes('glm-5.3') || text.includes('glm 5.3') || /\bglm\b/u.test(text))
-    && (text.includes('cc') || text.includes('ollama-glm') || text.includes('claude'))) {
-    return CONTEXT_CEILING_BY_LANE['glm-ollama-cc'];
+  if (
+    (text.includes('glm-5.3-flash') || text.includes('glm-flash') || text.includes('ollama-glm-flash'))
+    && (text.includes('cc') || text.includes('claude') || text.includes('ollama-glm-flash'))
+  ) {
+    return CONTEXT_CEILING_BY_LANE['glm-flash-ollama-cc'];
   }
   if (text.includes('glm-5.3-flash') || text.includes('glm-ollama-flash')) {
     return CONTEXT_CEILING_BY_LANE['glm-ollama-flash'];
+  }
+  if ((text.includes('glm-5.3') || text.includes('glm 5.3') || /\bglm\b/u.test(text))
+    && (text.includes('cc') || text.includes('ollama-glm') || text.includes('claude'))) {
+    return CONTEXT_CEILING_BY_LANE['glm-ollama-cc'];
   }
   if (text.includes('glm')) {
     return CONTEXT_CEILING_BY_LANE['glm-ollama'];

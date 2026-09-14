@@ -33,6 +33,7 @@ const ALL_LANE_IDS: LaneId[] = [
   'deepseek-ollama',
   'deepseek-ollama-cc',
   'glm-ollama-cc',
+  'glm-flash-ollama-cc',
 ];
 
 test('every seat has a ceiling + provenance; no Ollama seat is assumed-default', () => {
@@ -57,7 +58,7 @@ test('every seat has a ceiling + provenance; no Ollama seat is assumed-default',
     assert.equal(ceiling.tokens, OLLAMA_CLOUD_CONTEXT_TOKENS);
     assert.equal(ceiling.provenance, 'stated');
   }
-  for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
+  for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc', 'glm-flash-ollama-cc'] as const) {
     const ceiling = contextCeilingFor(id);
     assert.equal(ceiling.provenance, 'stated');
     assert.equal(ceiling.tokens, 1_048_576);

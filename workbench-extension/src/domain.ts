@@ -14,7 +14,8 @@ export type LaneId =
   // endpoint, in their own config directory. Agentic, and they carry the operator's skills,
   // rules, memory and hooks; the direct-API lanes above cannot.
   | 'deepseek-ollama-cc'
-  | 'glm-ollama-cc';
+  | 'glm-ollama-cc'
+  | 'glm-flash-ollama-cc';
 
 export type LaneState = 'available' | 'missing' | 'checking' | 'unavailable';
 

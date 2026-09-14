@@ -13,6 +13,7 @@ import {
   formatOllamaMonthlyMeterLabel,
   loadOllamaCloudApiKey,
   OLLAMA_CLOUD_USAGE_URL,
+  ollamaCcDoorFor,
   ollamaCloudModelFor,
   parseExportedEnvKey,
   parseOllamaCloudMonthlyUsage,
@@ -41,6 +42,17 @@ test('matches exact Ollama catalog tags without accepting lookalikes or suffixes
   assert.equal(ollamaCloudModelFor('glm-ollama-flash'), 'glm-5.3-flash');
 });
 
+test('glm-flash-ollama-cc maps to the ollama-glm-flash door', () => {
+  assert.deepEqual(ollamaCcDoorFor('glm-flash-ollama-cc'), {
+    door: 'ollama-glm-flash',
+    model: 'glm-5.3-flash',
+  });
+  assert.deepEqual(ollamaCcDoorFor('glm-ollama-cc'), {
+    door: 'ollama-glm',
+    model: 'glm-5.3',
+  });
+});
+
 test('catalog discovery adds both distinctly labeled seats and fails closed per missing tag or key', async () => {
   let calls = 0;
   let catalogUrl = '';
@@ -67,6 +79,7 @@ test('catalog discovery adds both distinctly labeled seats and fails closed per 
     'DeepSeek V4.1 Flash (Ollama)',
     'DeepSeek V4.1 Flash \u00b7 Workbench seat',
     'GLM 5.3 \u00b7 Workbench seat',
+    'GLM 5.3 Flash (cheap)',
   ]);
   assert.equal(lanes[0]?.state, 'available');
   assert.equal(lanes[1]?.state, 'unavailable');
@@ -76,13 +89,21 @@ test('catalog discovery adds both distinctly labeled seats and fails closed per 
   // Claude Code binary and therefore carry the operator's write boundary too.
   assert.deepEqual(lanes[4]?.permissions, ['read', 'write']);
   assert.equal(lanes[4]?.state, 'unavailable', 'the CC door fails closed when its launcher is absent');
-
+  assert.equal(lanes[5]?.id, 'glm-flash-ollama-cc');
+  assert.equal(lanes[5]?.name, 'GLM 5.3 Flash (cheap)');
+  assert.deepEqual(lanes[5]?.permissions, ['read', 'write']);
   // A CC-door seat only becomes available when the catalog tag, the launcher and the claude
   // binary are all present. Its executable is the launcher, never a raw credential.
   const ready = await discoverOllamaCloudLanes({
     loadApiKey: async () => 'test-key',
     fetcher: (async () => new Response(
-      JSON.stringify({ models: [{ name: 'glm-5.3' }, { name: 'deepseek-v4.1-flash' }] }),
+      JSON.stringify({
+        models: [
+          { name: 'glm-5.3' },
+          { name: 'glm-5.3-flash' },
+          { name: 'deepseek-v4.1-flash' },
+        ],
+      }),
       { status: 200 },
     )) as typeof fetch,
     canExecute: async () => true,
@@ -90,6 +111,9 @@ test('catalog discovery adds both distinctly labeled seats and fails closed per 
   const ccSeat = ready.find((lane) => lane.id === 'deepseek-ollama-cc');
   assert.equal(ccSeat?.state, 'available');
   assert.match(ccSeat?.executable ?? '', /gsd-cc-door\.sh$/u);
+  const flashCc = ready.find((lane) => lane.id === 'glm-flash-ollama-cc');
+  assert.equal(flashCc?.state, 'available');
+  assert.equal(flashCc?.name, 'GLM 5.3 Flash (cheap)');
   assert.equal(
     ready.every((lane) => !JSON.stringify(lane).includes('test-key')),
     true,

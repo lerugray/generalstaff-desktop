@@ -26,6 +26,7 @@ const ollamaModels = {
 const ollamaCcDoors = {
   'deepseek-ollama-cc': { door: 'ollama-deepseek', model: 'deepseek-v4.1-flash' },
   'glm-ollama-cc': { door: 'ollama-glm', model: 'glm-5.3' },
+  'glm-flash-ollama-cc': { door: 'ollama-glm-flash', model: 'glm-5.3-flash' },
 } as const satisfies Partial<Record<LaneId, { door: string; model: string }>>;
 
 /**

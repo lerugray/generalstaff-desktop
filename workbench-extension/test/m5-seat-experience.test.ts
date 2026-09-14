@@ -117,7 +117,7 @@ test('CC-door seat prompt includes the one-shot preamble once', () => {
 });
 
 test('M1: Claude-protocol doors use stream-json input and keep stdin open', () => {
-  for (const laneId of ['claude', 'glm-ollama-cc', 'deepseek-ollama-cc'] as const) {
+  for (const laneId of ['claude', 'glm-ollama-cc', 'deepseek-ollama-cc', 'glm-flash-ollama-cc'] as const) {
     const inv = invocationFor(laneId, 'orchestrate', 'read', '/work/repo', 'Steer me.');
     assert.ok(inv.args.includes('--input-format'));
     assert.equal(inv.args[inv.args.indexOf('--input-format') + 1], 'stream-json');

@@ -88,7 +88,7 @@ test('D1 meter = occupancy: fixture reads 91% on old arithmetic, 13% occupancy o
 
 test('D2 one denominator: CC-door seats use the door export (1_048_576)', () => {
   assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_048_576);
-  for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
+  for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc', 'glm-flash-ollama-cc'] as const) {
     const ceiling = contextCeilingFor(id);
     assert.equal(ceiling.tokens, 1_048_576);
     assert.equal(ceiling.provenance, 'stated');

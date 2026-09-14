@@ -273,6 +273,11 @@ const ollamaCcLaneDefinitions = [
     name: 'GLM 5.3 · Workbench seat',
     detail: 'GLM 5.3 running Claude Code with the operator skills, rules and memory · 1M context · no vision',
   },
+  {
+    id: 'glm-flash-ollama-cc',
+    name: 'GLM 5.3 Flash (cheap)',
+    detail: 'GLM 5.3 Flash running Claude Code with the operator skills, rules and memory · 1M context · cheaper Ollama pool · no vision',
+  },
 ] as const;
 
 export const CC_DOOR_LAUNCHER = path.join(

@@ -33,7 +33,7 @@ test('Claude-protocol lanes extract only text blocks and never leak tool_use pay
       ],
     },
   };
-  for (const laneId of ['claude', 'deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
+  for (const laneId of ['claude', 'deepseek-ollama-cc', 'glm-ollama-cc', 'glm-flash-ollama-cc'] as const) {
     const events = normalizeCliLine(laneId, JSON.stringify(writeEnvelope));
     const list = Array.isArray(events) ? events : [events];
     assert.deepEqual(list, [

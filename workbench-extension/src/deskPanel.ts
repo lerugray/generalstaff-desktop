@@ -89,6 +89,10 @@ export class DeskViewProvider implements vscode.WebviewViewProvider {
     await vscode.commands.executeCommand(`${deskViewType}.focus`);
   }
 
+  isVisible(): boolean {
+    return Boolean(this.view?.visible);
+  }
+
   private restartPoll(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.disposed || !this.view) return;

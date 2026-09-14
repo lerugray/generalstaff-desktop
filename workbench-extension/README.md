@@ -18,6 +18,15 @@ Ollama Cloud availability requires `export OLLAMA_CLOUD_API_KEY=...` in `~/.gene
 
 Provider session identifiers remain in extension-host storage and are never sent to the webview or raw receipt disclosure. Native sessions are scoped to the selected skill so a procedure change cannot inherit hidden context from the prior skill. New commands still begin read-only; edit access requires host-owned confirmation and is bounded to either the private GeneralStaff repository or a discovered project repository.
 
+## Keyboard shortcuts
+
+Workbench chords are scoped to the Command Deck, the Sessions tree, or any focused GeneralStaff view (`activeWebviewPanelId == 'generalstaff.commandDeck' || view == generalstaff.sessionsNav || focusedView =~ /^generalstaff\./`) so they do not shadow VS Code globals such as New Window, Select All Occurrences, or Run and Debug:
+
+- `Ctrl/Cmd+Shift+G` — Open Command Deck
+- `Ctrl/Cmd+Shift+L` — Toggle Lanes (auxiliary bar)
+- `Ctrl/Cmd+Shift+D` — Toggle Desk (auxiliary bar)
+- `Ctrl/Cmd+Shift+N` — New Session
+
 ## Development
 
 ```sh

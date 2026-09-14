@@ -2,9 +2,9 @@
 
 ## 0.4.16 — 2026-09-14
 
-- Command Deck is the only surface opened on launch (full width). Lanes and Desk move to the secondary side bar as WebviewViews; editor-panel paths removed. Topbar toggles + `Ctrl/Cmd+Shift+L` / `Ctrl/Cmd+Shift+D`; immersive mode no longer closes the auxiliary bar.
+- Command Deck is the only surface opened on launch (full width). Lanes and Desk move to the secondary side bar as WebviewViews; editor-panel paths removed. Topbar toggles + scoped `Ctrl/Cmd+Shift+L` / `Ctrl/Cmd+Shift+D` (active when the deck, Sessions tree, or a GeneralStaff view is focused); immersive mode no longer closes the auxiliary bar.
 - Remove the in-deck “Your model bench” grid; seat/model/ceiling stay on the composer picker. Deck stays readable at 1280 and 1024.
-- Sessions tree in the Command side bar: Orchestrator / Projects / Archived, with New / Rename / Archive / Delete. Conversations storage `generalstaff.conversations.v2` with one-way v1 migration. Many orchestrator sessions; one active per scope. Deck topbar shows the active title + New session (`Ctrl/Cmd+Shift+N`).
+- Sessions tree in the Command side bar: Orchestrator / Projects / Archived, with New / Rename / Archive / Delete. Conversations storage `generalstaff.conversations.v2` with one-way v1 migration. Many orchestrator sessions; one active per scope. Deck topbar shows the active title + New session (scoped `Ctrl/Cmd+Shift+N`).
 
 ## 0.4.15 — 2026-09-14
 

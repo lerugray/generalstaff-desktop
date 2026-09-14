@@ -5,6 +5,7 @@
     "generalstaff.immersiveMode": true,
     "workbench.startupEditor": "none",
     "workbench.activityBar.location": "hidden",
+    "workbench.secondarySideBar.defaultVisibility": "hidden",
     "workbench.statusBar.visible": false,
     "workbench.editor.showTabs": "none",
     "workbench.editor.editorActionsLocation": "hidden",

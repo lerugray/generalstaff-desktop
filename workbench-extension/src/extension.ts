@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
 import { runAdapter } from './adapters/runAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
-import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
+import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneId, LaneSummary, RunContinuity } from './domain.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
@@ -31,7 +31,7 @@ import {
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
 import { DeskViewProvider, deskViewType } from './deskPanel.js';
 import { LanesViewProvider, lanesViewType } from './lanesPanel.js';
-import { nextAuxToggleState, planOpenOnLaunch, type AuxPanel } from './launchPlan.js';
+import { nextAuxToggleState, planOpenOnLaunch, reconcileAuxFocus, type AuxPanel } from './launchPlan.js';
 import { SessionsNavProvider } from './sessionsNav.js';
 
 const viewType = 'generalstaff.commandDeck';
@@ -134,6 +134,9 @@ class CommandDeckPanel {
 
   stopRun(conversationId: string): void {
     this.activeRuns.get(conversationId)?.stop();
+    // Pending runs are not yet in activeRuns; drop them so Stop-and-switch
+    // cannot leave a setup that later streams into the abandoned session.
+    this.pendingRuns.delete(conversationId);
   }
 
   async refresh(): Promise<void> {
@@ -166,6 +169,17 @@ class CommandDeckPanel {
   }
 
   async newSession(): Promise<void> {
+    const running = this.runningConversationIds();
+    if (running.length) {
+      const choice = await vscode.window.showWarningMessage(
+        'A turn is still running. Stop it and start a new session?',
+        { modal: true },
+        'Stop and switch',
+        'Cancel',
+      );
+      if (choice !== 'Stop and switch') return;
+      for (const id of running) this.stopRun(id);
+    }
     if (!this.snapshot) await this.refreshAndSend();
     if (!this.snapshot) return;
     const focused = this.focusedConversationId
@@ -212,6 +226,19 @@ class CommandDeckPanel {
     await this.postState();
     this.onSessionsChanged?.();
     this.focusComposer();
+  }
+
+  /** Lane the deck would use when ensuring an orchestrator session. */
+  resolvedOrchestratorLaneId(): LaneId {
+    const current = this.orchestrator.current();
+    const focused = this.focusedConversationId
+      ? this.store.get(this.focusedConversationId)
+      : undefined;
+    const preferred: LaneId = current?.laneId ?? focused?.laneId ?? 'claude';
+    const lane = this.snapshot?.lanes.find((item) => item.id === preferred)
+      ?? this.snapshot?.lanes.find((item) => item.state === 'available' && item.roles.includes('orchestrate'))
+      ?? this.snapshot?.lanes[0];
+    return lane?.id ?? preferred;
   }
 
   async switchOrStop(conversationId: string): Promise<boolean> {
@@ -591,6 +618,11 @@ class CommandDeckPanel {
         return;
       }
 
+      if (!this.pendingRuns.has(conversationId)) {
+        await this.stream(conversationId, assistant.id, 'This run was stopped.', 'error');
+        return;
+      }
+
       await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
       let output = '';
       let encounteredError = false;
@@ -650,6 +682,11 @@ class CommandDeckPanel {
           }
         },
       );
+      if (!this.pendingRuns.has(conversationId)) {
+        run.stop();
+        await this.stream(conversationId, assistant.id, 'This run was stopped.', 'error');
+        return;
+      }
       this.activeRuns.set(conversationId, run);
       this.pendingRuns.delete(conversationId);
 
@@ -1023,6 +1060,11 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const toggleAux = async (target: AuxPanel): Promise<void> => {
+    auxFocus = reconcileAuxFocus(auxFocus, {
+      lanes: lanesProvider.isVisible(),
+      desk: deskProvider.isVisible(),
+    });
+    syncAuxFocus();
     const { next, action } = nextAuxToggleState(auxFocus, target);
     if (action === 'hide') await hideAux();
     else await focusAux(target);
@@ -1083,8 +1125,20 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('generalstaff.archiveSession', async (node?: { type?: string; item?: { id?: string } } | string) => {
       const id = sessionIdFromArg(node);
-      if (!id) return;
-      await store.archive(id);
+      const conversation = id ? store.get(id) : undefined;
+      if (!conversation) return;
+      const deck = CommandDeckPanel.current;
+      if (deck?.hasRunningTurn(conversation.id)) {
+        void vscode.window.showErrorMessage('Stop the running turn before archiving this session.');
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Archive session “${conversation.title}”? It moves under Archived and stays recoverable.`,
+        { modal: true },
+        'Archive',
+      );
+      if (confirm !== 'Archive') return;
+      await store.archive(conversation.id);
       refreshSessionsFromDeck();
       await CommandDeckPanel.current?.refresh();
     }),
@@ -1110,9 +1164,15 @@ export function activate(context: vscode.ExtensionContext): void {
         'Delete',
       );
       if (confirm !== 'Delete') return;
+      const laneId = deck?.resolvedOrchestratorLaneId() ?? conversation.laneId;
+      const effort = conversation.effort ?? 'default';
       await store.delete(conversation.id);
       if (!orchestrator.current()) {
-        await orchestrator.ensure({ laneId: 'claude', effort: 'default', permission: 'read' });
+        await orchestrator.ensure({
+          laneId,
+          effort,
+          permission: 'read',
+        });
       }
       refreshSessionsFromDeck();
       await deck?.refresh();

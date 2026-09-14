@@ -84,9 +84,11 @@ function normalizeConversation(stored: StoredConversation, recoveredInterrupted:
 }
 
 /** One-way v1 → v2 migration. Preserves every conversation; adds no archives. */
-export function migrateV1Conversations(v1: StoredConversation[]): Conversation[] {
-  const recovered = { value: false };
-  return v1.map((stored) => normalizeConversation(stored, recovered));
+export function migrateV1Conversations(
+  v1: StoredConversation[],
+  recoveredInterrupted: { value: boolean } = { value: false },
+): Conversation[] {
+  return v1.map((stored) => normalizeConversation(stored, recoveredInterrupted));
 }
 
 export class ConversationStore {
@@ -102,7 +104,7 @@ export class ConversationStore {
       this.conversations = v2.map((stored) => normalizeConversation(stored, recoveredInterrupted));
     } else {
       const v1 = state.get<StoredConversation[]>(conversationsV1Key, []);
-      this.conversations = migrateV1Conversations(v1);
+      this.conversations = migrateV1Conversations(v1, recoveredInterrupted);
       this.migratedFromV1 = v1.length > 0;
     }
     this.providerSessions = state.get<ProviderSessionMap>(providerStorageKey, {});
@@ -414,7 +416,13 @@ export class ConversationStore {
 
   private async persist(): Promise<void> {
     const sorted = [...this.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+    // Pin active pointers (v2), every orchestrator row (v1 parity), and archives.
     const pinned = this.activeIds();
+    for (const conversation of sorted) {
+      if (conversation.kind === 'orchestrator' || conversation.archivedAt !== undefined) {
+        pinned.add(conversation.id);
+      }
+    }
     const kept: Conversation[] = [];
     for (const conversation of sorted) {
       if (pinned.has(conversation.id)) kept.push(conversation);

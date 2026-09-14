@@ -140,31 +140,57 @@
         "key": "cmd+shift+g",
         "mac": "cmd+shift+g",
         "win": "ctrl+shift+g",
-        "linux": "ctrl+shift+g"
+        "linux": "ctrl+shift+g",
+        "when": "activeWebviewPanelId == 'generalstaff.commandDeck' || view == generalstaff.sessionsNav || focusedView =~ /^generalstaff\\./"
       },
       {
         "command": "generalstaff.toggleLanes",
         "key": "cmd+shift+l",
         "mac": "cmd+shift+l",
         "win": "ctrl+shift+l",
-        "linux": "ctrl+shift+l"
+        "linux": "ctrl+shift+l",
+        "when": "activeWebviewPanelId == 'generalstaff.commandDeck' || view == generalstaff.sessionsNav || focusedView =~ /^generalstaff\\./"
       },
       {
         "command": "generalstaff.toggleDesk",
         "key": "cmd+shift+d",
         "mac": "cmd+shift+d",
         "win": "ctrl+shift+d",
-        "linux": "ctrl+shift+d"
+        "linux": "ctrl+shift+d",
+        "when": "activeWebviewPanelId == 'generalstaff.commandDeck' || view == generalstaff.sessionsNav || focusedView =~ /^generalstaff\\./"
       },
       {
         "command": "generalstaff.newSession",
         "key": "cmd+shift+n",
         "mac": "cmd+shift+n",
         "win": "ctrl+shift+n",
-        "linux": "ctrl+shift+n"
+        "linux": "ctrl+shift+n",
+        "when": "activeWebviewPanelId == 'generalstaff.commandDeck' || view == generalstaff.sessionsNav || focusedView =~ /^generalstaff\\./"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "generalstaff.openSession",
+          "when": "false"
+        },
+        {
+          "command": "generalstaff.renameSession",
+          "when": "false"
+        },
+        {
+          "command": "generalstaff.archiveSession",
+          "when": "false"
+        },
+        {
+          "command": "generalstaff.unarchiveSession",
+          "when": "false"
+        },
+        {
+          "command": "generalstaff.deleteSession",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "generalstaff.newSession",

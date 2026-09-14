@@ -126,6 +126,10 @@ export class LanesViewProvider implements vscode.WebviewViewProvider {
     await vscode.commands.executeCommand(`${lanesViewType}.focus`);
   }
 
+  isVisible(): boolean {
+    return Boolean(this.view?.visible);
+  }
+
   private privateRuntimeOptions(): PrivateRuntimeOptions {
     const laneDeskRuntimePath = vscode.workspace.getConfiguration('generalstaff').get<string>('laneDeskRuntimePath')?.trim();
     return laneDeskRuntimePath ? { laneDeskRuntimePath } : {};

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { auxTogglePressed, nextAuxToggleState, planOpenOnLaunch } from '../src/launchPlan.js';
+import { auxTogglePressed, nextAuxToggleState, planOpenOnLaunch, reconcileAuxFocus } from '../src/launchPlan.js';
 import {
   ConversationStore,
   conversationsV1Key,
@@ -54,8 +54,17 @@ test('aux toggle pressed state follows focused aux panel', () => {
   assert.equal(auxTogglePressed('desk', 'lanes'), false);
 });
 
+test('reconcileAuxFocus clears stale focus when the bar was hidden elsewhere', () => {
+  assert.equal(reconcileAuxFocus('lanes', { lanes: false, desk: false }), null);
+  assert.equal(reconcileAuxFocus('desk', { lanes: false, desk: false }), null);
+  assert.equal(reconcileAuxFocus('lanes', { lanes: true, desk: false }), 'lanes');
+  assert.equal(reconcileAuxFocus('desk', { lanes: false, desk: true }), 'desk');
+  assert.equal(reconcileAuxFocus(null, { lanes: false, desk: false }), null);
+});
+
 test('v1→v2 migration preserves orchestrator and project conversations including deepseek-style titles', async () => {
   const memory = new MemoryMemento();
+  // Match the real v1 writer shape (create / createOrchestrator at 13b25e6).
   const v1Fixture = [
     {
       id: 'orch-deepseek',
@@ -77,10 +86,13 @@ test('v1→v2 migration preserves orchestrator and project conversations includi
     },
     {
       id: 'proj-one',
+      kind: 'command',
       title: 'Ship the harness panels',
+      target: { kind: 'project', projectId: 'generalstaff-desktop' },
       projectId: 'generalstaff-desktop',
       laneId: 'codex',
       seat: 'build',
+      effort: 'default',
       permission: 'read',
       context: [],
       messages: [{ id: 'u2', role: 'user', text: 'Ship the harness panels', createdAt: 30, status: 'complete' }],
@@ -88,13 +100,36 @@ test('v1→v2 migration preserves orchestrator and project conversations includi
       createdAt: 30,
       updatedAt: 40,
     },
+    {
+      id: 'interrupted',
+      kind: 'orchestrator',
+      title: 'Interrupted stream',
+      target: { kind: 'general' },
+      laneId: 'claude',
+      seat: 'orchestrate',
+      effort: 'default',
+      permission: 'read',
+      context: [],
+      messages: [
+        { id: 'u3', role: 'user', text: 'Keep going', createdAt: 50, status: 'complete' },
+        { id: 'a3', role: 'assistant', text: 'Halfway…', createdAt: 51, status: 'streaming' },
+      ],
+      decisions: [],
+      createdAt: 50,
+      updatedAt: 51,
+    },
   ];
   await memory.update(conversationsV1Key, v1Fixture);
 
-  const migrated = migrateV1Conversations(v1Fixture as never);
-  assert.equal(migrated.length, 2);
+  const recovered = { value: false };
+  const migrated = migrateV1Conversations(v1Fixture as never, recovered);
+  assert.equal(migrated.length, 3);
+  assert.equal(recovered.value, true);
   assert.equal(migrated[0]?.title, 'deepseek test');
   assert.equal(migrated[1]?.target.kind, 'project');
+  const interrupted = migrated[2];
+  assert.equal(interrupted?.messages.at(-1)?.status, 'error');
+  assert.match(interrupted?.messages.at(-1)?.text ?? '', /Workbench closed before this run completed/);
 
   const store = new ConversationStore(memory);
   assert.equal(store.didMigrateFromV1(), true);
@@ -106,6 +141,7 @@ test('v1→v2 migration preserves orchestrator and project conversations includi
   const project = store.get('proj-one');
   assert.ok(project?.target.kind === 'project');
   assert.equal(project.target.projectId, 'generalstaff-desktop');
+  assert.equal(store.get('interrupted')?.messages.at(-1)?.status, 'error');
 });
 
 test('new / rename / archive / unarchive / delete session transitions', async () => {
@@ -150,4 +186,35 @@ test('many orchestrator sessions stay listed; one is active', async () => {
   await manager.activate(a.id);
   assert.equal(manager.current()?.id, a.id);
   assert.ok(store.get(b.id));
+});
+
+test('persist pins orchestrator and archived rows against the 40-entry eviction', async () => {
+  const memory = new MemoryMemento();
+  const store = new ConversationStore(memory);
+  const manager = new OrchestratorSessionManager(memory, store);
+  const orch = await manager.ensure({ laneId: 'deepseek-ollama-cc', effort: 'default' });
+  await store.rename(orch.id, 'deepseek test');
+  const toArchive = await store.create(
+    { kind: 'project', projectId: 'keep-me' },
+    'codex',
+    'build',
+    'default',
+    'read',
+  );
+  await store.archive(toArchive.id);
+
+  for (let i = 0; i < 45; i += 1) {
+    await store.create(
+      { kind: 'project', projectId: `flood-${i}` },
+      'claude',
+      'build',
+      'default',
+      'read',
+    );
+  }
+
+  assert.ok(store.get(orch.id), 'orchestrator (deepseek test) must survive eviction');
+  assert.equal(store.get(orch.id)?.title, 'deepseek test');
+  assert.ok(store.get(toArchive.id), 'archived row must survive eviction');
+  assert.ok(store.get(toArchive.id)?.archivedAt);
 });

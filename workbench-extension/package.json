@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.16",
+  "version": "0.4.17",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -334,7 +334,8 @@
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",
     "package": "npx @vscode/vsce package --no-dependencies",
     "package:distribution": "npx @vscode/vsce package --no-dependencies --out ../distribution/generalstaff-workbench.vsix",
-    "proof:m3d": "node --import tsx scripts/render-m3d-proofs.ts"
+    "proof:m3d": "node --import tsx scripts/render-m3d-proofs.ts",
+    "proof:m3e": "node --import tsx scripts/render-m3e-proofs.ts"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

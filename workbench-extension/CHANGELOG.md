@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.17 — 2026-09-14
+
+- Context meter reads **occupancy** (latest assistant `input + cache_read + cache_creation`), never the result envelope's cumulative session spend. Session spend stays in the meter tooltip.
+- CC-door ceiling matches the door export (`CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000`); direct Ollama seats keep the verified 1.05M `/api/show` window.
+- Claude-protocol transcript: collapsible tool cards (name + one-line label + ok/error preview), thinking cards, one bubble per assistant turn.
+- Meter tooltip shows preamble vs added (first-call occupancy vs growth since).
+
 ## 0.4.16 — 2026-09-14
 
 - Command Deck is the only surface opened on launch (full width). Lanes and Desk move to the secondary side bar as WebviewViews; editor-panel paths removed. Topbar toggles + scoped `Ctrl/Cmd+Shift+L` / `Ctrl/Cmd+Shift+D` (active when the deck, Sessions tree, or a GeneralStaff view is focused); immersive mode no longer closes the auxiliary bar.

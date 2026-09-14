@@ -6,11 +6,15 @@
  * Usage: npx tsx scripts/render-m3d-proofs.ts
  */
 import { createServer } from 'node:http';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { readFile, mkdir } from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, type Frame, type Page } from 'playwright';
+import { buildDeskPanelModel } from '../src/deskPanelModel.js';
 import { buildLanesPanelModel } from '../src/lanesPanelModel.js';
+import { scanDeskPackets } from '../src/services/deskPackets.js';
 import { parseLaneDeskStatus } from '../src/services/laneDeskStatus.js';
 import { buildSessionsViewModel } from '../src/services/sessionsModel.js';
 import type { Conversation } from '../src/domain.js';
@@ -190,7 +194,7 @@ const lanesHtml = `<!doctype html>
   <link rel="stylesheet" href="/media/workbench.css">
   <title>Lanes · M3d aux proof</title>
 </head>
-<body>
+<body class="aux-view">
   <div id="app" aria-live="polite">
     <div class="boot"><div class="boot-mark">GS</div></div>
   </div>
@@ -212,13 +216,47 @@ const lanesHtml = `<!doctype html>
 </body>
 </html>`;
 
-const splitHtml = `<!doctype html>
+const deskHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/media/workbench.css">
-  <title>Deck + Lanes · M3d</title>
+  <title>Desk · M3d aux proof</title>
+</head>
+<body class="aux-view">
+  <div id="app" aria-live="polite">
+    <div class="boot"><div class="boot-mark">GS</div></div>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var theme = params.get('theme') || 'paper';
+      var store = { selectedTheme: theme };
+      window.acquireVsCodeApi = function () {
+        return {
+          getState: function () { return store; },
+          setState: function (next) { store = next || store; },
+          postMessage: function () {},
+        };
+      };
+    })();
+  </script>
+  <script src="/media/desk.js"></script>
+</body>
+</html>`;
+
+function splitHtml(aux: 'lanes' | 'desk'): string {
+  const src = aux === 'lanes' ? '/lanes?theme=paper' : '/desk?theme=paper';
+  const id = aux;
+  const title = aux === 'lanes' ? 'Lanes' : 'Desk';
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/media/workbench.css">
+  <title>Deck + ${title} · M3d</title>
   <style>
     html, body { margin: 0; height: 100%; }
     .split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100vh; }
@@ -228,10 +266,11 @@ const splitHtml = `<!doctype html>
 <body>
   <div class="split">
     <iframe id="deck" src="/command?theme=paper" title="Command Deck"></iframe>
-    <iframe id="lanes" src="/lanes?theme=paper" title="Lanes"></iframe>
+    <iframe id="${id}" src="${src}" title="${title}"></iframe>
   </div>
 </body>
 </html>`;
+}
 
 function sessionsHtml(modelJson: string): string {
   return `<!doctype html>
@@ -280,6 +319,70 @@ function sessionsHtml(modelJson: string): string {
 </html>`;
 }
 
+function buildFixtureHandoff(): string {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'gs-m3d-proof-'));
+  const handoff = path.join(home, 'Desktop', 'handoff');
+  mkdirSync(handoff, { recursive: true });
+  writeFileSync(path.join(handoff, 'START-HERE.html'), '<html>start</html>');
+  const p1 = path.join(handoff, 'GS-HARNESS-M3D-2026-09-14');
+  mkdirSync(p1);
+  writeFileSync(
+    path.join(p1, 'WHAT-TO-JUDGE.html'),
+    `<!doctype html><html><body><h1>M3d Desk</h1><p>Does the aux Desk folio fit a 360px column?</p></body></html>`,
+  );
+  writeFileSync(path.join(p1, 'NOTES.txt'), 'Fits the narrow rail.');
+  const p2 = path.join(handoff, 'GS-HARNESS-M3D-PACK-B');
+  mkdirSync(p2);
+  writeFileSync(path.join(p2, 'WHAT-TO-JUDGE.html'), `<!doctype html><html><body><h1>Packet B</h1></body></html>`);
+  return handoff;
+}
+
+async function assertNoHorizontalOverflow(frame: Frame): Promise<void> {
+  const overflow = await frame.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const offenders: string[] = [];
+    for (const el of document.querySelectorAll('body *')) {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (rect.right > vw + 1) {
+        const tag = (el as HTMLElement).tagName.toLowerCase();
+        const cls = typeof (el as HTMLElement).className === 'string' ? (el as HTMLElement).className.slice(0, 60) : '';
+        offenders.push(`${tag}.${cls} right=${Math.round(rect.right)} vw=${vw}`);
+        if (offenders.length >= 8) break;
+      }
+    }
+    return offenders;
+  });
+  if (overflow.length) {
+    throw new Error(`aux view overflows viewport:\n${overflow.join('\n')}`);
+  }
+}
+
+
+async function injectDeckState(
+  target: Page | Frame,
+  conversations: Conversation[],
+  activeId: string,
+  auxFocus: 'lanes' | 'desk' | null,
+): Promise<void> {
+  await target.evaluate(
+    ({ snapshot, conversations, activeId, auxFocus }) => {
+      window.postMessage({
+        type: 'state',
+        snapshot,
+        conversations,
+        orchestratorSessionId: activeId,
+        notes: {},
+        operatorDisplayName: 'Ray',
+        lanesBadgeCount: 2,
+        deskBadgeCount: 1,
+        auxFocus,
+      }, '*');
+    },
+    { snapshot: deckSnapshot(), conversations, activeId, auxFocus },
+  );
+}
+
 async function main(): Promise<void> {
   const conversations = fixtureConversations();
   const sessionsModel = buildSessionsViewModel(
@@ -289,6 +392,9 @@ async function main(): Promise<void> {
   );
   const status = parseLaneDeskStatus(await readJson('lanes-status-partial.json'));
   const lanesModel = buildLanesPanelModel(status);
+  const handoff = buildFixtureHandoff();
+  const packets = await scanDeskPackets({ handoffRoot: handoff });
+  const deskModel = buildDeskPanelModel(packets, { defaultSession: 's120' });
 
   const server = createServer(async (req, res) => {
     try {
@@ -304,9 +410,19 @@ async function main(): Promise<void> {
         res.end(lanesHtml);
         return;
       }
-      if (pathname === '/split') {
+      if (pathname === '/desk' || pathname.startsWith('/desk')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(splitHtml);
+        res.end(deskHtml);
+        return;
+      }
+      if (pathname === '/split-lanes') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(splitHtml('lanes'));
+        return;
+      }
+      if (pathname === '/split-desk') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(splitHtml('desk'));
         return;
       }
       if (pathname === '/sessions') {
@@ -345,91 +461,56 @@ async function main(): Promise<void> {
     args: ['--mute-audio', '--disable-audio-output'],
   });
 
-  async function postDeckState(page: import('playwright').Page, theme: string, activeId: string): Promise<void> {
+  async function shootDeck(theme: string, activeId: string, width: number, height: number, name: string): Promise<void> {
+    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
     await page.goto(`${base}/command?theme=${theme}`, { waitUntil: 'networkidle' });
-    await page.evaluate(
-      ({ snapshot, conversations, activeId }) => {
-        window.postMessage({
-          type: 'state',
-          snapshot,
-          conversations,
-          orchestratorSessionId: activeId,
-          notes: {},
-          operatorDisplayName: 'Ray',
-          lanesBadgeCount: 2,
-          deskBadgeCount: 1,
-        }, '*');
-      },
-      { snapshot: deckSnapshot(), conversations, activeId },
-    );
+    await injectDeckState(page, conversations, activeId, null);
     await page.waitForSelector('.topbar');
     await page.waitForSelector('[data-action="toggle-lanes"]');
     await page.waitForSelector('[data-action="new-session"]');
     const bench = await page.locator('.lane-section').count();
     if (bench !== 0) throw new Error('model bench must be removed from the deck');
-  }
-
-  const deckShots: Array<{ name: string; theme: string; width: number; height: number }> = [
-    { name: 'GS-HARNESS-M3D-PROOF-deck-1280-paper.png', theme: 'paper', width: 1280, height: 800 },
-    { name: 'GS-HARNESS-M3D-PROOF-deck-1280-night.png', theme: 'night', width: 1280, height: 800 },
-    { name: 'GS-HARNESS-M3D-PROOF-deck-1024-paper.png', theme: 'paper', width: 1024, height: 768 },
-    { name: 'GS-HARNESS-M3D-PROOF-deck-1024-night.png', theme: 'night', width: 1024, height: 768 },
-  ];
-
-  for (const shot of deckShots) {
-    const page = await browser.newPage({
-      viewport: { width: shot.width, height: shot.height },
-      deviceScaleFactor: 2,
-    });
-    await postDeckState(page, shot.theme, 'sess-fresh');
     await page.waitForTimeout(200);
-    await page.screenshot({ path: path.join(outDir, shot.name), type: 'png' });
-    console.log('wrote', shot.name);
+    await page.screenshot({ path: path.join(outDir, name), type: 'png' });
+    console.log('wrote', name);
     await page.close();
   }
 
-  {
-    const page = await browser.newPage({
-      viewport: { width: 1440, height: 900 },
-      deviceScaleFactor: 2,
-    });
-    await page.goto(`${base}/split`, { waitUntil: 'networkidle' });
+  await shootDeck('paper', 'sess-fresh', 1280, 800, 'GS-HARNESS-M3D-PROOF-deck-1280-paper.png');
+  await shootDeck('night', 'sess-fresh', 1280, 800, 'GS-HARNESS-M3D-PROOF-deck-1280-night.png');
+  await shootDeck('paper', 'sess-fresh', 1024, 768, 'GS-HARNESS-M3D-PROOF-deck-1024-paper.png');
+  await shootDeck('night', 'sess-fresh', 1024, 768, 'GS-HARNESS-M3D-PROOF-deck-1024-night.png');
+
+  async function shootAux(kind: 'lanes' | 'desk', model: unknown, messageType: string, outName: string): Promise<void> {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+    await page.goto(`${base}/split-${kind}`, { waitUntil: 'networkidle' });
     const deckFrame = page.frames().find((frame) => frame.url().includes('/command'));
-    const lanesFrame = page.frames().find((frame) => frame.url().includes('/lanes'));
-    if (!deckFrame || !lanesFrame) throw new Error('split frames missing');
+    const auxFrame = page.frames().find((frame) => frame.url().includes(`/${kind}`));
+    if (!deckFrame || !auxFrame) throw new Error(`split frames missing for ${kind}`);
     await deckFrame.waitForLoadState('domcontentloaded');
-    await lanesFrame.waitForLoadState('domcontentloaded');
-    await deckFrame.evaluate(
-      ({ snapshot, conversations }) => {
-        window.postMessage({
-          type: 'state',
-          snapshot,
-          conversations,
-          orchestratorSessionId: 'sess-fresh',
-          notes: {},
-          operatorDisplayName: 'Ray',
-          lanesBadgeCount: 2,
-          deskBadgeCount: 1,
-        }, '*');
+    await auxFrame.waitForLoadState('domcontentloaded');
+    await injectDeckState(deckFrame, conversations, 'sess-fresh', kind);
+    await auxFrame.evaluate(
+      ({ messageType, model }) => {
+        window.postMessage({ type: messageType, model }, '*');
       },
-      { snapshot: deckSnapshot(), conversations },
+      { messageType, model },
     );
-    await lanesFrame.evaluate((model) => {
-      window.postMessage({ type: 'lanes-model', model }, '*');
-    }, lanesModel);
     await deckFrame.waitForSelector('.topbar');
-    await lanesFrame.waitForSelector('#app');
-    await page.waitForTimeout(300);
-    await page.screenshot({ path: path.join(outDir, 'GS-HARNESS-M3D-PROOF-deck-lanes-aux-paper.png'), type: 'png' });
-    console.log('wrote GS-HARNESS-M3D-PROOF-deck-lanes-aux-paper.png');
+    await deckFrame.waitForSelector(`[data-action="toggle-${kind}"][aria-pressed="true"]`);
+    await auxFrame.waitForSelector('#app');
+    await page.waitForTimeout(250);
+    await assertNoHorizontalOverflow(auxFrame);
+    await page.screenshot({ path: path.join(outDir, outName), type: 'png' });
+    console.log('wrote', outName);
     await page.close();
   }
 
+  await shootAux('lanes', lanesModel, 'lanes-model', 'GS-HARNESS-M3D-PROOF-deck-lanes-aux-paper.png');
+  await shootAux('desk', deskModel, 'desk-model', 'GS-HARNESS-M3D-PROOF-deck-desk-aux-paper.png');
+
   {
-    const page = await browser.newPage({
-      viewport: { width: 360, height: 720 },
-      deviceScaleFactor: 2,
-    });
+    const page = await browser.newPage({ viewport: { width: 360, height: 720 }, deviceScaleFactor: 2 });
     await page.goto(`${base}/sessions`, { waitUntil: 'networkidle' });
     await page.waitForSelector('.sessions-proof');
     const archived = await page.locator('.row.archived').count();

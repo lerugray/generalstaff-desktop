@@ -47,3 +47,8 @@ export function nextAuxToggleState(
   if (current === target) return { next: null, action: 'hide' };
   return { next: target, action: 'show' };
 }
+
+/** Whether a topbar Lanes/Desk toggle should read as pressed. */
+export function auxTogglePressed(auxFocus: AuxPanel | null, panel: AuxPanel): boolean {
+  return auxFocus === panel;
+}

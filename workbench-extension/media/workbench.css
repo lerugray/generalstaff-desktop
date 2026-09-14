@@ -820,6 +820,15 @@ select:focus-visible {
   position: relative;
 }
 
+.panel-toggle.is-pressed,
+.panel-toggle[aria-pressed="true"] {
+  border-color: var(--brass);
+  background: rgb(var(--accent-rgb) / 0.14);
+  color: var(--paper);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.35);
+  font-weight: 650;
+}
+
 .panel-toggle-badge {
   display: inline-block;
   margin-left: 6px;
@@ -3368,3 +3377,72 @@ select:focus-visible {
 .desk-theme {
   margin-top: 8px;
 }
+
+/* ── Auxiliary-bar Lanes/Desk (300–420px): scoped; deck keeps body min-width ── */
+
+body.aux-view {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+body.aux-view #app {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body.aux-view .lanes-shell,
+body.aux-view .desk-shell {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 12px 16px;
+  overflow-x: hidden;
+}
+
+body.aux-view .lanes-shell.has-detail .lanes-body,
+body.aux-view .desk-folio {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.aux-view .lane-counter,
+body.aux-view .desk-leaf,
+body.aux-view .lanes-detail,
+body.aux-view .desk-plate {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body.aux-view .lane-counter,
+body.aux-view .desk-leaf {
+  width: 100%;
+  padding-right: 16px;
+}
+
+body.aux-view .lane-attention-mark,
+body.aux-view .desk-waiting {
+  right: 8px;
+}
+
+body.aux-view .lanes-header,
+body.aux-view .desk-header {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+body.aux-view .lanes-title strong,
+body.aux-view .desk-title strong {
+  font-size: 18px;
+}
+
+body.aux-view .lane-marginalia {
+  position: static;
+  justify-content: flex-start;
+  margin-top: 8px;
+  opacity: 0.75;
+}
+

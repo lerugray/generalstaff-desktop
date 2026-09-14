@@ -43,6 +43,7 @@
     operatorDisplayName: '',
     lanesBadgeCount: 0,
     deskBadgeCount: 0,
+    auxFocus: null,
   };
 
   function operatorAvatar() {
@@ -311,6 +312,8 @@
     const sessionTitle = currentConversation()?.title || title;
     const lanesBadge = state.lanesBadgeCount > 0 ? `<span class="panel-toggle-badge">${state.lanesBadgeCount}</span>` : '';
     const deskBadge = state.deskBadgeCount > 0 ? `<span class="panel-toggle-badge">${state.deskBadgeCount}</span>` : '';
+    const lanesPressed = state.auxFocus === 'lanes';
+    const deskPressed = state.auxFocus === 'desk';
     return `
       <header class="topbar">
         <div class="topbar-session">
@@ -321,8 +324,8 @@
         </div>
         <div class="topbar-actions">
           <button type="button" class="ghost-button" data-action="new-session" title="New session">New session</button>
-          <button type="button" class="ghost-button panel-toggle" data-action="toggle-lanes" title="Toggle Lanes (Ctrl/Cmd+Shift+L)">Lanes${lanesBadge}</button>
-          <button type="button" class="ghost-button panel-toggle" data-action="toggle-desk" title="Toggle Desk (Ctrl/Cmd+Shift+D)">Desk${deskBadge}</button>
+          <button type="button" class="ghost-button panel-toggle${lanesPressed ? ' is-pressed' : ''}" data-action="toggle-lanes" title="Toggle Lanes (Ctrl/Cmd+Shift+L)" aria-pressed="${lanesPressed ? 'true' : 'false'}">Lanes${lanesBadge}</button>
+          <button type="button" class="ghost-button panel-toggle${deskPressed ? ' is-pressed' : ''}" data-action="toggle-desk" title="Toggle Desk (Ctrl/Cmd+Shift+D)" aria-pressed="${deskPressed ? 'true' : 'false'}">Desk${deskBadge}</button>
           <span class="date-chip">${escapeHtml(now)}</span>
           <button class="ghost-button" data-action="open-terminal">Terminal</button>
           <button class="avatar" title="Operator">${escapeHtml(operatorAvatar())}</button>
@@ -964,6 +967,7 @@
       state.operatorDisplayName = typeof message.operatorDisplayName === 'string' ? message.operatorDisplayName : '';
       state.lanesBadgeCount = typeof message.lanesBadgeCount === 'number' ? message.lanesBadgeCount : 0;
       state.deskBadgeCount = typeof message.deskBadgeCount === 'number' ? message.deskBadgeCount : 0;
+      state.auxFocus = message.auxFocus === 'lanes' || message.auxFocus === 'desk' ? message.auxFocus : null;
       render();
     } else if (message.type === 'conversations') {
       state.conversations = message.conversations || [];

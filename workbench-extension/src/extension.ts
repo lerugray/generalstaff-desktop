@@ -54,6 +54,7 @@ class CommandDeckPanel {
   private onSessionsChanged: (() => void) | undefined;
   private lanesBadge = 0;
   private deskBadge = 0;
+  private auxFocus: AuxPanel | null = null;
   private focusedConversationId: string | undefined;
 
   private constructor(
@@ -108,6 +109,11 @@ class CommandDeckPanel {
   setPanelBadges(lanes: number, desk: number): void {
     this.lanesBadge = lanes;
     this.deskBadge = desk;
+    void this.postState();
+  }
+
+  setAuxFocus(focus: AuxPanel | null): void {
+    this.auxFocus = focus;
     void this.postState();
   }
 
@@ -290,6 +296,7 @@ class CommandDeckPanel {
       operatorDisplayName: this.operatorDisplayName(),
       lanesBadgeCount: this.lanesBadge,
       deskBadgeCount: this.deskBadge,
+      auxFocus: this.auxFocus,
     });
     this.onSessionsChanged?.();
   }
@@ -956,9 +963,22 @@ export function activate(context: vscode.ExtensionContext): void {
       DeskViewProvider.badgeCount(),
     );
   };
+  const syncAuxFocus = (): void => {
+    CommandDeckPanel.current?.setAuxFocus(auxFocus);
+  };
   context.subscriptions.push(
     lanesProvider.onBadge(() => syncDeckBadges()),
     deskProvider.onBadge(() => syncDeckBadges()),
+    lanesProvider.onVisibility((visible) => {
+      if (visible) auxFocus = 'lanes';
+      else if (auxFocus === 'lanes') auxFocus = null;
+      syncAuxFocus();
+    }),
+    deskProvider.onVisibility((visible) => {
+      if (visible) auxFocus = 'desk';
+      else if (auxFocus === 'desk') auxFocus = null;
+      syncAuxFocus();
+    }),
   );
 
   const showDeck = (): CommandDeckPanel => {
@@ -993,11 +1013,13 @@ export function activate(context: vscode.ExtensionContext): void {
     else await deskProvider.focus();
     auxFocus = panel;
     syncDeckBadges();
+    syncAuxFocus();
   };
 
   const hideAux = async (): Promise<void> => {
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
     auxFocus = null;
+    syncAuxFocus();
   };
 
   const toggleAux = async (target: AuxPanel): Promise<void> => {
@@ -1005,6 +1027,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (action === 'hide') await hideAux();
     else await focusAux(target);
     auxFocus = next;
+    syncAuxFocus();
   };
 
   context.subscriptions.push(sessionsNav);

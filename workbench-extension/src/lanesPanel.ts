@@ -61,6 +61,7 @@ export class LanesViewProvider implements vscode.WebviewViewProvider {
   private readonly detailCache = new Map<string, CachedDetail>();
   private detailSeq = 0;
   private readonly badgeListeners = new Set<LanesBadgeListener>();
+  private readonly visibilityListeners = new Set<(visible: boolean) => void>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     LanesViewProvider.current = this;
@@ -89,17 +90,32 @@ export class LanesViewProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this.html(webviewView.webview);
     webviewView.onDidDispose(() => this.onViewDisposed());
-    webviewView.onDidChangeVisibility(() => this.restartPoll());
+    webviewView.onDidChangeVisibility(() => {
+      this.restartPoll();
+      this.emitVisibility();
+    });
     webviewView.webview.onDidReceiveMessage((value: unknown) => void this.handle(value));
     this.restartPoll();
     void this.refresh();
     this.applyBadge();
+    this.emitVisibility();
   }
 
   onBadge(listener: LanesBadgeListener): vscode.Disposable {
     this.badgeListeners.add(listener);
     listener(this.model.badgeCount);
     return { dispose: () => this.badgeListeners.delete(listener) };
+  }
+
+  onVisibility(listener: (visible: boolean) => void): vscode.Disposable {
+    this.visibilityListeners.add(listener);
+    listener(Boolean(this.view?.visible));
+    return { dispose: () => this.visibilityListeners.delete(listener) };
+  }
+
+  private emitVisibility(): void {
+    const visible = Boolean(this.view?.visible);
+    for (const listener of this.visibilityListeners) listener(visible);
   }
 
   async refresh(): Promise<void> {
@@ -323,7 +339,7 @@ export class LanesViewProvider implements vscode.WebviewViewProvider {
     <link rel="stylesheet" href="${css}">
     <title>Lanes · detached runs</title>
   </head>
-  <body>
+  <body class="aux-view">
     <div id="app" aria-live="polite">
       <div class="boot">
         <div class="boot-mark">GS</div>
@@ -339,12 +355,14 @@ export class LanesViewProvider implements vscode.WebviewViewProvider {
     this.disposed = true;
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.view = undefined;
+    this.emitVisibility();
   }
 
   private dispose(): void {
     this.disposed = true;
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.badgeListeners.clear();
+    this.visibilityListeners.clear();
     this.detailCache.clear();
     this.view = undefined;
   }

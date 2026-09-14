@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { nextAuxToggleState, planOpenOnLaunch } from '../src/launchPlan.js';
+import { auxTogglePressed, nextAuxToggleState, planOpenOnLaunch } from '../src/launchPlan.js';
 import {
   ConversationStore,
   conversationsV1Key,
@@ -43,6 +43,15 @@ test('aux panel toggles are idempotent show/hide', () => {
   assert.deepEqual(nextAuxToggleState('lanes', 'desk'), { next: 'desk', action: 'show' });
   assert.deepEqual(nextAuxToggleState('desk', 'desk'), { next: null, action: 'hide' });
   assert.deepEqual(nextAuxToggleState(null, 'desk'), { next: 'desk', action: 'show' });
+});
+
+test('aux toggle pressed state follows focused aux panel', () => {
+  assert.equal(auxTogglePressed(null, 'lanes'), false);
+  assert.equal(auxTogglePressed(null, 'desk'), false);
+  assert.equal(auxTogglePressed('lanes', 'lanes'), true);
+  assert.equal(auxTogglePressed('lanes', 'desk'), false);
+  assert.equal(auxTogglePressed('desk', 'desk'), true);
+  assert.equal(auxTogglePressed('desk', 'lanes'), false);
 });
 
 test('v1→v2 migration preserves orchestrator and project conversations including deepseek-style titles', async () => {

@@ -26,7 +26,13 @@ import {
 import { resolveGeneralStaffRoot, scanFleet } from './services/fleet.js';
 import type { CliLaneDiscoveryOptions } from './services/lanes.js';
 import { ProjectNoteStore } from './services/notes.js';
+import { fetchAnthropicWeeklyUsage } from './services/claudeUsage.js';
 import { OrchestratorSessionManager } from './services/orchestratorSession.js';
+import {
+  decideOrchestratorSeat,
+  formatSeatChoiceNotice,
+  orchestratorReadyLane,
+} from './services/orchestratorSeat.js';
 import { PreviewServer } from './services/previewServer.js';
 import {
   discoverPrivateRuntime,
@@ -222,20 +228,19 @@ class CommandDeckPanel {
       return;
     }
     const current = this.orchestrator.current();
-    const lane = this.snapshot.lanes.find((item) => item.id === (current?.laneId ?? 'claude'))
-      ?? this.snapshot.lanes.find((item) => item.state === 'available' && item.roles.includes('orchestrate'))
-      ?? this.snapshot.lanes[0];
-    if (!lane) {
+    const resolved = await this.resolveNewOrchestratorRouting();
+    if (!resolved) {
       await this.notice('No model lanes are configured for a new session.', 'error');
       return;
     }
     const session = await this.orchestrator.startNew({
-      laneId: lane.id,
-      effort: current?.effort ?? lane.defaultEffort,
-      permission: 'read',
+      laneId: resolved.lane.id,
+      effort: current?.effort ?? resolved.lane.defaultEffort,
+      permission: resolved.permission,
     });
     this.focusedConversationId = session.id;
     await this.panel.webview.postMessage({ type: 'conversation-selected', conversation: session });
+    await this.notice(resolved.notice, 'quiet');
     await this.postState();
     this.onSessionsChanged?.();
     this.focusComposer();
@@ -287,29 +292,105 @@ class CommandDeckPanel {
     return grokRunner === 'cursor' ? { forceRunner: { grok: 'cursor' } } : {};
   }
 
+  /** True when an orchestrator session already exists (ensure will not create). */
+  private hasOrchestratorSession(): boolean {
+    if (this.orchestrator.current()) return true;
+    return this.store.all().some(
+      (conversation) =>
+        (conversation.kind === 'orchestrator' || conversation.target.kind === 'general')
+        && conversation.archivedAt === undefined,
+    );
+  }
+
+  /**
+   * Resolve lane + permission for a brand-new orchestrator session.
+   * Prefers glm-ollama-cc when Anthropic weekly usage is >80% or unavailable;
+   * otherwise prompts for an explicit seat instead of silently choosing Fable.
+   */
+  private async resolveNewOrchestratorRouting(): Promise<{
+    lane: LaneSummary;
+    permission: 'read' | 'write';
+    notice: string;
+  } | undefined> {
+    if (!this.snapshot) return undefined;
+    const ready = this.snapshot.lanes.filter(orchestratorReadyLane);
+    const availableIds = ready.map((item) => item.id);
+    const fallback = ready[0]
+      ?? this.snapshot.lanes.find((item) => item.id === 'claude')
+      ?? this.snapshot.lanes[0];
+    if (!fallback) return undefined;
+
+    const weekly = await fetchAnthropicWeeklyUsage();
+    const seatDecision = decideOrchestratorSeat(weekly, availableIds.length ? availableIds : [fallback.id]);
+
+    let lane: LaneSummary | undefined;
+    let reason = seatDecision.reason;
+    if (seatDecision.action === 'use' && seatDecision.laneId) {
+      lane = ready.find((item) => item.id === seatDecision.laneId)
+        ?? this.snapshot.lanes.find((item) => item.id === seatDecision.laneId);
+    } else {
+      const picked = await vscode.window.showQuickPick(
+        (ready.length ? ready : this.snapshot.lanes).map((item) => ({
+          label: item.name,
+          description: item.id,
+          detail: item.detail,
+          lane: item,
+        })),
+        {
+          title: 'Choose orchestrator seat',
+          placeHolder: seatDecision.reason,
+          ignoreFocusOut: true,
+        },
+      );
+      if (!picked) return undefined;
+      lane = picked.lane;
+      reason = weekly
+        ? `operator picked (Anthropic weekly ${Math.round(weekly.utilizationPercent)}%)`
+        : 'operator picked (Anthropic weekly usage unavailable)';
+    }
+    if (!lane) lane = fallback;
+
+    return {
+      lane,
+      permission: 'read',
+      notice: formatSeatChoiceNotice(lane.name, reason),
+    };
+  }
+
   private async refreshAndSend(): Promise<void> {
     try {
       const configured = vscode.workspace.getConfiguration('generalstaff').get<string>('rootPath');
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const rootPath = await resolveGeneralStaffRoot(configured, workspaceRoot);
       this.snapshot = await scanFleet(rootPath, this.privateRuntimeOptions(), this.laneOptions());
-      const orchestratorReady = (item: LaneSummary) =>
-        item.state === 'available' && item.roles.includes('orchestrate') && item.permissions.includes('read');
-      // Operator ruling 2026-08-28: the orchestrator session defaults to the Claude Fable
-      // seat when it is available; other lanes remain explicit picks.
-      const lane = this.snapshot.lanes.find((item) => item.id === 'claude' && orchestratorReady(item))
-        ?? this.snapshot.lanes.find(orchestratorReady)
-        ?? this.snapshot.lanes.find((item) => item.id === 'claude')
-        ?? this.snapshot.lanes[0];
+      const creating = !this.hasOrchestratorSession();
+      let lane: LaneSummary | undefined;
+      let permission: 'read' | 'write' = 'read';
+      let seatNotice: string | undefined;
+      if (creating) {
+        const resolved = await this.resolveNewOrchestratorRouting();
+        if (!resolved) throw new Error('No model lanes are configured for the orchestrator session.');
+        lane = resolved.lane;
+        permission = resolved.permission;
+        seatNotice = resolved.notice;
+      } else {
+        const current = this.orchestrator.current();
+        lane = (current && this.snapshot.lanes.find((item) => item.id === current.laneId))
+          ?? this.snapshot.lanes.find(orchestratorReadyLane)
+          ?? this.snapshot.lanes.find((item) => item.id === 'claude')
+          ?? this.snapshot.lanes[0];
+        permission = current?.permission ?? 'read';
+      }
       if (!lane) throw new Error('No model lanes are configured for the orchestrator session.');
       await this.orchestrator.ensure({
         laneId: lane.id,
         effort: lane.defaultEffort,
-        permission: 'read',
+        permission,
         compatibleLaneIds: this.snapshot.lanes
           .filter((item) => item.state === 'available' && item.roles.includes('orchestrate'))
           .map((item) => item.id),
       });
+      if (seatNotice) await this.notice(seatNotice, 'quiet');
       await this.postState();
     } catch (error) {
       await this.notice(error instanceof Error ? error.message : 'GeneralStaff could not refresh its project state.', 'error');

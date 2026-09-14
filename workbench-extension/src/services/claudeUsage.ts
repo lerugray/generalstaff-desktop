@@ -49,10 +49,14 @@ function readUsageRecord(usage: unknown): ClaudeUsageTokens | undefined {
   const outputTokens = asNonNegInt(record.output_tokens ?? record.outputTokens);
   // A usage object with every field missing/zero is still valid (empty turn); require at
   // least one recognised key so random JSON does not become a fake meter.
-  const hasKey = [
+  const hasPromptSideKey = [
     'input_tokens', 'inputTokens',
     'cache_read_input_tokens', 'cache_read', 'cacheReadInputTokens',
     'cache_creation_input_tokens', 'cache_creation', 'cacheCreationInputTokens',
+  ].some((key) => key in record);
+  // Output-only usage (message_delta shape) must not become occupancy 0 (MINOR 4).
+  if (!hasPromptSideKey) return undefined;
+  const hasKey = hasPromptSideKey || [
     'output_tokens', 'outputTokens',
   ].some((key) => key in record);
   if (!hasKey) return undefined;

@@ -487,10 +487,19 @@ function claudeMessageId(record: Record<string, unknown>): string | undefined {
   return typeof id === 'string' && id.trim() ? id : undefined;
 }
 
-function clipOneLine(value: string, max: number): string {
+/** Clip to one line on a Unicode rune boundary (MINOR 9) — never split surrogate pairs. */
+export function clipOneLine(value: string, max: number): string {
   const line = value.replace(/\s+/gu, ' ').trim();
-  if (line.length <= max) return line;
-  return `${line.slice(0, Math.max(0, max - 1))}…`;
+  if (Array.from(line).length <= max) return line;
+  return `${Array.from(line).slice(0, Math.max(0, max - 1)).join('')}…`;
+}
+
+const TOOL_DETAIL_MAX = 8_192;
+const TOOL_RESULT_MAX = 8_192;
+
+function capPersisted(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
 }
 
 function toolInputRecord(item: Record<string, unknown>): Record<string, unknown> {
@@ -540,13 +549,13 @@ export function claudeProtocolToolLabel(item: Record<string, unknown>): {
   return {
     name,
     summary: summary || name,
-    detail: detail || summary || name,
+    detail: capPersisted(detail || summary || name, TOOL_DETAIL_MAX),
     ...(toolUseId ? { toolUseId } : {}),
   };
 }
 
-function toolResultPreview(content: unknown): string {
-  if (typeof content === 'string') return clipOneLine(content, 120);
+function toolResultBody(content: unknown): string {
+  if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
     for (const block of content) {
@@ -558,11 +567,11 @@ function toolResultPreview(content: unknown): string {
       const item = block as Record<string, unknown>;
       if (typeof item.text === 'string' && item.text.trim()) parts.push(item.text);
     }
-    return clipOneLine(parts.join('\n'), 120);
+    return parts.join('\n');
   }
   if (typeof content === 'object' && content !== null) {
     const text = textAt(content as Record<string, unknown>, ['text', 'content', 'message']);
-    if (text) return clipOneLine(text, 120);
+    if (text) return text;
   }
   return '';
 }
@@ -603,6 +612,11 @@ export function claudeProtocolAssistantEvents(record: Record<string, unknown>): 
       events.push({ type: 'thinking', text: item.text, ...(turnId ? { turnId } : {}) });
       continue;
     }
+    // Redacted thinking still surfaces as a collapsed placeholder (MINOR 7) — never drop it.
+    if (item.type === 'redacted_thinking' || item.type === 'redacted-thinking') {
+      events.push({ type: 'thinking', text: 'Thinking · redacted', ...(turnId ? { turnId } : {}) });
+      continue;
+    }
     if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
       events.push({ type: 'assistant-delta', text: item.text, ...(turnId ? { turnId } : {}) });
       continue;
@@ -626,7 +640,7 @@ export function claudeProtocolAssistantEvents(record: Record<string, unknown>): 
   return events;
 }
 
-/** tool_result blocks on a Claude-protocol `user` envelope (ok/error + first line). */
+/** tool_result blocks on a Claude-protocol `user` envelope (ok/error + full body). */
 export function claudeProtocolToolResultEvents(record: Record<string, unknown>): RunEvent[] {
   const content = claudeMessageContent(record);
   if (!content) return [];
@@ -639,11 +653,14 @@ export function claudeProtocolToolResultEvents(record: Record<string, unknown>):
       : typeof item.toolUseId === 'string' ? item.toolUseId
         : undefined;
     const ok = item.is_error !== true && item.isError !== true;
-    const preview = toolResultPreview(item.content);
+    const body = capPersisted(toolResultBody(item.content), TOOL_RESULT_MAX);
+    // Collapsed summary line only — expanded card uses `body` with newlines (LOOK D1).
+    const preview = clipOneLine(body, 120);
     events.push({
       type: 'tool-result',
       ok,
       preview,
+      body,
       ...(toolUseId ? { toolUseId } : {}),
     });
   }

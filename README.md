@@ -70,7 +70,10 @@ the previous session stays listed. The deck topbar shows the active session titl
 Sessions) and the same New session control. Clearing a stuck thread is Delete or New session — there
 is no need to hunt for a hidden reset.
 
-**Versions.** `0.4.16` is the installed Workbench package (installed into the isolated profile 2026-09-14, after an independent vision look and an adversarial code review whose ten findings were fixed) and the package on this branch — Lanes/Desk as auxiliary-bar toggles, Sessions
+**Versions.** `0.4.17` is the installed Workbench package (installed into the isolated profile
+2026-09-14, after a three-round M3e build/regate cycle — occupancy meter, tool/thinking cards, and
+per-turn transcript rendering, with the deck meter CSS scoped so Lanes/Desk render unchanged) and
+the package on this branch. `0.4.16` closed M3d — Lanes/Desk as auxiliary-bar toggles, Sessions
 sidebar (new/rename/archive/delete), conversations storage `v2`. `0.4.15` corrected Claude Fable/Sonnet
 native ceiling to 1M. `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The
 Workbench's working branch is

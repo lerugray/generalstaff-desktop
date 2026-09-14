@@ -36,6 +36,10 @@
     creatingConversation: false,
     runStatus: {},
     runActivity: {},
+    /** Live activity strip per conversation (M3). */
+    runLive: {},
+    composerSettingsOpen: false,
+    stickToBottom: true,
     /** Live occupancy keyed by conversationId (Claude Code stream-json). */
     contextUsage: {},
     /** First assistant-turn occupancy (preamble) keyed by conversationId. */
@@ -86,6 +90,15 @@
       return `${Number.isInteger(rounded) ? String(rounded) : String(rounded)}k`;
     }
     return String(Math.round(tokens));
+  }
+
+  function applyMeterFills(root) {
+    // CSP blocks style= attributes on the main webview; set width via CSSOM (M7).
+    const scope = root || document;
+    for (const el of scope.querySelectorAll('[data-meter-fill]')) {
+      const pct = Number(el.getAttribute('data-meter-fill'));
+      if (Number.isFinite(pct)) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    }
   }
 
   function formatContextCeilingLabel(ceiling) {
@@ -146,7 +159,7 @@
     const meter = formatContextUsageMeter(ceiling, usedTokens);
     const fill = meter.percent == null
       ? ''
-      : `<span class="lanes-context-fill" style="width:${Math.max(2, Math.min(100, meter.percent))}%"></span>`;
+      : `<span class="lanes-context-fill" data-meter-fill="${Math.max(0, Math.min(100, meter.percent))}"></span>`;
     const mark = meter.warn
       ? `<span class="lanes-context-warn lanes-amber" aria-label="context warning">⚠</span>`
       : '';
@@ -175,8 +188,11 @@
       if (block.type === 'thinking') {
         const chars = String(block.text || '').length;
         const redacted = block.text === 'Thinking · redacted';
+        const summary = redacted
+          ? 'Thinking · redacted'
+          : `Thinking · ${escapeHtml(formatThinkingChars(chars))} chars`;
         return `<details class="thinking-card${redacted ? ' is-redacted' : ''}">
-          <summary><span class="card-chevron" aria-hidden="true"></span><span class="thinking-glyph" aria-hidden="true"></span>Thinking · ${escapeHtml(formatThinkingChars(chars))} chars</summary>
+          <summary><span class="card-chevron" aria-hidden="true"></span><span class="thinking-glyph" aria-hidden="true"></span>${summary}</summary>
           <pre class="thinking-card-body">${escapeHtml(block.text || '')}</pre>
         </details>`;
       }
@@ -504,13 +520,16 @@
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : item.kind === 'folder' ? '▣' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>
-        <p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>`}
+        ${compact ? '' : '<p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>'}`}
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
-        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
+        <textarea id="prompt" rows="1" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
-          <div class="composer-selects">${renderSeatSelect()}${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
-          <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
-            <span>${orchestrator ? 'Send' : 'Issue order'}</span><span class="send-arrow">↑</span>
+          <div class="composer-selects" data-collapsed="1">
+            <button type="button" class="composer-gear" data-action="toggle-composer-settings" title="Seat settings" aria-label="Seat settings">⚙</button>
+            <div class="composer-selects-panel">${renderSeatSelect()}${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
+          </div>
+          <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
+            <span>${running ? 'Queue' : orchestrator ? 'Send' : 'Issue order'}</span><span class="send-arrow">↑</span>
           </button>
         </div>
       </section>`;
@@ -704,6 +723,60 @@
       </section>`;
   }
 
+  function shortDoorLabel(label) {
+    const text = String(label || '');
+    if (/ollama\s*cloud\s*cc/i.test(text) || /ollama.*cc door/i.test(text)) return 'Ollama Cloud CC';
+    if (text.length <= 22) return text;
+    return `${text.slice(0, 20)}…`;
+  }
+
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const mm = String(Math.floor(total / 60)).padStart(2, '0');
+    const ss = String(total % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }
+
+  function ensureRunLive(conversationId) {
+    if (!state.runLive[conversationId]) {
+      state.runLive[conversationId] = {
+        startedAt: Date.now(),
+        toolStartedAt: null,
+        toolLabel: '',
+        phase: 'running',
+        wokeOn: '',
+      };
+    }
+    return state.runLive[conversationId];
+  }
+
+  function renderActivityStrip(conversation) {
+    const live = state.runLive[conversation.id];
+    const running = Boolean(state.runStatus[conversation.id]);
+    if (!running && !live) return '';
+    const now = Date.now();
+    const total = live ? formatElapsed(now - live.startedAt) : '00:00';
+    const toolElapsed = live?.toolElapsedSeconds != null
+      ? formatElapsed(live.toolElapsedSeconds * 1000)
+      : live?.toolStartedAt
+        ? formatElapsed(now - live.toolStartedAt)
+        : '';
+    const idle = !running || live?.phase === 'idle';
+    const line = idle
+      ? 'idle — your turn'
+      : live?.wokeOn
+        ? `woke on: ${live.wokeOn} finished`
+        : live?.toolLabel
+          ? `${live.toolLabel}${toolElapsed ? ` · ${toolElapsed}` : ''} · run ${total}`
+          : `${state.runStatus[conversation.id] || 'Running'} · ${total}`;
+    return `
+      <div class="activity-strip${idle ? ' is-idle' : ''}" data-activity-strip="${escapeHtml(conversation.id)}">
+        ${idle ? '' : '<span class="spinner"></span>'}
+        <span class="activity-strip-line">${escapeHtml(line)}</span>
+        ${running ? '<button data-action="stop-run">Stop</button>' : ''}
+      </div>`;
+  }
+
   function renderConversation() {
     let conversation = currentConversation();
     if (!conversation && state.selectedTargetKind === 'general' && state.orchestratorSessionId) {
@@ -724,11 +797,11 @@
           <div class="conversation-meta">
             ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
-              <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
-              <span>${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
+              <span title="${escapeHtml(lane?.name || conversation.laneId)}">${escapeHtml(lane?.name || conversation.laneId)}</span>
+              <span class="door-chip" title="${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}">${escapeHtml(shortDoorLabel(lane?.evidenceLabel || 'Evidence class not recorded'))}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
-              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
-              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
+              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}" title="${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
+              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip" title="GENERALSTAFF_ROOT">GENERALSTAFF_ROOT</span>'}
             </div>
             ${renderContextMeter(lane?.contextCeiling, conversation.id)}
           </div>
@@ -738,7 +811,7 @@
               .map(
                 (message) => `
                   <article class="message ${message.role} ${message.status || ''}" data-message-id="${escapeHtml(message.id)}">
-                    <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
+                    <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}${message.delivery === 'queued' ? '<span class="delivery-chip queued">queued — delivered after the current tool call</span>' : message.delivery === 'sent' ? '<span class="delivery-chip sent">sent to the seat</span>' : message.delivery === 'delivered' ? '<span class="delivery-chip delivered">delivered</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
                     <div class="message-body">${renderMessageBody(message)}</div>
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
@@ -748,14 +821,7 @@
             ${renderRecovery(conversation, Boolean(run))}
           </section>
           <div class="conversation-compose-wrap">
-            ${run ? `<div class="run-strip">
-              <span class="spinner"></span>
-              <details class="run-activity">
-                <summary>${escapeHtml(run)}</summary>
-                <ol>${(state.runActivity[conversation.id] || []).map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
-              </details>
-              <button data-action="stop-run">Stop</button>
-            </div>` : ''}
+            ${renderActivityStrip(conversation)}
             ${renderComposer(true)}
           </div>
         </div>
@@ -773,17 +839,25 @@
     if (oldPrompt) state.draft = oldPrompt.value;
     const oldStream = document.querySelector('.message-stream');
     const oldScrollTop = oldStream?.scrollTop || 0;
-    const wasNearBottom = oldStream ? oldStream.scrollHeight - oldStream.scrollTop - oldStream.clientHeight < 72 : true;
+    const wasNearBottom = oldStream
+      ? oldStream.scrollHeight - oldStream.scrollTop - oldStream.clientHeight < 72
+      : true;
+    state.stickToBottom = wasNearBottom;
     const restorePromptFocus = document.activeElement?.id === 'prompt';
     const selectionStart = oldPrompt?.selectionStart;
     const selectionEnd = oldPrompt?.selectionEnd;
     ensureSelections();
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
     app.innerHTML = `<div class="workbench">${renderRail()}${content}${renderNotice()}</div>`;
+    applyMeterFills(app);
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
         const stream = document.querySelector('.message-stream');
-        if (stream) stream.scrollTop = wasNearBottom ? stream.scrollHeight : oldScrollTop;
+        if (!stream) return;
+        if (state.stickToBottom) stream.scrollTop = stream.scrollHeight;
+        else stream.scrollTop = oldScrollTop;
+        syncJumpPill(stream);
+        fitComposer();
       });
     }
     if (restorePromptFocus) {
@@ -798,6 +872,123 @@
     remember();
   }
 
+  function syncJumpPill(stream) {
+    const shell = document.querySelector('.conversation-shell');
+    const composeWrap = document.querySelector('.conversation-compose-wrap');
+    if (!shell || !stream) return;
+    let pill = shell.querySelector('.jump-latest');
+    const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
+    state.stickToBottom = nearBottom;
+    if (nearBottom) {
+      pill?.remove();
+      return;
+    }
+    if (!pill) {
+      pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'jump-latest';
+      pill.dataset.action = 'jump-latest';
+      pill.textContent = '↓ jump to latest';
+    }
+    // Anchor inside the compose wrap, above its content, so the pill never covers Stop (FIX 5).
+    if (composeWrap) {
+      composeWrap.prepend(pill);
+    } else {
+      shell.appendChild(pill);
+    }
+  }
+
+  function fitComposer() {
+    const prompt = document.getElementById('prompt');
+    if (!prompt) return;
+    prompt.style.height = 'auto';
+    const styles = window.getComputedStyle(prompt);
+    const line = Number.parseFloat(styles.lineHeight) || 21;
+    const max = line * 6 + 8;
+    prompt.style.height = `${Math.min(max, Math.max(line + 4, prompt.scrollHeight))}px`;
+  }
+
+  function patchActivityStrip(conversationId) {
+    const existing = document.querySelector(`[data-activity-strip="${conversationId}"]`);
+    const conversation = state.conversations.find((item) => item.id === conversationId);
+    if (!conversation) return;
+    const html = renderActivityStrip(conversation).trim();
+    if (!html) {
+      existing?.remove();
+      return;
+    }
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const next = temp.firstElementChild;
+    if (!next) return;
+    // Patch text/idle class in place so the Stop button is not replaced every tick (FIX 11).
+    if (existing && existing.dataset.activityStrip === conversationId) {
+      existing.className = next.className;
+      const line = existing.querySelector('.activity-strip-line');
+      const nextLine = next.querySelector('.activity-strip-line');
+      if (line && nextLine) line.textContent = nextLine.textContent;
+      const spinner = existing.querySelector('.spinner');
+      const nextSpinner = next.querySelector('.spinner');
+      if (!nextSpinner) spinner?.remove();
+      else if (!spinner) existing.prepend(nextSpinner);
+      const stop = existing.querySelector('[data-action="stop-run"]');
+      const nextStop = next.querySelector('[data-action="stop-run"]');
+      if (!nextStop) stop?.remove();
+      else if (!stop) existing.appendChild(nextStop);
+    } else if (existing) {
+      existing.replaceWith(next);
+    } else {
+      document.querySelector('.conversation-compose-wrap')?.prepend(next);
+    }
+    const running = Boolean(state.runStatus[conversationId]);
+    const send = document.querySelector('.send-button span');
+    if (send && !send.classList.contains('send-arrow')) {
+      const orchestrator = conversation.kind === 'orchestrator';
+      send.textContent = running ? 'Queue' : orchestrator ? 'Send' : 'Issue order';
+    }
+    const prompt = document.getElementById('prompt');
+    if (prompt) {
+      prompt.placeholder = running
+        ? (conversation.kind === 'orchestrator' ? 'Steer the seat…' : 'Steer this run…')
+        : (conversation.kind === 'orchestrator' ? 'Message the orchestrator…' : 'Describe the project outcome…');
+    }
+  }
+
+  function patchContextMeter(conversationId) {
+    const meta = document.querySelector('.conversation-meta');
+    if (!meta || state.activeConversationId !== conversationId) return;
+    const conversation = state.conversations.find((item) => item.id === conversationId);
+    const lane = state.snapshot?.lanes.find((item) => item.id === conversation?.laneId);
+    const current = meta.querySelector('.lanes-context-meter');
+    const html = renderContextMeter(lane?.contextCeiling, conversationId).trim();
+    if (!html) {
+      current?.remove();
+      return;
+    }
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const next = temp.firstElementChild;
+    if (!next) return;
+    if (current) current.replaceWith(next);
+    else meta.appendChild(next);
+    applyMeterFills(meta);
+  }
+
+  function patchNoticeOnly() {
+    const root = document.querySelector('.workbench');
+    if (!root) {
+      render();
+      return;
+    }
+    root.querySelector('.toast')?.remove();
+    const html = renderNotice().trim();
+    if (!html) return;
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const next = temp.firstElementChild;
+    if (next) root.appendChild(next);
+  }
+
   function issueCommand() {
     const prompt = document.getElementById('prompt');
     const text = prompt?.value.trim();
@@ -808,9 +999,18 @@
       conversation = currentConversation();
     }
     if (conversation) {
-      if (state.runStatus[conversation.id] || state.pendingSend) return;
+      if (state.pendingSend) return;
       state.pendingSend = { conversationId: conversation.id, text };
+      // Run clock starts at send, not at the first tool event (FIX 8).
+      if (!state.runStatus[conversation.id]) {
+        const live = ensureRunLive(conversation.id);
+        live.startedAt = Date.now();
+        live.phase = 'running';
+        state.runStatus[conversation.id] = 'Starting…';
+      }
       vscode.postMessage({ type: 'send-prompt', conversationId: conversation.id, text });
+      if (prompt) prompt.value = '';
+      state.draft = '';
       render();
       return;
     }
@@ -919,6 +1119,18 @@
     } else if (action === 'stop-run') {
       const id = currentConversation()?.id;
       if (id) vscode.postMessage({ type: 'stop-run', conversationId: id });
+    } else if (action === 'toggle-composer-settings') {
+      state.composerSettingsOpen = !state.composerSettingsOpen;
+      const selects = document.querySelector('.composer-selects');
+      if (selects) selects.dataset.open = state.composerSettingsOpen ? '1' : '0';
+      else render();
+    } else if (action === 'jump-latest') {
+      const stream = document.querySelector('.message-stream');
+      if (stream) {
+        stream.scrollTop = stream.scrollHeight;
+        state.stickToBottom = true;
+        syncJumpPill(stream);
+      }
     } else if (action === 'retry-run' || action === 'retry-transcript') {
       const id = currentConversation()?.id;
       if (id && !state.runStatus[id]) {
@@ -994,9 +1206,16 @@
   app.addEventListener('input', (event) => {
     if (event.target.id === 'prompt') {
       state.draft = event.target.value;
+      fitComposer();
       remember();
     }
   });
+
+  app.addEventListener('scroll', (event) => {
+    if (event.target?.classList?.contains('message-stream')) {
+      syncJumpPill(event.target);
+    }
+  }, true);
 
   app.addEventListener('keydown', (event) => {
     if (typeof GSComposerKeys !== 'undefined' && GSComposerKeys.shouldSendOnEnter(event)) {
@@ -1118,7 +1337,13 @@
       if (message.status !== 'streaming') {
         delete state.runStatus[message.conversationId];
         delete state.runActivity[message.conversationId];
+        if (state.runLive[message.conversationId]) {
+          state.runLive[message.conversationId].phase = 'idle';
+          state.runLive[message.conversationId].toolLabel = '';
+          state.runLive[message.conversationId].toolStartedAt = null;
+        }
         if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
+        patchActivityStrip(message.conversationId);
       }
       patchConversationDelta(message);
     } else if (message.type === 'context-usage') {
@@ -1132,7 +1357,7 @@
         if (typeof message.sessionSpend === 'number') {
           state.contextSessionSpend[message.conversationId] = message.sessionSpend;
         }
-        render();
+        patchContextMeter(message.conversationId);
       }
     } else if (message.type === 'run-event') {
       if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
@@ -1141,7 +1366,40 @@
       if (lines.length > 48) lines.splice(0, lines.length - 48);
       state.runActivity[message.conversationId] = lines;
       state.runStatus[message.conversationId] = message.event.text;
-      render();
+      const live = ensureRunLive(message.conversationId);
+      const text = String(message.event.text || '');
+      const toolLine = message.event.name
+        ? `${message.event.name}${message.event.summary ? ` · ${String(message.event.summary).split('\n')[0]}` : ''}`
+        : text.split('\n')[0];
+      if (/follow-up (?:delivered|sent to seat)/i.test(text)) {
+        live.phase = 'running';
+      } else if (/^woke on:/i.test(text)) {
+        live.wokeOn = text.replace(/^woke on:\s*/i, '').replace(/\s*finished$/i, '');
+        live.phase = 'running';
+      } else if (/^tool_progress\s+/i.test(text) || /\s·\s\d+s$/i.test(text)) {
+        // Authoritative per-call elapsed from the seat (FIX 8 / R2-3 plain words).
+        const match = text.match(/^tool_progress\s+(\S+)\s+(\d+)/i) || text.match(/^(.+?)\s·\s(\d+)s$/i);
+        if (match) {
+          const seconds = Number(match[2]);
+          live.toolLabel = live.toolLabel || match[1];
+          live.toolStartedAt = Date.now() - seconds * 1000;
+          live.toolElapsedSeconds = seconds;
+          live.phase = 'running';
+          // Prefer the human line in the strip fallback, never the jargon form.
+          state.runStatus[message.conversationId] = `${match[1]} · ${seconds}s`;
+        }
+      } else if (message.event.type === 'tool' || message.event.name) {
+        live.toolLabel = String(toolLine).slice(0, 120);
+        live.toolStartedAt = Date.now();
+        live.toolElapsedSeconds = undefined;
+        live.phase = 'running';
+        live.wokeOn = '';
+      } else if (/^Starting /i.test(text)) {
+        // Prefer the send-time clock if we already started it.
+        if (!live.startedAt) live.startedAt = Date.now();
+        live.phase = 'running';
+      }
+      patchActivityStrip(message.conversationId);
     } else if (message.type === 'notice') {
       if (message.tone === 'error') state.creatingConversation = false;
       if (message.conversationId && state.pendingActionConversationId === message.conversationId) {
@@ -1150,14 +1408,17 @@
         state.pendingActionConversationId = null;
       }
       state.notice = { text: message.text, tone: message.tone };
-      render();
+      patchNoticeOnly();
       window.setTimeout(() => {
         state.notice = null;
-        render();
+        patchNoticeOnly();
       }, 4200);
     } else if (message.type === 'notes') {
       state.notes = message.notes || {};
-      render();
+      const note = document.getElementById('project-note');
+      if (note && state.selectedProjectId) {
+        note.value = state.notes[state.selectedProjectId] || '';
+      }
     } else if (message.type === 'context-picked') {
       const existing = new Set(state.pendingContext.map((item) => item.path));
       state.pendingContext.push(...(message.items || []).filter((item) => !existing.has(item.path)));
@@ -1179,6 +1440,12 @@
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     }
   });
+
+  window.setInterval(() => {
+    const id = state.activeConversationId;
+    if (!id || !state.runStatus[id]) return;
+    patchActivityStrip(id);
+  }, 1000);
 
   vscode.postMessage({ type: 'ready' });
 })();

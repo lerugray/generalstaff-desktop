@@ -55,6 +55,10 @@ class CommandDeckPanel {
   private readonly preview = new PreviewServer();
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly pendingRuns = new Set<string>();
+  /** Follow-ups waiting for a non-steerable run to finish, then auto-start. */
+  private readonly pendingFollowUps = new Map<string, string[]>();
+  /** User message ids held for live stdin delivery (chip: queued → delivered). */
+  private readonly heldDeliveryIds = new Map<string, string[]>();
   private snapshot: FleetSnapshot | undefined;
   private disposed = false;
   private onSessionsChanged: (() => void) | undefined;
@@ -463,6 +467,8 @@ class CommandDeckPanel {
         return;
       case 'stop-run':
         this.activeRuns.get(message.conversationId)?.stop();
+        this.pendingFollowUps.delete(message.conversationId);
+        this.heldDeliveryIds.delete(message.conversationId);
         await this.notice('Stopping the active lane now.', 'quiet');
         return;
       case 'open-project':
@@ -509,7 +515,7 @@ class CommandDeckPanel {
     }
     this.focusedConversationId = conversationId;
     if (this.activeRuns.has(conversationId) || this.pendingRuns.has(conversationId)) {
-      await this.notice('That conversation already has a lane running.', 'error', conversationId);
+      await this.enqueueWhileRunning(conversationId, rawText);
       return;
     }
 
@@ -744,7 +750,13 @@ class CommandDeckPanel {
               await this.panel.webview.postMessage({
                 type: 'run-event',
                 conversationId,
-                event: { type: 'tool', text: event.text },
+                event: {
+                  type: 'tool',
+                  text: event.text,
+                  ...(event.name ? { name: event.name } : {}),
+                  ...(event.summary ? { summary: event.summary } : {}),
+                  ...(event.detail ? { detail: event.detail } : {}),
+                },
               });
             });
           } else if (event.type === 'tool-result') {
@@ -786,8 +798,18 @@ class CommandDeckPanel {
               conversationId,
               sessionSpend: event.tokens,
             });
+          } else if (event.type === 'turn-boundary') {
+            // Hold-until-turn flush already emitted 'follow-up delivered' when a queued
+            // message was written. Idle strip updates when the run exits.
           } else if (event.type === 'status') {
             lastStreamKind = 'other';
+            if (event.text === 'follow-up sent to seat') {
+              // Chip "sent to the seat" only after a successful stdin write (FIX 4).
+              void this.markNextHeldDelivery(conversationId, 'sent');
+            } else if (event.text === 'follow-up delivered') {
+              // Flip to delivered only once the seat emits assistant/result output.
+              void this.markNextHeldDelivery(conversationId, 'delivered');
+            }
             void this.panel.webview.postMessage({
               type: 'run-event',
               conversationId,
@@ -857,7 +879,17 @@ class CommandDeckPanel {
           await this.stream(conversationId, currentAssistantId, finalText, 'error', blocks);
           await this.notice(reason, 'error', conversationId);
         })
-        .finally(() => this.activeRuns.delete(conversationId));
+        .finally(() => {
+          this.activeRuns.delete(conversationId);
+          this.heldDeliveryIds.delete(conversationId);
+          const queued = this.pendingFollowUps.get(conversationId);
+          if (queued?.length) {
+            const next = queued.shift()!;
+            if (queued.length) this.pendingFollowUps.set(conversationId, queued);
+            else this.pendingFollowUps.delete(conversationId);
+            void this.startPendingFollowUp(conversationId, next);
+          }
+        });
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'The selected lane could not start.';
       const latest = this.store.get(conversationId)?.messages.at(-1);
@@ -865,9 +897,101 @@ class CommandDeckPanel {
         await this.stream(conversationId, latest.id, reason, 'error');
       }
       await this.notice(reason, 'error', conversationId);
+      // FIX 11: outer catch must not strand pendingFollowUps.
+      const queued = this.pendingFollowUps.get(conversationId);
+      if (queued?.length) {
+        const next = queued.shift()!;
+        if (queued.length) this.pendingFollowUps.set(conversationId, queued);
+        else this.pendingFollowUps.delete(conversationId);
+        void this.startPendingFollowUp(conversationId, next);
+      }
     } finally {
       this.pendingRuns.delete(conversationId);
     }
+  }
+
+
+  /**
+   * Resume a follow-up that was held because stdin was closed (or the lane is
+   * non-steerable). Reuse the existing queued user bubble — never duplicate it.
+   */
+  private async startPendingFollowUp(conversationId: string, text: string): Promise<void> {
+    const conversation = this.store.get(conversationId);
+    const existing = [...(conversation?.messages ?? [])]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          message.text === text &&
+          (message.delivery === 'queued' || message.delivery === 'sent'),
+      );
+    if (existing) {
+      await this.store.setMessageDelivery(conversationId, existing.id, 'delivered');
+      await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
+      await this.startRun(conversationId, text, { appendUser: false });
+      return;
+    }
+    await this.startRun(conversationId, text);
+  }
+
+  /**
+   * Mid-run steering (M5): never reject with "already has a lane running".
+   * Steerable CC doors write to live stdin immediately; on write failure fall
+   * through to pendingFollowUps so the message is never silently lost.
+   */
+  private async enqueueWhileRunning(conversationId: string, rawText: string): Promise<void> {
+    const text = rawText.trim();
+    if (!text) return;
+    const run = this.activeRuns.get(conversationId);
+    const updated = await this.store.append(conversationId, {
+      role: 'user',
+      text,
+      status: 'complete',
+      delivery: 'queued',
+    });
+    const messageId = updated?.messages.at(-1)?.id;
+    await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
+
+    if (run?.steering === 'hold-until-turn' && run.enqueueFollowUp && messageId) {
+      const accepted = run.enqueueFollowUp(text);
+      if (accepted) {
+        // Track for chip flips; stay "queued" until adapter emits "follow-up sent to seat".
+        const held = this.heldDeliveryIds.get(conversationId) ?? [];
+        held.push(messageId);
+        this.heldDeliveryIds.set(conversationId, held);
+        return;
+      }
+      // stdin closed between turn-boundary and activeRuns.delete — report and fall
+      // through so pendingFollowUps auto-starts after exit (FIX 2).
+      await this.notice(
+        'Could not write to the live seat stdin; your message will send when this round exits.',
+        'error',
+        conversationId,
+      );
+    }
+
+    // Non-steerable lanes, or steerable write failure: hold until this run exits.
+    const pending = this.pendingFollowUps.get(conversationId) ?? [];
+    pending.push(text);
+    this.pendingFollowUps.set(conversationId, pending);
+  }
+
+  private async markNextHeldDelivery(
+    conversationId: string,
+    delivery: 'sent' | 'delivered',
+  ): Promise<void> {
+    const held = this.heldDeliveryIds.get(conversationId);
+    if (!held?.length) return;
+    // "sent" keeps the id in the queue for the later "delivered" flip.
+    // "delivered" consumes it.
+    const messageId = delivery === 'delivered' ? held.shift() : held[0];
+    if (!messageId) return;
+    if (delivery === 'delivered') {
+      if (!held.length) this.heldDeliveryIds.delete(conversationId);
+      else this.heldDeliveryIds.set(conversationId, held);
+    }
+    await this.store.setMessageDelivery(conversationId, messageId, delivery);
+    await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
   }
 
   private async retryRun(conversationId: string, strategy: 'auto' | 'transcript'): Promise<void> {

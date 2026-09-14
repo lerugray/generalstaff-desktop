@@ -195,10 +195,10 @@ test('normalizeCliLine emits occupancy for assistant envelopes and session-spend
         usage: { input_tokens: 1, cache_read_input_tokens: 2, cache_creation_input_tokens: 3 },
       }),
     ),
-    { type: 'session-spend', tokens: 6 },
+    [{ type: 'turn-boundary' }, { type: 'session-spend', tokens: 6 }],
   );
-  assert.equal(
+  assert.deepEqual(
     normalizeCliLine('claude', JSON.stringify({ type: 'result', result: 'I will update the handoff note.' })),
-    undefined,
+    [{ type: 'turn-boundary' }],
   );
 });

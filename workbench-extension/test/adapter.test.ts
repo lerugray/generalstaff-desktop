@@ -65,9 +65,9 @@ test('Claude-protocol lanes extract only text blocks and never leak tool_use pay
     },
   );
 
-  assert.equal(
+  assert.deepEqual(
     normalizeCliLine('claude', JSON.stringify({ type: 'result', result: 'I will update the handoff note.' })),
-    undefined,
+    [{ type: 'turn-boundary' }],
   );
 });
 

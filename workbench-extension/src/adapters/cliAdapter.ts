@@ -38,9 +38,30 @@ export interface RunCompletion {
   providerSessionId?: string;
 }
 
+export type SteeringMode = 'none' | 'hold-until-turn';
+
 export interface ActiveRun {
   stop(): void;
   completed: Promise<RunCompletion>;
+  /** When set, mid-run follow-ups go to this live process instead of spawning again. */
+  steering?: SteeringMode;
+  /**
+   * Deliver a follow-up onto the live stdin immediately (harness enqueues mid-turn).
+   * Returns false when the write could not be performed — caller must fall through
+   * to pendingFollowUps so the message is never silently lost.
+   */
+  enqueueFollowUp?(text: string): boolean;
+}
+
+/** One stream-json user line for Claude Code `--input-format stream-json`. */
+export function streamJsonUserLine(text: string): string {
+  return `${JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text }],
+    },
+  })}\n`;
 }
 
 interface ContinuityOptions {
@@ -137,6 +158,16 @@ function cursorGrokModel(effort: EffortId): string {
   return `cursor-grok-4.6-${effort}`;
 }
 
+const SEAT_CONDUCT = [
+  'SEAT CONDUCT:',
+  '(a) Work in rounds. End every round — at most ~10 minutes of activity, or immediately when a dispatch/harvest lands — with a 3-6 line plain-English status covering DONE / RUNNING (lane + sentinel + expected time) / NEXT / NEEDS YOU, then hand control back.',
+  '(b) Never block inside a tool call: no sleep over 60 s, no polling loops in a foreground call. Long waits go to a background `until` loop (run_in_background) or a Monitor; report the event in a new round when it fires.',
+  '(c) Filter shell output: keep what the operator needs; drop noise.',
+  '(d) The decision-card protocol below is unchanged.',
+  '(e) If the operator queued a message while you were in a round, acknowledge it and act on it at the next turn boundary before continuing prior work.',
+  'Speak plain English to the operator. No jargon dumps.',
+].join('\n');
+
 export function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string): string {
   const boundaries: Record<SeatId, string> = {
     orchestrate:
@@ -159,7 +190,7 @@ export function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: 
     '<gs-decision>{"title":"Short decision title","question":"What must the operator decide?","options":[{"label":"First option","description":"Concrete consequence"},{"label":"Second option","description":"Concrete consequence"}]}</gs-decision>',
     'Use two to four mutually exclusive options. Do not emit the block for ordinary suggestions, and never choose on the operator\'s behalf.',
   ].join('\n');
-  return `${boundaries[seat]}\n\nPermission boundary:\n${permissionBoundary}\n\n${decisionBoundary}\n\nOperator request:\n${prompt}`;
+  return `${boundaries[seat]}\n\n${SEAT_CONDUCT}\n\nPermission boundary:\n${permissionBoundary}\n\n${decisionBoundary}\n\nOperator request:\n${prompt}`;
 }
 
 export function invocationFor(
@@ -169,7 +200,14 @@ export function invocationFor(
   cwd: string,
   prompt: string,
   options: ContinuityOptions = {},
-): { args: string[]; stdin?: string; label: string; effort: EffortId } {
+): {
+  args: string[];
+  stdin?: string;
+  keepStdinOpen?: boolean;
+  steering?: SteeringMode;
+  label: string;
+  effort: EffortId;
+} {
   const groundedPrompt = promptForSeat(seat, permission, prompt);
   const writeCapable = permission === 'write';
   const runner = options.runner ?? laneId;
@@ -256,11 +294,12 @@ export function invocationFor(
       // Claude's plan mode is the provider-enforced read boundary. Never weaken
       // it to expose MCP tools: caller-supplied servers are stripped from every
       // read-only invocation and are available only after explicit write consent.
+      // M5: stream-json INPUT keeps stdin open so mid-run steering lands on the
+      // same live process (hold-until-turn fallback — see PROBE-STEERING.md).
       const claudeMcpServers = writeCapable ? mcpServers : [];
       return {
         args: [
           '-p',
-          groundedPrompt,
           ...(nativeSession
             ? ['--resume', nativeSession]
             : options.initialSessionId
@@ -268,6 +307,8 @@ export function invocationFor(
               : []),
           '--model',
           'fable',
+          '--input-format',
+          'stream-json',
           '--output-format',
           'stream-json',
           '--verbose',
@@ -279,6 +320,9 @@ export function invocationFor(
           ...claudeMcpPermissionArgs(claudeMcpServers),
           ...claudeMcpArgs(claudeMcpServers),
         ],
+        stdin: streamJsonUserLine(groundedPrompt),
+        keepStdinOpen: true,
+        steering: 'hold-until-turn',
         label: `Claude Fable · ${effortLabel(effort)}`,
         effort,
       };
@@ -372,12 +416,13 @@ export function invocationFor(
       // boundary, effort levels and session resume all behave exactly as they do on the Fable
       // seat. Only the provider behind it differs. MCP servers are withheld on read-only runs
       // for the same reason they are on the Claude lane.
+      // M5: stream-json INPUT + open stdin — mid-run messages are held until the next
+      // turn boundary, then written on this same live process (PROBE-STEERING.md).
       const ccMcpServers = writeCapable ? mcpServers : [];
       return {
         args: [
           ollamaCcDoorFor(laneId).door,
           '-p',
-          groundedPrompt,
           ...(nativeSession
             ? ['--resume', nativeSession]
             : options.initialSessionId
@@ -385,6 +430,8 @@ export function invocationFor(
               : []),
           '--model',
           'sonnet',
+          '--input-format',
+          'stream-json',
           '--output-format',
           'stream-json',
           '--verbose',
@@ -396,6 +443,9 @@ export function invocationFor(
           ...claudeMcpPermissionArgs(ccMcpServers),
           ...claudeMcpArgs(ccMcpServers),
         ],
+        stdin: streamJsonUserLine(groundedPrompt),
+        keepStdinOpen: true,
+        steering: 'hold-until-turn',
         label: `${ollamaCcDoorFor(laneId).model} via Claude Code · ${effortLabel(effort)}`,
         effort,
       };
@@ -938,12 +988,15 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
   // has already arrived as assistant stream events. Suppress that known final
   // envelope's prose. Its usage is SESSION SPEND (cumulative), not occupancy —
   // emit session-spend only; never overwrite the meter with it (M3e).
+  // Also emit turn-boundary so the steering channel can flush a held follow-up
+  // onto the same live stdin (M5 hold-until-turn fallback).
   if (speaksClaudeProtocol(laneId) && (type === 'result' || type === 'run_result')) {
+    const events: RunEvent[] = [{ type: 'turn-boundary' }];
     const usage = parseClaudeStreamUsage(safeLine);
     if (usage?.source === 'result') {
-      return { type: 'session-spend', tokens: usage.usedTokens };
+      events.push({ type: 'session-spend', tokens: usage.usedTokens });
     }
-    return undefined;
+    return events;
   }
 
   // Claude-protocol lanes: walk message.content[] explicitly. Never use the
@@ -959,6 +1012,37 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
     }
     if (type === 'user') {
       return packEvents(claudeProtocolToolResultEvents(record));
+    }
+    // M3 "woke on:" — system/task_notification with status completed (FIX 6 / R2-4).
+    // Require a task-notification subtype; a bare status:completed must not claim the wake branch.
+    if (type === 'system') {
+      const subtype = String(record.subtype ?? record.kind ?? '');
+      if (/task_notification|task-notification|task_complete/i.test(subtype)) {
+        const summary = textAt(record, ['summary', 'description', 'text', 'message'])
+          ?? (typeof record.task_id === 'string' ? record.task_id : undefined)
+          ?? 'background task';
+        const status = String(record.status ?? '');
+        if (!status || /completed|finished|success/i.test(status)) {
+          return { type: 'status', text: `woke on: ${summary}` };
+        }
+      }
+    }
+    // M3 per-call clock — tool_progress carries authoritative elapsed_time_seconds (FIX 8).
+    if (type === 'tool_progress' || type === 'tool-progress' || /tool_progress/i.test(type)) {
+      const elapsed = Number(
+        record.elapsed_time_seconds
+          ?? record.elapsedTimeSeconds
+          ?? record.elapsed_seconds
+          ?? record.elapsed,
+      );
+      const tool = textAt(record, ['tool_name', 'name', 'tool']) ?? 'tool';
+      if (Number.isFinite(elapsed) && elapsed >= 0) {
+        return {
+          type: 'status',
+          // Plain words for the activity-strip fallback (R2-3); webview also parses this form.
+          text: `${tool} · ${Math.floor(elapsed)}s`,
+        };
+      }
     }
     if (/tool|command|action/i.test(type)) {
       const tool = textAt(record, ['name', 'tool', 'command', 'text']);
@@ -1081,10 +1165,69 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
+  const steering: SteeringMode = invocation.steering ?? 'none';
+  const keepStdinOpen = Boolean(invocation.keepStdinOpen && child.stdin);
+  /** Fallback queue only when an immediate write fails. */
+  const heldFollowUps: string[] = [];
+  let turnBusy = true;
+  let stdinClosed = false;
+  /** True after a successful mid-run write until the seat emits assistant/result output. */
+  let awaitingFollowUpAck = false;
+
+  const writeStdinLine = (line: string): boolean => {
+    if (stdinClosed || !child.stdin || child.stdin.destroyed) return false;
+    try {
+      child.stdin.write(line.endsWith('\n') ? line : `${line}\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const writeFollowUpNow = (text: string): boolean => {
+    if (!writeStdinLine(streamJsonUserLine(text))) return false;
+    turnBusy = true;
+    awaitingFollowUpAck = true;
+    // Defer so extension can register the message id before the chip flip (FIX 4).
+    queueMicrotask(() => onEvent({ type: 'status', text: 'follow-up sent to seat' }));
+    return true;
+  };
+
+  const flushHeldFollowUps = () => {
+    if (!keepStdinOpen) return;
+    while (heldFollowUps.length) {
+      const next = heldFollowUps.shift();
+      if (!next) break;
+      if (!writeFollowUpNow(next)) {
+        heldFollowUps.unshift(next);
+        break;
+      }
+      return; // one follow-up per flush
+    }
+    // Round complete and nothing queued — close stdin so the door can exit (idle / your turn).
+    // A queued follow-up is written above before we reach this close. Keeping stdin open
+    // forever (R2-6 mis-implementation) meant `completed` never resolved and the strip
+    // never returned to "idle — your turn".
+    if (!turnBusy && !awaitingFollowUpAck && !stdinClosed && child.stdin && !child.stdin.destroyed) {
+      try {
+        child.stdin.end();
+      } catch {
+        // ignore
+      }
+      stdinClosed = true;
+    }
+  };
+
   if (invocation.stdin !== undefined) {
-    child.stdin.end(invocation.stdin);
-  } else {
+    if (keepStdinOpen) {
+      writeStdinLine(invocation.stdin);
+    } else {
+      child.stdin.end(invocation.stdin);
+      stdinClosed = true;
+    }
+  } else if (!keepStdinOpen) {
     child.stdin.end();
+    stdinClosed = true;
   }
 
   const stdout = readline.createInterface({ input: child.stdout });
@@ -1106,6 +1249,20 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
     const normalized = normalizeCliLine(protocolLaneId, line);
     if (!normalized) return;
     for (const event of Array.isArray(normalized) ? normalized : [normalized]) {
+      if (event.type === 'turn-boundary') {
+        turnBusy = false;
+        if (awaitingFollowUpAck) {
+          awaitingFollowUpAck = false;
+          onEvent({ type: 'status', text: 'follow-up delivered' });
+        }
+        flushHeldFollowUps();
+      } else if (event.type === 'assistant-delta' || event.type === 'tool' || event.type === 'thinking') {
+        turnBusy = true;
+        if (awaitingFollowUpAck && event.type === 'assistant-delta') {
+          awaitingFollowUpAck = false;
+          onEvent({ type: 'status', text: 'follow-up delivered' });
+        }
+      }
       onEvent(event);
     }
   });
@@ -1124,6 +1281,12 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
   const completed = new Promise<RunCompletion>((resolve, reject) => {
     child.once('error', (error) => reject(new Error(redact(error.message))));
     child.once('close', (exitCode) => {
+      stdinClosed = true;
+      try {
+        child.stdin.destroy();
+      } catch {
+        // already closed
+      }
       stdout.close();
       stderr.close();
       if (exitCode !== 0 && !stopped) {
@@ -1159,8 +1322,31 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
   return {
     stop() {
       stopped = true;
+      stdinClosed = true;
+      try {
+        child.stdin.end();
+      } catch {
+        // ignore
+      }
       stopProcessTree(child);
     },
     completed,
+    ...(steering !== 'none' ? { steering } : {}),
+    ...(keepStdinOpen
+      ? {
+          enqueueFollowUp(text: string): boolean {
+            const trimmed = text.trim();
+            // stdin closed (turn-boundary closed it; activeRuns not deleted yet) → caller
+            // must fall through to pendingFollowUps so the message is never lost (FIX 2).
+            if (!trimmed || stdinClosed) return false;
+            // Primary path (real-door probe): write immediately; harness enqueues mid-turn.
+            if (writeFollowUpNow(trimmed)) return true;
+            // Soft write failure while the process is still live — retry at next boundary.
+            // Do NOT also return false (that would double-queue into pendingFollowUps).
+            heldFollowUps.push(trimmed);
+            return true;
+          },
+        }
+      : {}),
   };
 }

@@ -131,6 +131,12 @@
       parts.push(`session spend ${formatTokenCount(spend)}`);
     }
     if (ceiling) parts.push(formatContextCeilingLabel(ceiling));
+    // NEW-2 / FIXLIST-R3 CODE 7: restore the compaction explanation when the meter warns
+    // (assumed-default provenance), matching what lanes.js still shows on the warn glyph.
+    const meter = formatContextUsageMeter(ceiling, used);
+    if (meter.warn) {
+      parts.push('Claude Code will compact at 200k unless the launcher states the window.');
+    }
     return parts.join(' · ');
   }
 

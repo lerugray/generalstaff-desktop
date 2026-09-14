@@ -60,7 +60,7 @@ as a sanitised plate, with actions to open the packet in Finder or its annotatio
 Recording a ruling is the panel's only write: it invokes the repository's own `ping.sh` with an argument
 array, and sweeps the packet to `session-artifacts` only when that call exits cleanly.
 
-**Versions.** `0.4.15` is the Workbench package on this branch — Claude Fable/Sonnet native ceiling corrected to 1M (per Claude Code model-config). `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The Workbench's working branch is
+**Versions.** `0.4.15` is the installed Workbench package (installed into the isolated profile 2026-09-13) and the package on this branch — Claude Fable/Sonnet native ceiling corrected to 1M (per Claude Code model-config). `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The Workbench's working branch is
 **`publish-v23`**; `master` carries the older v2.3 line.
 
 These panels are the first milestones of a larger, deliberately personal direction: a command surface

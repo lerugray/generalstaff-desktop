@@ -153,8 +153,8 @@ export interface ConversationMessage {
   createdAt: number;
   status?: 'streaming' | 'complete' | 'error';
   attempt?: 'retry';
-  /** Mid-run steering: held until the live process consumes it (M5). */
-  delivery?: 'queued' | 'delivered';
+  /** Mid-run steering chip: queued → sent to seat → delivered (observed). */
+  delivery?: 'queued' | 'sent' | 'delivered';
   /** When set, the webview renders these in order instead of flattening to prose-only. */
   blocks?: TranscriptBlock[];
 }

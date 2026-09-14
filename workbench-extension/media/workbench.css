@@ -1803,18 +1803,27 @@ select:focus-visible {
 
 .meta-chips {
   display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 7px;
+  overflow: hidden;
 }
 
 .meta-chips span,
 .meta-chips button {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: transparent;
   color: var(--paper-faint);
   font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meta-chips button {
@@ -1826,7 +1835,24 @@ select:focus-visible {
   color: var(--paper-muted);
 }
 
+.meta-chips .door-chip {
+  /* Door chip — one line with ellipsis; title carries the full label (FIX 10). */
+  flex: 0 1 11rem;
+}
+
+.session-identity {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.session-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-stream {
+  position: relative;
   min-height: 0;
   flex: 1 1 auto;
   flex-grow: 1;
@@ -1834,6 +1860,8 @@ select:focus-visible {
   padding: 16px 8px 20px;
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--text-rgb) / 0.13) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%);
 }
 
 .message {
@@ -2044,6 +2072,7 @@ details[open] > summary > .card-chevron {
 .conversation-meta .lanes-context-fill,
 .aux-view .lanes-context-fill {
   display: block;
+  width: 0;
   height: 100%;
   background: var(--paper-muted);
 }
@@ -2520,7 +2549,7 @@ details[open] > summary > .card-chevron {
 .conversation-compose-wrap {
   position: relative;
   flex: 0 0 auto;
-  max-height: 26%;
+  max-height: 22%;
   padding: 0 0 8px;
   background: linear-gradient(transparent, var(--ink) 13%);
 }
@@ -2548,9 +2577,15 @@ details[open] > summary > .card-chevron {
   padding-top: 6px;
 }
 
-.composer.compact .context-row,
 .composer.compact .composer-hint {
   display: none;
+}
+
+.composer.compact .context-row {
+  display: flex;
+  min-height: 0;
+  padding: 0 0 4px;
+  gap: 6px;
 }
 
 .run-strip,
@@ -2565,10 +2600,6 @@ details[open] > summary > .card-chevron {
   border-radius: 7px;
   background: rgb(var(--accent-rgb) / 0.04);
   color: var(--paper-muted);
-  font-size: 8px;
-}
-
-.activity-strip {
   font-size: 11px;
   letter-spacing: 0.01em;
 }
@@ -2604,15 +2635,21 @@ details[open] > summary > .card-chevron {
   color: var(--brass);
 }
 
+.delivery-chip.sent {
+  border-color: rgb(var(--accent-rgb) / 0.25);
+  color: var(--brass-pale, var(--brass));
+}
+
 .delivery-chip.delivered {
   color: var(--paper-muted);
 }
+
 
 .jump-latest {
   position: absolute;
   z-index: 4;
   right: 18px;
-  bottom: 110px;
+  bottom: calc(100% + 8px);
   padding: 6px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;

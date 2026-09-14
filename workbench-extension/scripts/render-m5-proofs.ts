@@ -7,6 +7,7 @@
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import * as fs from 'node:fs';
+import assert from 'node:assert/strict';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from 'playwright';
@@ -181,6 +182,7 @@ const deckHtml = `<!doctype html>
 async function inject(page: Page, conversation: Conversation): Promise<void> {
   await page.evaluate(
     ({ snap, conversation }) => {
+      (window as unknown as { __m5ConversationId?: string }).__m5ConversationId = conversation.id;
       window.postMessage({
         type: 'state',
         snapshot: snap,
@@ -221,8 +223,10 @@ async function assertScrollStable(page: Page, conversationId: string): Promise<{
   return page.evaluate(async ({ conversationId }) => {
     const stream = document.querySelector('.message-stream') as HTMLElement | null;
     if (!stream) throw new Error('no message-stream');
-    stream.scrollTop = 0;
+    // FIX 7: non-zero mid-scroll — the old full-rebuild path also preserved scrollTop=0.
+    stream.scrollTop = Math.min(240, Math.max(40, stream.scrollHeight - stream.clientHeight - 80));
     const before = stream.scrollTop;
+    if (before < 1) throw new Error(`expected mid-scroll > 0, got ${before}`);
     for (let i = 0; i < 20; i += 1) {
       window.postMessage({
         type: 'run-event',
@@ -239,6 +243,24 @@ async function assertScrollStable(page: Page, conversationId: string): Promise<{
     const after = stream.scrollTop;
     return { before, after };
   }, { conversationId });
+}
+
+async function assertMeterFill(page: Page, usedTokens: number, expectedPercent: number): Promise<void> {
+  const measured = await page.evaluate(({ usedTokens }) => {
+    const conversationId = (window as unknown as { __m5ConversationId?: string }).__m5ConversationId;
+    if (!conversationId) throw new Error('missing conversation id');
+    window.postMessage({ type: 'context-usage', conversationId, usedTokens }, '*');
+    return new Promise<{ fill: number; label: string }>((resolve) => {
+      requestAnimationFrame(() => {
+        const fill = document.querySelector('.lanes-context-fill') as HTMLElement | null;
+        const label = document.querySelector('.lanes-context-copy')?.textContent || '';
+        const width = fill ? Number.parseFloat(fill.style.width || '0') : -1;
+        resolve({ fill: width, label });
+      });
+    });
+  }, { usedTokens });
+  assert.ok(Math.abs(measured.fill - expectedPercent) <= 1, `fill ${measured.fill} vs ${expectedPercent}; label=${measured.label}`);
+  assert.match(measured.label, new RegExp(`\\(${expectedPercent}%\\)`));
 }
 
 async function main(): Promise<void> {
@@ -273,8 +295,30 @@ async function main(): Promise<void> {
       if (Math.abs(scroll.after - scroll.before) > 1) {
         throw new Error(`M4 scroll moved by ${scroll.after - scroll.before}px at ${viewport.tag}`);
       }
+      
+
+      
+
+      
+
       if (streamRatio < 0.7) {
         throw new Error(`M5 transcript ratio ${streamRatio} < 0.70 at ${viewport.tag}`);
+      }
+
+      // M7: bar fill width must match tooltip percent (CSP-safe CSSOM path).
+      if (viewport.tag === '1100x700') {
+        const ceiling = 1_048_576;
+        for (const [pct, used] of [
+          [5, Math.round(ceiling * 0.05)],
+          [13, Math.round(ceiling * 0.13)],
+          [50, Math.round(ceiling * 0.5)],
+        ] as const) {
+          await assertMeterFill(page, used, pct);
+          const meterPath = path.join(outDir, `proof-meter-${pct}pct-${viewport.tag}-${stamp}.png`);
+          await page.screenshot({ path: meterPath, fullPage: false });
+        }
+        // Restore the live-strip occupancy (~13%) for idle frames below.
+        await assertMeterFill(page, 140_628, 13);
       }
 
       // Idle strip frame after run completes

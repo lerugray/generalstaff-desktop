@@ -92,6 +92,15 @@
     return String(Math.round(tokens));
   }
 
+  function applyMeterFills(root) {
+    // CSP blocks style= attributes on the main webview; set width via CSSOM (M7).
+    const scope = root || document;
+    for (const el of scope.querySelectorAll('[data-meter-fill]')) {
+      const pct = Number(el.getAttribute('data-meter-fill'));
+      if (Number.isFinite(pct)) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    }
+  }
+
   function formatContextCeilingLabel(ceiling) {
     if (!ceiling) return 'context unknown';
     const modelLabel = ceiling.modelLabel || 'model';
@@ -150,7 +159,7 @@
     const meter = formatContextUsageMeter(ceiling, usedTokens);
     const fill = meter.percent == null
       ? ''
-      : `<span class="lanes-context-fill" style="width:${Math.max(2, Math.min(100, meter.percent))}%"></span>`;
+      : `<span class="lanes-context-fill" data-meter-fill="${Math.max(0, Math.min(100, meter.percent))}"></span>`;
     const mark = meter.warn
       ? `<span class="lanes-context-warn lanes-amber" aria-label="context warning">⚠</span>`
       : '';
@@ -507,11 +516,11 @@
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
           <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${orchestrator ? 'One continuous GeneralStaff seat rooted in the private repository.' : escapeHtml(seat?.[1] || '')}</small></div>
         </div>
-        ${compact ? '' : `<div class="context-row">
+        ${`<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : item.kind === 'folder' ? '▣' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>
-        <p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>`}
+        ${compact ? '' : '<p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>'}`}
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
         <textarea id="prompt" rows="1" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
@@ -714,6 +723,13 @@
       </section>`;
   }
 
+  function shortDoorLabel(label) {
+    const text = String(label || '');
+    if (/ollama\s*cloud\s*cc/i.test(text) || /ollama.*cc door/i.test(text)) return 'Ollama Cloud CC';
+    if (text.length <= 22) return text;
+    return `${text.slice(0, 20)}…`;
+  }
+
   function formatElapsed(ms) {
     const total = Math.max(0, Math.floor(ms / 1000));
     const mm = String(Math.floor(total / 60)).padStart(2, '0');
@@ -740,7 +756,11 @@
     if (!running && !live) return '';
     const now = Date.now();
     const total = live ? formatElapsed(now - live.startedAt) : '00:00';
-    const toolElapsed = live?.toolStartedAt ? formatElapsed(now - live.toolStartedAt) : '';
+    const toolElapsed = live?.toolElapsedSeconds != null
+      ? formatElapsed(live.toolElapsedSeconds * 1000)
+      : live?.toolStartedAt
+        ? formatElapsed(now - live.toolStartedAt)
+        : '';
     const idle = !running || live?.phase === 'idle';
     const line = idle
       ? 'idle — your turn'
@@ -777,8 +797,8 @@
           <div class="conversation-meta">
             ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
-              <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
-              <span>${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
+              <span title="${escapeHtml(lane?.name || conversation.laneId)}">${escapeHtml(lane?.name || conversation.laneId)}</span>
+              <span class="door-chip" title="${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}">${escapeHtml(shortDoorLabel(lane?.evidenceLabel || 'Evidence class not recorded'))}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
@@ -791,7 +811,7 @@
               .map(
                 (message) => `
                   <article class="message ${message.role} ${message.status || ''}" data-message-id="${escapeHtml(message.id)}">
-                    <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}${message.delivery === 'queued' ? '<span class="delivery-chip queued">queued — delivered after the current tool call</span>' : message.delivery === 'delivered' ? '<span class="delivery-chip delivered">delivered</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
+                    <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}${message.delivery === 'queued' ? '<span class="delivery-chip queued">queued — delivered after the current tool call</span>' : message.delivery === 'sent' ? '<span class="delivery-chip sent">sent to the seat</span>' : message.delivery === 'delivered' ? '<span class="delivery-chip delivered">delivered</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
                     <div class="message-body">${renderMessageBody(message)}</div>
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
@@ -829,6 +849,7 @@
     ensureSelections();
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
     app.innerHTML = `<div class="workbench">${renderRail()}${content}${renderNotice()}</div>`;
+    applyMeterFills(app);
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
         const stream = document.querySelector('.message-stream');
@@ -852,9 +873,10 @@
   }
 
   function syncJumpPill(stream) {
-    const wrap = document.querySelector('.conversation-shell');
-    if (!wrap || !stream) return;
-    let pill = wrap.querySelector('.jump-latest');
+    const shell = document.querySelector('.conversation-shell');
+    const composeWrap = document.querySelector('.conversation-compose-wrap');
+    if (!shell || !stream) return;
+    let pill = shell.querySelector('.jump-latest');
     const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
     state.stickToBottom = nearBottom;
     if (nearBottom) {
@@ -867,7 +889,12 @@
       pill.className = 'jump-latest';
       pill.dataset.action = 'jump-latest';
       pill.textContent = '↓ jump to latest';
-      wrap.appendChild(pill);
+    }
+    // Anchor inside the compose wrap, above its content, so the pill never covers Stop (FIX 5).
+    if (composeWrap) {
+      composeWrap.prepend(pill);
+    } else {
+      shell.appendChild(pill);
     }
   }
 
@@ -888,14 +915,30 @@
     const html = renderActivityStrip(conversation).trim();
     if (!html) {
       existing?.remove();
+      return;
+    }
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const next = temp.firstElementChild;
+    if (!next) return;
+    // Patch text/idle class in place so the Stop button is not replaced every tick (FIX 11).
+    if (existing && existing.dataset.activityStrip === conversationId) {
+      existing.className = next.className;
+      const line = existing.querySelector('.activity-strip-line');
+      const nextLine = next.querySelector('.activity-strip-line');
+      if (line && nextLine) line.textContent = nextLine.textContent;
+      const spinner = existing.querySelector('.spinner');
+      const nextSpinner = next.querySelector('.spinner');
+      if (!nextSpinner) spinner?.remove();
+      else if (!spinner) existing.prepend(nextSpinner);
+      const stop = existing.querySelector('[data-action="stop-run"]');
+      const nextStop = next.querySelector('[data-action="stop-run"]');
+      if (!nextStop) stop?.remove();
+      else if (!stop) existing.appendChild(nextStop);
+    } else if (existing) {
+      existing.replaceWith(next);
     } else {
-      const temp = document.createElement('div');
-      temp.innerHTML = html;
-      const next = temp.firstElementChild;
-      if (next) {
-        if (existing) existing.replaceWith(next);
-        else document.querySelector('.conversation-compose-wrap')?.prepend(next);
-      }
+      document.querySelector('.conversation-compose-wrap')?.prepend(next);
     }
     const running = Boolean(state.runStatus[conversationId]);
     const send = document.querySelector('.send-button span');
@@ -928,6 +971,7 @@
     if (!next) return;
     if (current) current.replaceWith(next);
     else meta.appendChild(next);
+    applyMeterFills(meta);
   }
 
   function patchNoticeOnly() {
@@ -957,6 +1001,13 @@
     if (conversation) {
       if (state.pendingSend) return;
       state.pendingSend = { conversationId: conversation.id, text };
+      // Run clock starts at send, not at the first tool event (FIX 8).
+      if (!state.runStatus[conversation.id]) {
+        const live = ensureRunLive(conversation.id);
+        live.startedAt = Date.now();
+        live.phase = 'running';
+        state.runStatus[conversation.id] = 'Starting…';
+      }
       vscode.postMessage({ type: 'send-prompt', conversationId: conversation.id, text });
       if (prompt) prompt.value = '';
       state.draft = '';
@@ -1320,18 +1371,30 @@
       const toolLine = message.event.name
         ? `${message.event.name}${message.event.summary ? ` · ${String(message.event.summary).split('\n')[0]}` : ''}`
         : text.split('\n')[0];
-      if (/follow-up delivered/i.test(text)) {
+      if (/follow-up (?:delivered|sent to seat)/i.test(text)) {
         live.phase = 'running';
-      } else if (/woke on:/i.test(text) || /background.*finished/i.test(text)) {
+      } else if (/^woke on:/i.test(text)) {
         live.wokeOn = text.replace(/^woke on:\s*/i, '').replace(/\s*finished$/i, '');
         live.phase = 'running';
+      } else if (/^tool_progress\s+/i.test(text)) {
+        // Authoritative per-call elapsed from the seat (FIX 8).
+        const match = text.match(/^tool_progress\s+(\S+)\s+(\d+)/i);
+        if (match) {
+          const seconds = Number(match[2]);
+          live.toolLabel = live.toolLabel || match[1];
+          live.toolStartedAt = Date.now() - seconds * 1000;
+          live.toolElapsedSeconds = seconds;
+          live.phase = 'running';
+        }
       } else if (message.event.type === 'tool' || message.event.name) {
         live.toolLabel = String(toolLine).slice(0, 120);
         live.toolStartedAt = Date.now();
+        live.toolElapsedSeconds = undefined;
         live.phase = 'running';
         live.wokeOn = '';
       } else if (/^Starting /i.test(text)) {
-        live.startedAt = Date.now();
+        // Prefer the send-time clock if we already started it.
+        if (!live.startedAt) live.startedAt = Date.now();
         live.phase = 'running';
       }
       patchActivityStrip(message.conversationId);

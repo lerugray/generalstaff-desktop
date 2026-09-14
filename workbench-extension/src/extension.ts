@@ -803,8 +803,12 @@ class CommandDeckPanel {
             // message was written. Idle strip updates when the run exits.
           } else if (event.type === 'status') {
             lastStreamKind = 'other';
-            if (event.text === 'follow-up delivered') {
-              void this.markNextHeldDelivered(conversationId);
+            if (event.text === 'follow-up sent to seat') {
+              // Chip "sent to the seat" only after a successful stdin write (FIX 4).
+              void this.markNextHeldDelivery(conversationId, 'sent');
+            } else if (event.text === 'follow-up delivered') {
+              // Flip to delivered only once the seat emits assistant/result output.
+              void this.markNextHeldDelivery(conversationId, 'delivered');
             }
             void this.panel.webview.postMessage({
               type: 'run-event',
@@ -883,7 +887,7 @@ class CommandDeckPanel {
             const next = queued.shift()!;
             if (queued.length) this.pendingFollowUps.set(conversationId, queued);
             else this.pendingFollowUps.delete(conversationId);
-            void this.startRun(conversationId, next);
+            void this.startPendingFollowUp(conversationId, next);
           }
         });
     } catch (error) {
@@ -893,14 +897,47 @@ class CommandDeckPanel {
         await this.stream(conversationId, latest.id, reason, 'error');
       }
       await this.notice(reason, 'error', conversationId);
+      // FIX 11: outer catch must not strand pendingFollowUps.
+      const queued = this.pendingFollowUps.get(conversationId);
+      if (queued?.length) {
+        const next = queued.shift()!;
+        if (queued.length) this.pendingFollowUps.set(conversationId, queued);
+        else this.pendingFollowUps.delete(conversationId);
+        void this.startPendingFollowUp(conversationId, next);
+      }
     } finally {
       this.pendingRuns.delete(conversationId);
     }
   }
 
+
+  /**
+   * Resume a follow-up that was held because stdin was closed (or the lane is
+   * non-steerable). Reuse the existing queued user bubble — never duplicate it.
+   */
+  private async startPendingFollowUp(conversationId: string, text: string): Promise<void> {
+    const conversation = this.store.get(conversationId);
+    const existing = [...(conversation?.messages ?? [])]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          message.text === text &&
+          (message.delivery === 'queued' || message.delivery === 'sent'),
+      );
+    if (existing) {
+      await this.store.setMessageDelivery(conversationId, existing.id, 'delivered');
+      await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
+      await this.startRun(conversationId, text, { appendUser: false });
+      return;
+    }
+    await this.startRun(conversationId, text);
+  }
+
   /**
    * Mid-run steering (M5): never reject with "already has a lane running".
-   * Steerable CC doors hold the text for the live stdin; other lanes queue a follow-up run.
+   * Steerable CC doors write to live stdin immediately; on write failure fall
+   * through to pendingFollowUps so the message is never silently lost.
    */
   private async enqueueWhileRunning(conversationId: string, rawText: string): Promise<void> {
     const text = rawText.trim();
@@ -916,26 +953,44 @@ class CommandDeckPanel {
     await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
 
     if (run?.steering === 'hold-until-turn' && run.enqueueFollowUp && messageId) {
-      const held = this.heldDeliveryIds.get(conversationId) ?? [];
-      held.push(messageId);
-      this.heldDeliveryIds.set(conversationId, held);
-      run.enqueueFollowUp(text);
-      return;
+      const accepted = run.enqueueFollowUp(text);
+      if (accepted) {
+        // Track for chip flips; stay "queued" until adapter emits "follow-up sent to seat".
+        const held = this.heldDeliveryIds.get(conversationId) ?? [];
+        held.push(messageId);
+        this.heldDeliveryIds.set(conversationId, held);
+        return;
+      }
+      // stdin closed between turn-boundary and activeRuns.delete — report and fall
+      // through so pendingFollowUps auto-starts after exit (FIX 2).
+      await this.notice(
+        'Could not write to the live seat stdin; your message will send when this round exits.',
+        'error',
+        conversationId,
+      );
     }
 
-    // Non-steerable / one-shot lanes: hold until this run exits, then start on a fresh spawn.
+    // Non-steerable lanes, or steerable write failure: hold until this run exits.
     const pending = this.pendingFollowUps.get(conversationId) ?? [];
     pending.push(text);
     this.pendingFollowUps.set(conversationId, pending);
   }
 
-  private async markNextHeldDelivered(conversationId: string): Promise<void> {
+  private async markNextHeldDelivery(
+    conversationId: string,
+    delivery: 'sent' | 'delivered',
+  ): Promise<void> {
     const held = this.heldDeliveryIds.get(conversationId);
-    const messageId = held?.shift();
+    if (!held?.length) return;
+    // "sent" keeps the id in the queue for the later "delivered" flip.
+    // "delivered" consumes it.
+    const messageId = delivery === 'delivered' ? held.shift() : held[0];
     if (!messageId) return;
-    if (!held?.length) this.heldDeliveryIds.delete(conversationId);
-    else this.heldDeliveryIds.set(conversationId, held);
-    await this.store.setMessageDelivery(conversationId, messageId, 'delivered');
+    if (delivery === 'delivered') {
+      if (!held.length) this.heldDeliveryIds.delete(conversationId);
+      else this.heldDeliveryIds.set(conversationId, held);
+    }
+    await this.store.setMessageDelivery(conversationId, messageId, delivery);
     await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
   }
 

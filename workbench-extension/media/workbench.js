@@ -142,12 +142,14 @@
       ? ''
       : `<span class="lanes-context-fill" style="width:${Math.max(2, Math.min(100, meter.percent))}%"></span>`;
     const mark = meter.warn
-      ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
+      ? `<span class="lanes-context-warn lanes-amber" aria-label="context warning">⚠</span>`
       : '';
     const tip = escapeHtml(contextMeterTooltip(ceiling, conversationId));
-    return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" title="${tip}">
+    // Real hover card in the Workbench register (LOOK G5) — not a native title= attribute.
+    return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" tabindex="0" data-meter-tip="1">
       <div class="lanes-context-rule">${fill}</div>
       <span class="lanes-context-copy">${escapeHtml(meter.label)}${mark}</span>
+      <div class="lanes-context-hovercard" role="tooltip">${tip}</div>
     </div>`;
   }
 
@@ -162,12 +164,13 @@
   function renderTranscriptBlocks(blocks) {
     return blocks.map((block) => {
       if (block.type === 'text') {
-        return `<div class="turn-prose">${renderText(block.text)}</div>`;
+        return `<div class="turn-prose"><div class="assistant-bubble">${renderText(block.text)}</div></div>`;
       }
       if (block.type === 'thinking') {
         const chars = String(block.text || '').length;
-        return `<details class="thinking-card">
-          <summary>Thinking · ${escapeHtml(formatThinkingChars(chars))} chars</summary>
+        const redacted = block.text === 'Thinking · redacted';
+        return `<details class="thinking-card${redacted ? ' is-redacted' : ''}">
+          <summary><span class="card-chevron" aria-hidden="true"></span><span class="thinking-glyph" aria-hidden="true"></span>Thinking · ${escapeHtml(formatThinkingChars(chars))} chars</summary>
           <pre class="thinking-card-body">${escapeHtml(block.text || '')}</pre>
         </details>`;
       }
@@ -176,11 +179,13 @@
         const statusLabel = status === 'running' ? '…' : status;
         const summary = `${block.name || 'tool'} · ${block.summary || ''}${status !== 'running' ? ` · ${statusLabel}` : ''}`;
         const detail = block.detail || block.summary || '';
-        const result = block.resultPreview
-          ? `<div class="tool-card-result">${escapeHtml(block.resultPreview)}</div>`
+        // Expanded body prefers full `result` (newlines intact); preview is collapsed-only.
+        const resultBody = block.result || block.resultPreview || '';
+        const result = resultBody
+          ? `<div class="tool-card-result">${escapeHtml(resultBody)}</div>`
           : '';
         return `<details class="tool-card status-${status}">
-          <summary>${escapeHtml(summary)}</summary>
+          <summary><span class="card-chevron" aria-hidden="true"></span><span class="tool-glyph" aria-hidden="true"></span>${escapeHtml(summary)}</summary>
           <pre class="tool-card-detail">${escapeHtml(detail)}</pre>
           ${result}
         </details>`;
@@ -1056,6 +1061,14 @@
         }
       }
       render();
+    } else if (message.type === 'conversation') {
+      // Single-conversation delta post from a mid-run bubble split (MINOR 10).
+      if (message.conversation && typeof message.conversation.id === 'string') {
+        const index = state.conversations.findIndex((item) => item.id === message.conversation.id);
+        if (index >= 0) state.conversations[index] = message.conversation;
+        else state.conversations.unshift(message.conversation);
+        render();
+      }
     } else if (message.type === 'conversation-selected') {
       state.creatingConversation = false;
       state.activeConversationId = message.conversation.id;

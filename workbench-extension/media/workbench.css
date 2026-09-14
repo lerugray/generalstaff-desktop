@@ -1866,6 +1866,14 @@ select:focus-visible {
   gap: 0.55em;
 }
 
+.assistant-bubble {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(var(--surface-1-rgb, var(--surface-2-rgb)) / 0.55);
+  color: var(--paper);
+}
+
 .thinking-card,
 .tool-card {
   border: 1px solid var(--line);
@@ -1875,17 +1883,59 @@ select:focus-visible {
   color: var(--paper-muted);
 }
 
+.thinking-card {
+  border-style: dashed;
+  background: transparent;
+  color: var(--paper-faint, var(--paper-muted));
+}
+
 .thinking-card > summary,
 .tool-card > summary {
   cursor: pointer;
   list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 10px;
   letter-spacing: 0.01em;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.thinking-card > summary {
+  font-style: italic;
 }
 
 .thinking-card > summary::-webkit-details-marker,
 .tool-card > summary::-webkit-details-marker {
   display: none;
+}
+
+.card-chevron {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
+
+details[open] > summary > .card-chevron {
+  transform: rotate(45deg);
+}
+
+.thinking-glyph::before {
+  content: "◇";
+  color: var(--brass, #a8925a);
+  margin-right: 2px;
+}
+
+.tool-glyph::before {
+  content: "▸";
+  color: var(--paper-muted);
+  margin-right: 2px;
 }
 
 .thinking-card[open] > summary,
@@ -1913,6 +1963,53 @@ select:focus-visible {
 
 .tool-card.status-error > summary {
   color: var(--rust-readable, var(--iron-red, #b44));
+}
+
+.lanes-context-meter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 2px;
+  min-width: 16rem;
+}
+
+.conversation-meta .lanes-context-meter {
+  margin-top: 10px;
+  max-width: none;
+  width: min(100%, 36rem);
+  min-width: 18rem;
+}
+
+.lanes-context-copy {
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.lanes-context-hovercard {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 18rem;
+  max-width: 28rem;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(var(--surface-2-rgb) / 0.96);
+  color: var(--paper-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+
+.lanes-context-meter:hover .lanes-context-hovercard,
+.lanes-context-meter:focus-within .lanes-context-hovercard {
+  display: block;
 }
 
 .message.error .message-body {

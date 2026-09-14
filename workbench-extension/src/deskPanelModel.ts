@@ -18,6 +18,8 @@ export interface DeskLeaf {
   cardMissing: boolean;
   hasAnnotate: boolean;
   annotatePath?: string;
+  /** True when NOTES.txt / JSON export / ANNOTATE.html scrape found notes. */
+  hasAnnotateNotes: boolean;
   files: DeskLeafFile[];
   readyGatePassed: boolean;
   replayGatePassed: boolean;
@@ -66,6 +68,7 @@ export function buildDeskPanelModel(
     cardMissing: packet.cardMissing,
     hasAnnotate: Boolean(packet.annotatePath),
     ...(packet.annotatePath ? { annotatePath: packet.annotatePath } : {}),
+    hasAnnotateNotes: Boolean(packet.annotateNotes?.trim()),
     files: packet.files.map((file) => ({
       name: file.name,
       sizeLabel: formatSize(file.size),

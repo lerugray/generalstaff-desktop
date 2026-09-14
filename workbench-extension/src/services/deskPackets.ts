@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { readAnnotateNotes } from './annotateNotes.js';
 import { desktopHandoffDirectory, sessionArtifactsDirectory } from './handoffPaths.js';
 import { sanitiseHandoffHtml } from './htmlSanitiser.js';
 
@@ -26,6 +27,8 @@ export interface DeskPacket {
   cardHtml?: string;
   cardMissing: boolean;
   annotatePath?: string;
+  /** Plain-text ANNOTATE notes when a sidecar / export / HTML scrape yields any. */
+  annotateNotes?: string;
   files: DeskPacketFile[];
   readyGatePassed: boolean;
   replayGatePassed: boolean;
@@ -152,6 +155,7 @@ export async function scanDeskPackets(options: ScanDeskPacketsOptions = {}): Pro
     }
 
     files.sort((a, b) => a.name.localeCompare(b.name));
+    const annotateNotes = await readAnnotateNotes(folderPath);
     packets.push({
       folderName: entry.name,
       path: folderPath,
@@ -162,6 +166,7 @@ export async function scanDeskPackets(options: ScanDeskPacketsOptions = {}): Pro
       ...(cardHtml !== undefined ? { cardHtml } : {}),
       cardMissing,
       ...(annotatePath ? { annotatePath } : {}),
+      ...(annotateNotes ? { annotateNotes } : {}),
       files,
       readyGatePassed,
       replayGatePassed,

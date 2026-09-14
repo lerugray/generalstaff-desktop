@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, renameSync, utimesSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { buildDeskPanelModel } from '../src/deskPanelModel.js';
+import {
+  buildRulingBody,
+  extractNotesFromAnnotateHtml,
+  readAnnotateNotes,
+} from '../src/services/annotateNotes.js';
 import { parsePacketFolderName, scanDeskPackets } from '../src/services/deskPackets.js';
 import { sessionArtifactsDirectory } from '../src/services/handoffPaths.js';
 import { sanitiseHandoffHtml } from '../src/services/htmlSanitiser.js';
@@ -20,14 +26,14 @@ function makeFixtureTree(): { home: string; handoff: string; root: string } {
   writeFileSync(path.join(handoff, 'START-HERE.html'), '<html>index</html>');
   writeFileSync(path.join(handoff, 'README.txt'), 'readme');
 
-  // Packet 1: stamps + full card + annotate
+  // Packet 1: stamps + full card + annotate + NOTES.txt sidecar
   const p1 = path.join(handoff, 'GS-HARNESS-M3-2026-09-13');
   mkdirSync(p1);
   writeFileSync(path.join(p1, 'WHAT-TO-JUDGE.html'), '<html><body><h1>Judge M3</h1><script>alert(1)</script></body></html>');
   writeFileSync(path.join(p1, 'ANNOTATE.html'), '<html><body>annotate</body></html>');
   writeFileSync(path.join(p1, '.ready-gate-passed'), '');
   writeFileSync(path.join(p1, '.replay-gate-passed'), '');
-  writeFileSync(path.join(p1, 'notes.txt'), 'notes');
+  writeFileSync(path.join(p1, 'NOTES.txt'), 'pin A: folio reads as one leaf\npin B: amber only while waiting');
 
   // Packet 2: no stamps, has card
   const p2 = path.join(handoff, 'ORDERLY-READY-2026-09-04');
@@ -64,7 +70,7 @@ test('parsePacketFolderName splits GAME / GATE / date', () => {
   });
 });
 
-test('Desk model from fixture tree: 3 packets, stamps, missing card', async (context) => {
+test('Desk model from fixture tree: 3 packets, stamps, missing card, annotate notes', async (context) => {
   const { home, handoff } = makeFixtureTree();
   context.after(() => rmSync(home, { recursive: true, force: true }));
 
@@ -83,15 +89,17 @@ test('Desk model from fixture tree: 3 packets, stamps, missing card', async (con
   assert.equal(stamped.readyGatePassed, true);
   assert.equal(stamped.replayGatePassed, true);
   assert.equal(stamped.hasAnnotate, true);
+  assert.equal(stamped.hasAnnotateNotes, true);
   assert.equal(stamped.cardMissing, false);
   assert.ok(stamped.cardHtml);
   assert.doesNotMatch(stamped.cardHtml!, /<script/i);
-  assert.ok(stamped.files.some((file) => file.name === 'notes.txt'));
+  assert.ok(stamped.files.some((file) => file.name === 'NOTES.txt'));
 
   const noCard = model.leaves.find((leaf) => leaf.folderName === 'LIFE-ASK-2026-08-26');
   assert.ok(noCard);
   assert.equal(noCard.cardMissing, true);
   assert.equal(noCard.readyGatePassed, false);
+  assert.equal(noCard.hasAnnotateNotes, false);
 
   // Root ignores are not packets
   assert.ok(!model.leaves.some((leaf) => leaf.folderName === 'START-HERE.html'));
@@ -113,12 +121,50 @@ test('sanitiser drops scripts, handlers, and javascript URIs', () => {
   assert.match(clean, /keep/);
 });
 
-test('buildPingArgv matches the closed M3 argv shape', () => {
+test('buildRulingBody prefixes the packet folder name', () => {
+  assert.equal(
+    buildRulingBody('GS-HARNESS-M3-2026-09-13', 'ship it'),
+    'GS-HARNESS-M3-2026-09-13: ship it',
+  );
+  assert.equal(
+    buildRulingBody('GS-HARNESS-M3-2026-09-13', 'ship it', 'pin A\npin B'),
+    'GS-HARNESS-M3-2026-09-13: ship it\n\npin A\npin B',
+  );
+});
+
+test('readAnnotateNotes prefers NOTES.txt; falls back to JSON and HTML scrape', async (context) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'gs-annotate-'));
+  context.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  writeFileSync(path.join(dir, 'NOTES.txt'), 'from notes.txt');
+  assert.equal(await readAnnotateNotes(dir), 'from notes.txt');
+
+  rmSync(path.join(dir, 'NOTES.txt'));
+  writeFileSync(
+    path.join(dir, 'annotate-notes.json'),
+    JSON.stringify([{ text: 'json pin 1' }, { note: 'json pin 2' }]),
+  );
+  assert.equal(await readAnnotateNotes(dir), 'json pin 1\njson pin 2');
+
+  rmSync(path.join(dir, 'annotate-notes.json'));
+  writeFileSync(
+    path.join(dir, 'ANNOTATE.html'),
+    `<html><body><script type="application/json">{"notes":["html pin"]}</script></body></html>`,
+  );
+  assert.equal(await readAnnotateNotes(dir), 'html pin');
+  assert.equal(
+    extractNotesFromAnnotateHtml('<textarea>pasted notes</textarea>'),
+    'pasted notes',
+  );
+});
+
+test('buildPingArgv matches the closed M3b argv shape (packet name in body)', () => {
   const argv = buildPingArgv({
     pingScript: '/gs/scripts/ping.sh',
     session: 's120',
     game: 'GS-HARNESS',
     gate: 'M3',
+    folderName: 'GS-HARNESS-M3-2026-09-13',
     verdict: 'ship it',
     tags: 'folio',
   });
@@ -129,8 +175,22 @@ test('buildPingArgv matches the closed M3 argv shape', () => {
     '-t',
     'gs-harness,ray,ruling,folio',
     'GS-HARNESS-M3 — RULED (Ray)',
-    'ship it',
+    'GS-HARNESS-M3-2026-09-13: ship it',
   ]);
+
+  const withNotes = buildPingArgv({
+    pingScript: '/gs/scripts/ping.sh',
+    session: 's120',
+    game: 'GS-HARNESS',
+    gate: 'M3',
+    folderName: 'GS-HARNESS-M3-2026-09-13',
+    verdict: 'ship it',
+    annotateNotes: 'pin A: folio leaf',
+  });
+  assert.equal(
+    withNotes[withNotes.length - 1],
+    'GS-HARNESS-M3-2026-09-13: ship it\n\npin A: folio leaf',
+  );
 });
 
 test('resolveDefaultSessionId reads newest docs/sessions/*session*.md', async (context) => {
@@ -143,7 +203,7 @@ test('resolveDefaultSessionId reads newest docs/sessions/*session*.md', async (c
   assert.equal(session, 's120');
 });
 
-test('ruling flow: exact argv, no move on non-zero, move only on zero', async (context) => {
+test('ruling flow: exact argv with packet name, notes opt-in, no move on non-zero, move only on zero', async (context) => {
   const { home, handoff, root } = makeFixtureTree();
   context.after(() => {
     rmSync(home, { recursive: true, force: true });
@@ -184,7 +244,7 @@ test('ruling flow: exact argv, no move on non-zero, move only on zero', async (c
     '-t',
     'gs-harness,ray,ruling',
     'GS-HARNESS-M3 — RULED (Ray)',
-    'hold',
+    'GS-HARNESS-M3-2026-09-13: hold',
   ]);
   assert.equal(existsSync(packetPath), true);
 
@@ -198,6 +258,7 @@ test('ruling flow: exact argv, no move on non-zero, move only on zero', async (c
       gate: 'M3',
       session: 's120',
       verdict: 'ship folio',
+      attachAnnotateNotes: true,
       home,
     },
     {
@@ -219,12 +280,17 @@ test('ruling flow: exact argv, no move on non-zero, move only on zero', async (c
   assert.equal(ok.sweptTo, path.join(sessionArtifactsDirectory(home), 'GS-HARNESS-M3-2026-09-13'));
   assert.equal(existsSync(ok.sweptTo!), true);
   assert.deepEqual(seenArgv?.[3], '-t');
+  assert.equal(
+    seenArgv?.[seenArgv.length - 1],
+    'GS-HARNESS-M3-2026-09-13: ship folio\n\npin A: folio reads as one leaf\npin B: amber only while waiting',
+  );
   assert.equal(moved[0], packetPath);
 
-  // Target collision → suffix -2
+  // Without attach flag, notes stay off the body
   mkdirSync(path.join(handoff, 'GS-HARNESS-M3-2026-09-13'));
   writeFileSync(path.join(handoff, 'GS-HARNESS-M3-2026-09-13', 'WHAT-TO-JUDGE.html'), '<p>x</p>');
-  const again = await recordRuling(
+  writeFileSync(path.join(handoff, 'GS-HARNESS-M3-2026-09-13', 'NOTES.txt'), 'should not attach');
+  const noAttach = await recordRuling(
     {
       rootPath: root,
       packetPath: path.join(handoff, 'GS-HARNESS-M3-2026-09-13'),
@@ -233,6 +299,33 @@ test('ruling flow: exact argv, no move on non-zero, move only on zero', async (c
       gate: 'M3',
       session: 's120',
       verdict: 'again',
+      attachAnnotateNotes: false,
+      home,
+    },
+    {
+      runPing: async (invocation) => {
+        seenArgv = invocation.args;
+        return { exitCode: 0, stdout: 'row', stderr: '' };
+      },
+      movePacket: async (from, to) => renameSync(from, to),
+    },
+  );
+  assert.equal(noAttach.ok, true);
+  assert.equal(seenArgv?.[seenArgv.length - 1], 'GS-HARNESS-M3-2026-09-13: again');
+  assert.equal(noAttach.sweptTo, path.join(sessionArtifactsDirectory(home), 'GS-HARNESS-M3-2026-09-13-2'));
+
+  // Target collision → suffix -3 after -2 already taken
+  mkdirSync(path.join(handoff, 'GS-HARNESS-M3-2026-09-13'));
+  writeFileSync(path.join(handoff, 'GS-HARNESS-M3-2026-09-13', 'WHAT-TO-JUDGE.html'), '<p>y</p>');
+  const again = await recordRuling(
+    {
+      rootPath: root,
+      packetPath: path.join(handoff, 'GS-HARNESS-M3-2026-09-13'),
+      folderName: 'GS-HARNESS-M3-2026-09-13',
+      game: 'GS-HARNESS',
+      gate: 'M3',
+      session: 's120',
+      verdict: 'third',
       home,
     },
     {
@@ -241,7 +334,7 @@ test('ruling flow: exact argv, no move on non-zero, move only on zero', async (c
     },
   );
   assert.equal(again.ok, true);
-  assert.equal(again.sweptTo, path.join(sessionArtifactsDirectory(home), 'GS-HARNESS-M3-2026-09-13-2'));
+  assert.equal(again.sweptTo, path.join(sessionArtifactsDirectory(home), 'GS-HARNESS-M3-2026-09-13-3'));
 });
 
 test('empty desk message', () => {
@@ -249,4 +342,11 @@ test('empty desk message', () => {
   assert.equal(model.empty, true);
   assert.equal(model.emptyMessage, 'No packets on the desk.');
   assert.equal(model.badgeCount, 0);
+});
+
+test('ruling form exposes Attach ANNOTATE notes checkbox when notes exist', async () => {
+  const js = await readFile(path.resolve(process.cwd(), 'media/desk.js'), 'utf8');
+  assert.match(js, /Attach ANNOTATE notes/);
+  assert.match(js, /attachAnnotateNotes/);
+  assert.match(js, /hasAnnotateNotes/);
 });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.16 — 2026-09-14
+
+- Command Deck is the only surface opened on launch (full width). Lanes and Desk move to the secondary side bar as WebviewViews; editor-panel paths removed. Topbar toggles + `Ctrl/Cmd+Shift+L` / `Ctrl/Cmd+Shift+D`; immersive mode no longer closes the auxiliary bar.
+- Remove the in-deck “Your model bench” grid; seat/model/ceiling stay on the composer picker. Deck stays readable at 1280 and 1024.
+- Sessions tree in the Command side bar: Orchestrator / Projects / Archived, with New / Rename / Archive / Delete. Conversations storage `generalstaff.conversations.v2` with one-way v1 migration. Many orchestrator sessions; one active per scope. Deck topbar shows the active title + New session (`Ctrl/Cmd+Shift+N`).
+
 ## 0.4.15 — 2026-09-14
 
 - Correct Claude-seat native ceilings: per-model, not one 200k constant. Fable and Sonnet are **1M native**; Opus is **1M on Max tiers** (operator on Max 20x); Haiku stays **200k**. Picker label reads `fable · 1M context (native)`.

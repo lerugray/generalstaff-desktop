@@ -41,6 +41,8 @@
     pendingActionConversationId: null,
     notice: null,
     operatorDisplayName: '',
+    lanesBadgeCount: 0,
+    deskBadgeCount: 0,
   };
 
   function operatorAvatar() {
@@ -306,10 +308,21 @@
 
   function renderTopbar(title, eyebrow) {
     const now = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date());
+    const sessionTitle = currentConversation()?.title || title;
+    const lanesBadge = state.lanesBadgeCount > 0 ? `<span class="panel-toggle-badge">${state.lanesBadgeCount}</span>` : '';
+    const deskBadge = state.deskBadgeCount > 0 ? `<span class="panel-toggle-badge">${state.deskBadgeCount}</span>` : '';
     return `
       <header class="topbar">
-        <div><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
+        <div class="topbar-session">
+          <small>${escapeHtml(eyebrow)}</small>
+          <button type="button" class="session-title-button" data-action="show-sessions" title="Open Sessions">
+            <h1>${escapeHtml(sessionTitle)}</h1>
+          </button>
+        </div>
         <div class="topbar-actions">
+          <button type="button" class="ghost-button" data-action="new-session" title="New session">New session</button>
+          <button type="button" class="ghost-button panel-toggle" data-action="toggle-lanes" title="Toggle Lanes (Ctrl/Cmd+Shift+L)">Lanes${lanesBadge}</button>
+          <button type="button" class="ghost-button panel-toggle" data-action="toggle-desk" title="Toggle Desk (Ctrl/Cmd+Shift+D)">Desk${deskBadge}</button>
           <span class="date-chip">${escapeHtml(now)}</span>
           <button class="ghost-button" data-action="open-terminal">Terminal</button>
           <button class="avatar" title="Operator">${escapeHtml(operatorAvatar())}</button>
@@ -461,35 +474,6 @@
       </section>`;
   }
 
-  function renderLanes() {
-    const lanes = state.snapshot?.lanes || [];
-    return `
-      <section class="lane-section">
-        <div class="section-heading"><div><small>AVAILABLE CAPACITY</small><h2>Your model bench</h2></div><span>Choose by job, not hype.</span></div>
-        <div class="lane-grid">
-          ${lanes
-            .map((lane) => {
-              const permissionCompatible = (lane.permissions || ['read', 'write']).includes(state.selectedPermission);
-              const unavailable = lane.state !== 'available' || !permissionCompatible;
-              const permissionIssue = state.selectedPermission === 'write' ? 'read only' : 'edit access only';
-              const ceilingLabel = formatContextCeilingLabel(lane.contextCeiling);
-              const warn = lane.contextCeiling?.provenance === 'assumed-default'
-                ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
-                : '';
-              return `
-                <button class="lane-card ${lane.id === state.selectedLaneId ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}" data-lane-id="${escapeHtml(lane.id)}" ${unavailable ? 'disabled' : ''}>
-                  <div class="lane-card-top"><span class="lane-glyph">${escapeHtml(lane.name.slice(0, 1))}</span><span class="availability ${unavailable ? 'unavailable' : lane.state}">${!permissionCompatible ? permissionIssue : lane.state}</span></div>
-                  <strong>${escapeHtml(lane.name)}</strong>
-                  <p>${escapeHtml(lane.detail)}</p>
-                  <small class="lane-context-label">${escapeHtml(ceilingLabel)}${warn}</small>
-                  <small>${escapeHtml(lane.evidenceLabel || 'Evidence class not recorded')}</small>
-                </button>`;
-            })
-            .join('')}
-        </div>
-      </section>`;
-  }
-
   function renderProjectContext() {
     const project = currentProject();
     if (!project) return '';
@@ -549,7 +533,6 @@
           </section>
           <div class="dashboard-grid">${renderAttention()}${renderActivity()}</div>
           ${general ? '' : renderProjectContext()}
-          ${renderLanes()}
         </div>
       </main>`;
   }
@@ -651,7 +634,7 @@
     const contextItems = conversation.context || [];
     return `
       <main class="main conversation-main">
-        ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? 'GENERAL STAFF · LIVE COMMAND SEAT' : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
+        ${renderTopbar(conversation.title, orchestrator ? 'GENERAL STAFF · LIVE COMMAND SEAT' : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
         <div class="conversation-shell">
           <div class="conversation-meta">
             ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
@@ -836,6 +819,14 @@
       vscode.postMessage({ type: 'refresh' });
     } else if (action === 'open-terminal') {
       vscode.postMessage({ type: 'open-terminal', target: currentConversation()?.target || currentTarget() });
+    } else if (action === 'toggle-lanes') {
+      vscode.postMessage({ type: 'toggle-lanes' });
+    } else if (action === 'toggle-desk') {
+      vscode.postMessage({ type: 'toggle-desk' });
+    } else if (action === 'new-session') {
+      vscode.postMessage({ type: 'new-session' });
+    } else if (action === 'show-sessions') {
+      vscode.postMessage({ type: 'show-sessions' });
     } else if (action === 'open-project') {
       const conversation = currentConversation();
       const id = conversation?.target?.kind === 'project' ? conversation.target.projectId : currentProject()?.id;
@@ -971,6 +962,8 @@
       }
       state.notes = message.notes || {};
       state.operatorDisplayName = typeof message.operatorDisplayName === 'string' ? message.operatorDisplayName : '';
+      state.lanesBadgeCount = typeof message.lanesBadgeCount === 'number' ? message.lanesBadgeCount : 0;
+      state.deskBadgeCount = typeof message.deskBadgeCount === 'number' ? message.deskBadgeCount : 0;
       render();
     } else if (message.type === 'conversations') {
       state.conversations = message.conversations || [];

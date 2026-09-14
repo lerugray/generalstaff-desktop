@@ -26,7 +26,7 @@ import {
   type PrivateRuntimeProfile,
 } from './services/privateRuntime.js';
 
-const viewType = 'generalstaff.lanesPanel';
+export const lanesViewType = 'generalstaff.lanesView';
 const VISIBLE_POLL_MS = 30_000;
 const HIDDEN_POLL_MS = 60_000;
 
@@ -45,9 +45,13 @@ interface CachedDetail {
   model: LaneDetailModel;
 }
 
-export class LanesPanel {
-  static current: LanesPanel | undefined;
+/**
+ * Lanes as an auxiliary-bar WebviewView (M3d). Editor WebviewPanel path deleted.
+ */
+export class LanesViewProvider implements vscode.WebviewViewProvider {
+  static current: LanesViewProvider | undefined;
 
+  private view: vscode.WebviewView | undefined;
   private disposed = false;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private model: LanesPanelModel = emptyLanesPanelModel('Opening Lanes…');
@@ -58,48 +62,38 @@ export class LanesPanel {
   private detailSeq = 0;
   private readonly badgeListeners = new Set<LanesBadgeListener>();
 
-  private constructor(
-    private readonly panel: vscode.WebviewPanel,
-    private readonly context: vscode.ExtensionContext,
-  ) {
-    this.panel.webview.html = this.html();
-    this.panel.onDidDispose(() => this.dispose(), null, context.subscriptions);
-    this.panel.onDidChangeViewState(() => this.restartPoll(), null, context.subscriptions);
-    this.panel.webview.onDidReceiveMessage((value: unknown) => void this.handle(value), null, context.subscriptions);
-    this.restartPoll();
-    void this.refresh();
-  }
-
-  static show(context: vscode.ExtensionContext, column: vscode.ViewColumn = vscode.ViewColumn.Beside): LanesPanel {
-    if (LanesPanel.current) {
-      LanesPanel.current.panel.reveal(column);
-      return LanesPanel.current;
-    }
-    const mediaRoot = vscode.Uri.joinPath(context.extensionUri, 'media');
-    const panel = vscode.window.createWebviewPanel(
-      viewType,
-      'Lanes · detached runs',
-      column,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [mediaRoot],
-      },
-    );
-    panel.iconPath = {
-      light: vscode.Uri.joinPath(mediaRoot, 'icon-lanes.svg'),
-      dark: vscode.Uri.joinPath(mediaRoot, 'icon-lanes.svg'),
-    };
-    LanesPanel.current = new LanesPanel(panel, context);
-    return LanesPanel.current;
+  constructor(private readonly context: vscode.ExtensionContext) {
+    LanesViewProvider.current = this;
   }
 
   static shutdown(): void {
-    LanesPanel.current?.dispose();
+    LanesViewProvider.current?.dispose();
+    LanesViewProvider.current = undefined;
   }
 
   static badgeCount(): number {
-    return LanesPanel.current?.model.badgeCount ?? 0;
+    return LanesViewProvider.current?.model.badgeCount ?? 0;
+  }
+
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void {
+    this.view = webviewView;
+    this.disposed = false;
+    const mediaRoot = vscode.Uri.joinPath(this.context.extensionUri, 'media');
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [mediaRoot],
+    };
+    webviewView.webview.html = this.html(webviewView.webview);
+    webviewView.onDidDispose(() => this.onViewDisposed());
+    webviewView.onDidChangeVisibility(() => this.restartPoll());
+    webviewView.webview.onDidReceiveMessage((value: unknown) => void this.handle(value));
+    this.restartPoll();
+    void this.refresh();
+    this.applyBadge();
   }
 
   onBadge(listener: LanesBadgeListener): vscode.Disposable {
@@ -112,6 +106,10 @@ export class LanesPanel {
     await this.pullAndSend();
   }
 
+  async focus(): Promise<void> {
+    await vscode.commands.executeCommand(`${lanesViewType}.focus`);
+  }
+
   private privateRuntimeOptions(): PrivateRuntimeOptions {
     const laneDeskRuntimePath = vscode.workspace.getConfiguration('generalstaff').get<string>('laneDeskRuntimePath')?.trim();
     return laneDeskRuntimePath ? { laneDeskRuntimePath } : {};
@@ -119,8 +117,8 @@ export class LanesPanel {
 
   private restartPoll(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
-    if (this.disposed) return;
-    const interval = this.panel.visible ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
+    if (this.disposed || !this.view) return;
+    const interval = this.view.visible ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
     this.pollTimer = setInterval(() => {
       void this.pullAndSend();
     }, interval);
@@ -134,7 +132,7 @@ export class LanesPanel {
   }
 
   private async pullAndSend(): Promise<void> {
-    if (this.disposed) return;
+    if (this.disposed || !this.view) return;
     try {
       const profile = await this.resolveProfile();
       const result = await fetchLaneDeskStatus(profile);
@@ -253,12 +251,23 @@ export class LanesPanel {
   private setModel(model: LanesPanelModel): void {
     this.model = model;
     for (const listener of this.badgeListeners) listener(model.badgeCount);
-    void this.panel.webview.postMessage({ type: 'lanes-model', model });
+    this.applyBadge();
+    void this.view?.webview.postMessage({ type: 'lanes-model', model });
   }
 
   private setDetail(detail: LaneDetailModel | undefined): void {
     this.detailModel = detail;
-    void this.panel.webview.postMessage({ type: 'lanes-detail', detail: detail ?? null });
+    void this.view?.webview.postMessage({ type: 'lanes-detail', detail: detail ?? null });
+  }
+
+  private applyBadge(): void {
+    if (!this.view) return;
+    this.view.badge = this.model.badgeCount > 0
+      ? {
+          value: this.model.badgeCount,
+          tooltip: `${this.model.badgeCount} detached lane${this.model.badgeCount === 1 ? '' : 's'} need attention`,
+        }
+      : undefined;
   }
 
   private async handle(value: unknown): Promise<void> {
@@ -300,11 +309,11 @@ export class LanesPanel {
     }
   }
 
-  private html(): string {
+  private html(webview: vscode.Webview): string {
     const nonce = crypto.randomBytes(18).toString('base64');
-    const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
-    const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'lanes.js'));
-    const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce);
+    const css = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
+    const script = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'lanes.js'));
+    const csp = contentSecurityPolicy(webview.cspSource, nonce);
     return `<!doctype html>
 <html lang="en">
   <head>
@@ -326,39 +335,17 @@ export class LanesPanel {
 </html>`;
   }
 
+  private onViewDisposed(): void {
+    this.disposed = true;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.view = undefined;
+  }
+
   private dispose(): void {
     this.disposed = true;
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.badgeListeners.clear();
     this.detailCache.clear();
-    LanesPanel.current = undefined;
-  }
-}
-
-/** Activity-bar nav stubs: focusing the Workbench view reveals Command / Lanes / Desk editor panels. */
-export class WorkbenchNavProvider implements vscode.TreeDataProvider<string> {
-  constructor(private readonly label: 'Command' | 'Lanes' | 'Desk') {}
-
-  getTreeItem(element: string): vscode.TreeItem {
-    const item = new vscode.TreeItem(element, vscode.TreeItemCollapsibleState.None);
-    const command = this.label === 'Command'
-      ? 'generalstaff.openCommandDeck'
-      : this.label === 'Lanes'
-        ? 'generalstaff.openLanes'
-        : 'generalstaff.openDesk';
-    item.command = {
-      command,
-      title: `Open ${this.label}`,
-    };
-    item.description = this.label === 'Lanes'
-      ? 'detached runs'
-      : this.label === 'Desk'
-        ? 'handoff packets'
-        : 'orchestrator';
-    return item;
-  }
-
-  getChildren(): string[] {
-    return [this.label];
+    this.view = undefined;
   }
 }

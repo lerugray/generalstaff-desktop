@@ -30,21 +30,33 @@ export class OrchestratorSessionManager {
   ) {}
 
   async ensure(routing: OrchestratorRouting): Promise<Conversation> {
-    const storedId = this.state.get<string>(orchestratorSessionKey);
-    const stored = storedId ? this.store.get(storedId) : undefined;
-    if (stored?.kind === 'orchestrator' && stored.target.kind === 'general') return stored;
+    const activeId = this.store.activeGeneralId() ?? this.state.get<string>(orchestratorSessionKey);
+    const stored = activeId ? this.store.get(activeId) : undefined;
+    if (
+      stored?.kind === 'orchestrator' &&
+      stored.target.kind === 'general' &&
+      stored.archivedAt === undefined
+    ) {
+      await this.remember(stored.id);
+      return stored;
+    }
 
     const existing = this.store.all().find(
-      (conversation) => conversation.kind === 'orchestrator' && conversation.target.kind === 'general',
+      (conversation) =>
+        conversation.kind === 'orchestrator' &&
+        conversation.target.kind === 'general' &&
+        conversation.archivedAt === undefined,
     );
     if (existing) {
-      await this.state.update(orchestratorSessionKey, existing.id);
+      await this.remember(existing.id);
       return existing;
     }
 
     // v2.4 created ordinary General-scoped commands. Preserve the newest one's
     // transcript and provider session instead of discarding operator context.
-    const legacyGeneral = this.store.all().find((conversation) => conversation.target.kind === 'general');
+    const legacyGeneral = this.store.all().find(
+      (conversation) => conversation.target.kind === 'general' && conversation.archivedAt === undefined,
+    );
     let session = legacyGeneral
       ? await this.store.promoteToOrchestrator(legacyGeneral.id)
       : await this.store.createOrchestrator(routing.laneId, routing.effort, routing.permission);
@@ -59,16 +71,44 @@ export class OrchestratorSessionManager {
         session.skillId,
       ) ?? session;
     }
-    await this.state.update(orchestratorSessionKey, session.id);
+    await this.remember(session.id);
     return session;
   }
 
+  /** Start a fresh orchestrator transcript; the previous session stays listed. */
+  async startNew(routing: OrchestratorRouting): Promise<Conversation> {
+    const session = await this.store.createOrchestrator(
+      routing.laneId,
+      routing.effort,
+      routing.permission ?? 'read',
+    );
+    await this.remember(session.id);
+    return session;
+  }
+
+  async activate(id: string): Promise<Conversation | undefined> {
+    const conversation = this.store.get(id);
+    if (!conversation || conversation.kind !== 'orchestrator' || conversation.target.kind !== 'general') {
+      return undefined;
+    }
+    if (conversation.archivedAt !== undefined) await this.store.unarchive(id);
+    await this.remember(id);
+    return this.store.get(id);
+  }
+
   current(): Conversation | undefined {
-    const id = this.state.get<string>(orchestratorSessionKey);
+    const id = this.store.activeGeneralId() ?? this.state.get<string>(orchestratorSessionKey);
     const conversation = id ? this.store.get(id) : undefined;
-    return conversation?.kind === 'orchestrator' && conversation.target.kind === 'general'
+    return conversation?.kind === 'orchestrator' &&
+      conversation.target.kind === 'general' &&
+      conversation.archivedAt === undefined
       ? conversation
       : undefined;
+  }
+
+  private async remember(id: string): Promise<void> {
+    await this.store.setActiveGeneral(id);
+    await this.state.update(orchestratorSessionKey, id);
   }
 
   continuationFor(

@@ -41,26 +41,39 @@ The extension discovers installed, authenticated command-line lanes and exposes 
 
 Codex, Fable, Cline, and the Grok trial lane expose the effort values supported by their non-interactive CLI paths. Kimi, Cursor, and both Ollama Cloud lanes use the provider default. The Ollama entries are additional, distinctly labeled direct-API picker options; the existing Cline / GLM lane remains unchanged, and Fable remains the default orchestrator seat. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
-## Lanes and Desk
+## Lanes, Desk, and Sessions
 
-Two panels stand beside the conversation, both read-only and both built on the same one-shot
-`lane_desk.py` CLI the operator already runs — no second transport and no held-open session.
+The Command Deck is the only surface that opens on launch, full width. **Lanes** and **Desk** live
+in the secondary side bar (auxiliary bar) as toggleable views under a GeneralStaff container —
+they no longer open as editor tabs beside the deck. From the deck topbar, **Lanes** and **Desk**
+buttons (with live badge counts) show or hide that side bar; the same toggles are
+`Ctrl/Cmd+Shift+L` and `Ctrl/Cmd+Shift+D`. Immersive workspace settings no longer force the
+auxiliary bar closed.
 
 **Lanes** is a situation map of detached work across every configured host. Each row is a lane: its
 identifier first, its state in colour, its elapsed time and commit as marginalia. Rows that want
 attention sort to the top, an unreachable host is synthesised as a row rather than silently omitted, and
 a partial envelope is tolerated rather than discarded. Selecting a row opens **lane detail** — the log
 tail as the CLI reports it, plus a harvest preview that previews only; harvesting itself is disabled with
-a tooltip. Alerts are a badge count on the activity bar and nothing else. The rail carries the Kriegspiel
-Paper and Kriegspiel Night palettes for this surface: ink and iron-red and dust on paper, with amber
-reserved for the thing that actually needs the operator.
+a tooltip. Alerts are a badge count on the view and the deck toggle, nothing else.
 
 **Desk** presents `~/Desktop/handoff` as a folio — one leaf per staged packet, its WHAT-TO-JUDGE rendered
 as a sanitised plate, with actions to open the packet in Finder or its annotation page in a browser.
 Recording a ruling is the panel's only write: it invokes the repository's own `ping.sh` with an argument
 array, and sweeps the packet to `session-artifacts` only when that call exits cleanly.
 
-**Versions.** `0.4.15` is the installed Workbench package (installed into the isolated profile 2026-09-13) and the package on this branch — Claude Fable/Sonnet native ceiling corrected to 1M (per Claude Code model-config). `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The Workbench's working branch is
+**Sessions** sits in the primary side bar under Command. It lists Orchestrator and Project conversations
+newest-first (title, relative time, last lane/model), with an Archived section collapsed by default.
+Inline actions: Open, Rename, Archive / Unarchive, Delete. Title-bar **New session** (also
+`GeneralStaff: New Session` / `Ctrl/Cmd+Shift+N`) starts a fresh transcript in the current scope;
+the previous session stays listed. The deck topbar shows the active session title (click to focus
+Sessions) and the same New session control. Clearing a stuck thread is Delete or New session — there
+is no need to hunt for a hidden reset.
+
+**Versions.** `0.4.16` is the package on this branch — Lanes/Desk as auxiliary-bar toggles, Sessions
+sidebar (new/rename/archive/delete), conversations storage `v2`. `0.4.15` corrected Claude Fable/Sonnet
+native ceiling to 1M. `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The
+Workbench's working branch is
 **`publish-v23`**; `master` carries the older v2.3 line.
 
 These panels are the first milestones of a larger, deliberately personal direction: a command surface

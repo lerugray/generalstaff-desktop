@@ -198,6 +198,8 @@ export interface Conversation {
   decisions: ConversationDecision[];
   createdAt: number;
   updatedAt: number;
+  /** When set, the session is archived (listed under Archived, not in the active scopes). */
+  archivedAt?: number;
   receipt?: ConversationReceipt;
 }
 

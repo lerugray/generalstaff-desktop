@@ -6,63 +6,57 @@ import { resolveGeneralStaffRoot } from './services/fleet.js';
 import { scanDeskPackets } from './services/deskPackets.js';
 import { recordRuling, resolveDefaultSessionId } from './services/pingRuling.js';
 
-const viewType = 'generalstaff.deskPanel';
+export const deskViewType = 'generalstaff.deskView';
 const VISIBLE_POLL_MS = 15_000;
 const HIDDEN_POLL_MS = 60_000;
 
 export type DeskBadgeListener = (count: number) => void;
 
-export class DeskPanel {
-  static current: DeskPanel | undefined;
+/**
+ * Desk as an auxiliary-bar WebviewView (M3d). Editor WebviewPanel path deleted.
+ */
+export class DeskViewProvider implements vscode.WebviewViewProvider {
+  static current: DeskViewProvider | undefined;
 
+  private view: vscode.WebviewView | undefined;
   private disposed = false;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private model: DeskPanelModel = emptyDeskPanelModel();
   private selectedKey: string | undefined;
   private readonly badgeListeners = new Set<DeskBadgeListener>();
 
-  private constructor(
-    private readonly panel: vscode.WebviewPanel,
-    private readonly context: vscode.ExtensionContext,
-  ) {
-    this.panel.webview.html = this.html();
-    this.panel.onDidDispose(() => this.dispose(), null, context.subscriptions);
-    this.panel.onDidChangeViewState(() => this.restartPoll(), null, context.subscriptions);
-    this.panel.webview.onDidReceiveMessage((value: unknown) => void this.handle(value), null, context.subscriptions);
-    this.restartPoll();
-    void this.refresh();
-  }
-
-  static show(context: vscode.ExtensionContext, column: vscode.ViewColumn = vscode.ViewColumn.Beside): DeskPanel {
-    if (DeskPanel.current) {
-      DeskPanel.current.panel.reveal(column);
-      return DeskPanel.current;
-    }
-    const mediaRoot = vscode.Uri.joinPath(context.extensionUri, 'media');
-    const panel = vscode.window.createWebviewPanel(
-      viewType,
-      'Desk · handoff packets',
-      column,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [mediaRoot],
-      },
-    );
-    panel.iconPath = {
-      light: vscode.Uri.joinPath(mediaRoot, 'icon-desk.svg'),
-      dark: vscode.Uri.joinPath(mediaRoot, 'icon-desk.svg'),
-    };
-    DeskPanel.current = new DeskPanel(panel, context);
-    return DeskPanel.current;
+  constructor(private readonly context: vscode.ExtensionContext) {
+    DeskViewProvider.current = this;
   }
 
   static shutdown(): void {
-    DeskPanel.current?.dispose();
+    DeskViewProvider.current?.dispose();
+    DeskViewProvider.current = undefined;
   }
 
   static badgeCount(): number {
-    return DeskPanel.current?.model.badgeCount ?? 0;
+    return DeskViewProvider.current?.model.badgeCount ?? 0;
+  }
+
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void {
+    this.view = webviewView;
+    this.disposed = false;
+    const mediaRoot = vscode.Uri.joinPath(this.context.extensionUri, 'media');
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [mediaRoot],
+    };
+    webviewView.webview.html = this.html(webviewView.webview);
+    webviewView.onDidDispose(() => this.onViewDisposed());
+    webviewView.onDidChangeVisibility(() => this.restartPoll());
+    webviewView.webview.onDidReceiveMessage((value: unknown) => void this.handle(value));
+    this.restartPoll();
+    void this.refresh();
+    this.applyBadge();
   }
 
   onBadge(listener: DeskBadgeListener): vscode.Disposable {
@@ -75,10 +69,14 @@ export class DeskPanel {
     await this.pullAndSend();
   }
 
+  async focus(): Promise<void> {
+    await vscode.commands.executeCommand(`${deskViewType}.focus`);
+  }
+
   private restartPoll(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
-    if (this.disposed) return;
-    const interval = this.panel.visible ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
+    if (this.disposed || !this.view) return;
+    const interval = this.view.visible ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
     this.pollTimer = setInterval(() => {
       void this.pullAndSend();
     }, interval);
@@ -91,7 +89,7 @@ export class DeskPanel {
   }
 
   private async pullAndSend(notice?: string): Promise<void> {
-    if (this.disposed) return;
+    if (this.disposed || !this.view) return;
     try {
       const rootPath = await this.resolveRoot();
       const [packets, defaultSession] = await Promise.all([
@@ -111,11 +109,22 @@ export class DeskPanel {
   private setModel(model: DeskPanelModel): void {
     this.model = model;
     for (const listener of this.badgeListeners) listener(model.badgeCount);
-    void this.panel.webview.postMessage({
+    this.applyBadge();
+    void this.view?.webview.postMessage({
       type: 'desk-model',
       model,
       selectedKey: this.selectedKey ?? null,
     });
+  }
+
+  private applyBadge(): void {
+    if (!this.view) return;
+    this.view.badge = this.model.badgeCount > 0
+      ? {
+          value: this.model.badgeCount,
+          tooltip: `${this.model.badgeCount} packet${this.model.badgeCount === 1 ? '' : 's'} waiting on the desk`,
+        }
+      : undefined;
   }
 
   private leafByKey(key: string) {
@@ -156,7 +165,7 @@ export class DeskPanel {
       const attachAnnotateNotes = (value as { attachAnnotateNotes?: unknown }).attachAnnotateNotes === true;
       const leaf = this.leafByKey(key);
       if (!leaf) {
-        void this.panel.webview.postMessage({
+        void this.view?.webview.postMessage({
           type: 'ruling-result',
           ok: false,
           errorDetail: 'Packet is no longer on the desk.',
@@ -176,7 +185,7 @@ export class DeskPanel {
           tags,
           attachAnnotateNotes,
         });
-        void this.panel.webview.postMessage({
+        void this.view?.webview.postMessage({
           type: 'ruling-result',
           ok: result.ok,
           stdout: result.stdout,
@@ -190,7 +199,7 @@ export class DeskPanel {
           await this.pullAndSend(result.stdout.trim() || `Ruled — swept to ${result.sweptTo}`);
         }
       } catch (error) {
-        void this.panel.webview.postMessage({
+        void this.view?.webview.postMessage({
           type: 'ruling-result',
           ok: false,
           errorDetail: error instanceof Error ? error.message : 'Ruling failed.',
@@ -199,11 +208,11 @@ export class DeskPanel {
     }
   }
 
-  private html(): string {
+  private html(webview: vscode.Webview): string {
     const nonce = crypto.randomBytes(18).toString('base64');
-    const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
-    const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'desk.js'));
-    const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce, { frameSrc: true });
+    const css = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
+    const script = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'desk.js'));
+    const csp = contentSecurityPolicy(webview.cspSource, nonce, { frameSrc: true });
     return `<!doctype html>
 <html lang="en">
   <head>
@@ -225,10 +234,16 @@ export class DeskPanel {
 </html>`;
   }
 
+  private onViewDisposed(): void {
+    this.disposed = true;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.view = undefined;
+  }
+
   private dispose(): void {
     this.disposed = true;
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.badgeListeners.clear();
-    DeskPanel.current = undefined;
+    this.view = undefined;
   }
 }

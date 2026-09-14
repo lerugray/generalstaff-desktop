@@ -29,8 +29,10 @@ import {
   type PrivateRuntimeOptions,
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
-import { DeskPanel } from './deskPanel.js';
-import { LanesPanel, WorkbenchNavProvider } from './lanesPanel.js';
+import { DeskViewProvider, deskViewType } from './deskPanel.js';
+import { LanesViewProvider, lanesViewType } from './lanesPanel.js';
+import { nextAuxToggleState, planOpenOnLaunch, type AuxPanel } from './launchPlan.js';
+import { SessionsNavProvider } from './sessionsNav.js';
 
 const viewType = 'generalstaff.commandDeck';
 
@@ -43,28 +45,34 @@ interface StartRunOptions {
 class CommandDeckPanel {
   static current: CommandDeckPanel | undefined;
 
-  private readonly store: ConversationStore;
-  private readonly orchestrator: OrchestratorSessionManager;
   private readonly notes: ProjectNoteStore;
   private readonly preview = new PreviewServer();
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly pendingRuns = new Set<string>();
   private snapshot: FleetSnapshot | undefined;
   private disposed = false;
+  private onSessionsChanged: (() => void) | undefined;
+  private lanesBadge = 0;
+  private deskBadge = 0;
+  private focusedConversationId: string | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly context: vscode.ExtensionContext,
+    private readonly store: ConversationStore,
+    private readonly orchestrator: OrchestratorSessionManager,
   ) {
-    this.store = new ConversationStore(context.globalState);
-    this.orchestrator = new OrchestratorSessionManager(context.globalState, this.store);
     this.notes = new ProjectNoteStore(context.globalState);
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, context.subscriptions);
     this.panel.webview.onDidReceiveMessage((value: unknown) => void this.handle(value), null, context.subscriptions);
   }
 
-  static show(context: vscode.ExtensionContext): CommandDeckPanel {
+  static show(
+    context: vscode.ExtensionContext,
+    store: ConversationStore,
+    orchestrator: OrchestratorSessionManager,
+  ): CommandDeckPanel {
     if (CommandDeckPanel.current) {
       CommandDeckPanel.current.panel.reveal(vscode.ViewColumn.One);
       return CommandDeckPanel.current;
@@ -85,7 +93,7 @@ class CommandDeckPanel {
       light: vscode.Uri.joinPath(mediaRoot, 'mark-light.svg'),
       dark: vscode.Uri.joinPath(mediaRoot, 'mark-dark.svg'),
     };
-    CommandDeckPanel.current = new CommandDeckPanel(panel, context);
+    CommandDeckPanel.current = new CommandDeckPanel(panel, context, store, orchestrator);
     return CommandDeckPanel.current;
   }
 
@@ -93,12 +101,133 @@ class CommandDeckPanel {
     CommandDeckPanel.current?.dispose();
   }
 
+  setSessionsListener(listener: (() => void) | undefined): void {
+    this.onSessionsChanged = listener;
+  }
+
+  setPanelBadges(lanes: number, desk: number): void {
+    this.lanesBadge = lanes;
+    this.deskBadge = desk;
+    void this.postState();
+  }
+
   focusComposer(): void {
     void this.panel.webview.postMessage({ type: 'focus-composer' });
   }
 
+  hasRunningTurn(conversationId?: string): boolean {
+    if (conversationId) {
+      return this.activeRuns.has(conversationId) || this.pendingRuns.has(conversationId);
+    }
+    return this.activeRuns.size > 0 || this.pendingRuns.size > 0;
+  }
+
+  runningConversationIds(): string[] {
+    return [...new Set([...this.activeRuns.keys(), ...this.pendingRuns])];
+  }
+
+  stopRun(conversationId: string): void {
+    this.activeRuns.get(conversationId)?.stop();
+  }
+
   async refresh(): Promise<void> {
     await this.refreshAndSend();
+  }
+
+  projectNames(): Map<string, string> {
+    return new Map((this.snapshot?.projects ?? []).map((project) => [project.id, project.name]));
+  }
+
+  async openSession(conversationId: string): Promise<void> {
+    const conversation = this.store.get(conversationId);
+    if (!conversation) {
+      await this.notice('That session is no longer available.', 'error');
+      return;
+    }
+    if (conversation.archivedAt !== undefined) {
+      await this.store.unarchive(conversationId);
+    }
+    if (conversation.kind === 'orchestrator' || conversation.target.kind === 'general') {
+      await this.orchestrator.activate(conversationId);
+    } else if (conversation.target.kind === 'project') {
+      await this.store.setActiveProject(conversation.target.projectId, conversationId);
+    }
+    this.focusedConversationId = conversationId;
+    await this.panel.webview.postMessage({ type: 'conversation-selected', conversation: this.store.get(conversationId) });
+    await this.postState();
+    this.onSessionsChanged?.();
+    this.panel.reveal(vscode.ViewColumn.One);
+  }
+
+  async newSession(): Promise<void> {
+    if (!this.snapshot) await this.refreshAndSend();
+    if (!this.snapshot) return;
+    const focused = this.focusedConversationId
+      ? this.store.get(this.focusedConversationId)
+      : this.orchestrator.current();
+    if (focused?.target.kind === 'project') {
+      const lane = this.snapshot.lanes.find((item) => item.id === focused.laneId)
+        ?? this.snapshot.lanes.find((item) => item.state === 'available')
+        ?? this.snapshot.lanes[0];
+      if (!lane) {
+        await this.notice('No model lanes are configured for a new session.', 'error');
+        return;
+      }
+      const conversation = await this.store.create(
+        focused.target,
+        lane.id,
+        focused.seat,
+        focused.effort,
+        'read',
+        focused.skillId,
+      );
+      this.focusedConversationId = conversation.id;
+      await this.panel.webview.postMessage({ type: 'conversation-selected', conversation });
+      await this.postState();
+      this.onSessionsChanged?.();
+      this.focusComposer();
+      return;
+    }
+    const current = this.orchestrator.current();
+    const lane = this.snapshot.lanes.find((item) => item.id === (current?.laneId ?? 'claude'))
+      ?? this.snapshot.lanes.find((item) => item.state === 'available' && item.roles.includes('orchestrate'))
+      ?? this.snapshot.lanes[0];
+    if (!lane) {
+      await this.notice('No model lanes are configured for a new session.', 'error');
+      return;
+    }
+    const session = await this.orchestrator.startNew({
+      laneId: lane.id,
+      effort: current?.effort ?? lane.defaultEffort,
+      permission: 'read',
+    });
+    this.focusedConversationId = session.id;
+    await this.panel.webview.postMessage({ type: 'conversation-selected', conversation: session });
+    await this.postState();
+    this.onSessionsChanged?.();
+    this.focusComposer();
+  }
+
+  async switchOrStop(conversationId: string): Promise<boolean> {
+    const running = this.runningConversationIds();
+    if (!running.length) {
+      await this.openSession(conversationId);
+      return true;
+    }
+    if (running.includes(conversationId)) {
+      await this.openSession(conversationId);
+      return true;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      'A turn is still running. Stop it and switch sessions?',
+      { modal: true },
+      'Stop and switch',
+      'Cancel',
+    );
+    if (choice !== 'Stop and switch') return false;
+    for (const id of running) this.stopRun(id);
+    await this.openSession(conversationId);
+    return true;
   }
 
   /**
@@ -159,7 +288,10 @@ class CommandDeckPanel {
       orchestratorSessionId: this.orchestrator.current()?.id,
       notes: this.notes.all(),
       operatorDisplayName: this.operatorDisplayName(),
+      lanesBadgeCount: this.lanesBadge,
+      deskBadgeCount: this.deskBadge,
     });
+    this.onSessionsChanged?.();
   }
 
   private async handle(value: unknown): Promise<void> {
@@ -311,6 +443,18 @@ class CommandDeckPanel {
         await this.panel.webview.postMessage({ type: 'notes', notes: this.notes.all() });
         await this.notice('Operator note saved locally.', 'quiet');
         return;
+      case 'toggle-lanes':
+        await vscode.commands.executeCommand('generalstaff.toggleLanes');
+        return;
+      case 'toggle-desk':
+        await vscode.commands.executeCommand('generalstaff.toggleDesk');
+        return;
+      case 'new-session':
+        await vscode.commands.executeCommand('generalstaff.newSession');
+        return;
+      case 'show-sessions':
+        await vscode.commands.executeCommand('generalstaff.showSessions');
+        return;
     }
   }
 
@@ -320,6 +464,7 @@ class CommandDeckPanel {
       await this.notice('That conversation is no longer available.', 'error', conversationId);
       return;
     }
+    this.focusedConversationId = conversationId;
     if (this.activeRuns.has(conversationId) || this.pendingRuns.has(conversationId)) {
       await this.notice('That conversation already has a lane running.', 'error', conversationId);
       return;
@@ -778,110 +923,222 @@ class CommandDeckPanel {
   }
 }
 
-function applyLanesBadge(tree: vscode.TreeView<string>, count: number): void {
+function applySessionsBadge(tree: vscode.TreeView<unknown>, count: number): void {
   tree.badge = count > 0
-    ? { value: count, tooltip: `${count} detached lane${count === 1 ? '' : 's'} need attention` }
-    : undefined;
-}
-
-function applyDeskBadge(tree: vscode.TreeView<string>, count: number): void {
-  tree.badge = count > 0
-    ? { value: count, tooltip: `${count} packet${count === 1 ? '' : 's'} waiting on the desk` }
+    ? { value: count, tooltip: `${count} active session${count === 1 ? '' : 's'}` }
     : undefined;
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const commandNav = vscode.window.createTreeView('generalstaff.commandNav', {
-    treeDataProvider: new WorkbenchNavProvider('Command'),
-    showCollapseAll: false,
+  const store = new ConversationStore(context.globalState);
+  const orchestrator = new OrchestratorSessionManager(context.globalState, store);
+  const sessionsProvider = new SessionsNavProvider(store);
+  const sessionsNav = vscode.window.createTreeView('generalstaff.sessionsNav', {
+    treeDataProvider: sessionsProvider,
+    showCollapseAll: true,
   });
-  const lanesNav = vscode.window.createTreeView('generalstaff.lanesNav', {
-    treeDataProvider: new WorkbenchNavProvider('Lanes'),
-    showCollapseAll: false,
-  });
-  const deskNav = vscode.window.createTreeView('generalstaff.deskNav', {
-    treeDataProvider: new WorkbenchNavProvider('Desk'),
-    showCollapseAll: false,
-  });
-  let lanesBadgeWired = false;
-  let deskBadgeWired = false;
-  const wireLanesBadge = (panel: LanesPanel): void => {
-    if (lanesBadgeWired) return;
-    lanesBadgeWired = true;
-    context.subscriptions.push(panel.onBadge((count) => applyLanesBadge(lanesNav, count)));
-  };
-  const wireDeskBadge = (panel: DeskPanel): void => {
-    if (deskBadgeWired) return;
-    deskBadgeWired = true;
-    context.subscriptions.push(panel.onBadge((count) => applyDeskBadge(deskNav, count)));
-  };
 
-  context.subscriptions.push(commandNav, lanesNav, deskNav);
+  const lanesProvider = new LanesViewProvider(context);
+  const deskProvider = new DeskViewProvider(context);
   context.subscriptions.push(
-    commandNav.onDidChangeVisibility((event) => {
-      if (event.visible) CommandDeckPanel.show(context);
+    vscode.window.registerWebviewViewProvider(lanesViewType, lanesProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
     }),
-    lanesNav.onDidChangeVisibility((event) => {
-      if (event.visible) wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
-    }),
-    deskNav.onDidChangeVisibility((event) => {
-      if (event.visible) wireDeskBadge(DeskPanel.show(context, vscode.ViewColumn.Beside));
+    vscode.window.registerWebviewViewProvider(deskViewType, deskProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
     }),
   );
 
+  let auxFocus: AuxPanel | null = null;
+  const syncDeckBadges = (): void => {
+    CommandDeckPanel.current?.setPanelBadges(
+      LanesViewProvider.badgeCount(),
+      DeskViewProvider.badgeCount(),
+    );
+  };
   context.subscriptions.push(
-    vscode.commands.registerCommand('generalstaff.openCommandDeck', () => CommandDeckPanel.show(context)),
-    vscode.commands.registerCommand('generalstaff.openLanes', () => {
-      const panel = LanesPanel.show(context, vscode.ViewColumn.Beside);
-      wireLanesBadge(panel);
-      return panel;
+    lanesProvider.onBadge(() => syncDeckBadges()),
+    deskProvider.onBadge(() => syncDeckBadges()),
+  );
+
+  const showDeck = (): CommandDeckPanel => {
+    const panel = CommandDeckPanel.show(context, store, orchestrator);
+    panel.setSessionsListener(() => {
+      sessionsProvider.refresh(panel.projectNames());
+      applySessionsBadge(
+        sessionsNav,
+        store.all().filter((c) => c.archivedAt === undefined).length,
+      );
+    });
+    return panel;
+  };
+
+  const refreshSessionsFromDeck = (): void => {
+    sessionsProvider.refresh(CommandDeckPanel.current?.projectNames() ?? new Map());
+    applySessionsBadge(
+      sessionsNav,
+      store.all().filter((c) => c.archivedAt === undefined).length,
+    );
+  };
+  refreshSessionsFromDeck();
+
+  const sessionIdFromArg = (node?: { type?: string; item?: { id?: string } } | string): string | undefined => {
+    if (typeof node === 'string') return node;
+    if (node && node.type === 'session' && typeof node.item?.id === 'string') return node.item.id;
+    return undefined;
+  };
+
+  const focusAux = async (panel: AuxPanel): Promise<void> => {
+    if (panel === 'lanes') await lanesProvider.focus();
+    else await deskProvider.focus();
+    auxFocus = panel;
+    syncDeckBadges();
+  };
+
+  const hideAux = async (): Promise<void> => {
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+    auxFocus = null;
+  };
+
+  const toggleAux = async (target: AuxPanel): Promise<void> => {
+    const { next, action } = nextAuxToggleState(auxFocus, target);
+    if (action === 'hide') await hideAux();
+    else await focusAux(target);
+    auxFocus = next;
+  };
+
+  context.subscriptions.push(sessionsNav);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('generalstaff.openCommandDeck', () => showDeck()),
+    vscode.commands.registerCommand('generalstaff.openLanes', async () => {
+      await focusAux('lanes');
     }),
-    vscode.commands.registerCommand('generalstaff.openDesk', () => {
-      const panel = DeskPanel.show(context, vscode.ViewColumn.Beside);
-      wireDeskBadge(panel);
-      return panel;
+    vscode.commands.registerCommand('generalstaff.openDesk', async () => {
+      await focusAux('desk');
+    }),
+    vscode.commands.registerCommand('generalstaff.toggleLanes', async () => {
+      await toggleAux('lanes');
+    }),
+    vscode.commands.registerCommand('generalstaff.toggleDesk', async () => {
+      await toggleAux('desk');
     }),
     vscode.commands.registerCommand('generalstaff.newConversation', () => {
-      const panel = CommandDeckPanel.show(context);
+      const panel = showDeck();
       panel.focusComposer();
     }),
+    vscode.commands.registerCommand('generalstaff.newSession', async () => {
+      const panel = showDeck();
+      await panel.newSession();
+      refreshSessionsFromDeck();
+    }),
+    vscode.commands.registerCommand('generalstaff.showSessions', async () => {
+      await vscode.commands.executeCommand('generalstaff.sessionsNav.focus');
+    }),
+    vscode.commands.registerCommand('generalstaff.openSession', async (conversationId?: string) => {
+      if (typeof conversationId !== 'string') return;
+      const panel = showDeck();
+      await panel.switchOrStop(conversationId);
+      refreshSessionsFromDeck();
+    }),
+    vscode.commands.registerCommand('generalstaff.renameSession', async (node?: { type?: string; item?: { id?: string } } | string) => {
+      const id = sessionIdFromArg(node);
+      const conversation = id ? store.get(id) : undefined;
+      if (!conversation) {
+        void vscode.window.showErrorMessage('Choose a session to rename.');
+        return;
+      }
+      const next = await vscode.window.showInputBox({
+        title: 'Rename session',
+        value: conversation.title,
+        prompt: 'Session title',
+      });
+      if (next === undefined) return;
+      await store.rename(conversation.id, next);
+      refreshSessionsFromDeck();
+      await CommandDeckPanel.current?.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.archiveSession', async (node?: { type?: string; item?: { id?: string } } | string) => {
+      const id = sessionIdFromArg(node);
+      if (!id) return;
+      await store.archive(id);
+      refreshSessionsFromDeck();
+      await CommandDeckPanel.current?.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.unarchiveSession', async (node?: { type?: string; item?: { id?: string } } | string) => {
+      const id = sessionIdFromArg(node);
+      if (!id) return;
+      await store.unarchive(id);
+      refreshSessionsFromDeck();
+      await CommandDeckPanel.current?.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.deleteSession', async (node?: { type?: string; item?: { id?: string } } | string) => {
+      const id = sessionIdFromArg(node);
+      const conversation = id ? store.get(id) : undefined;
+      if (!conversation) return;
+      const deck = CommandDeckPanel.current;
+      if (deck?.hasRunningTurn(conversation.id)) {
+        void vscode.window.showErrorMessage('Stop the running turn before deleting this session.');
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete session “${conversation.title}”? This removes its transcript.`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirm !== 'Delete') return;
+      await store.delete(conversation.id);
+      if (!orchestrator.current()) {
+        await orchestrator.ensure({ laneId: 'claude', effort: 'default', permission: 'read' });
+      }
+      refreshSessionsFromDeck();
+      await deck?.refresh();
+    }),
+    vscode.commands.registerCommand('generalstaff.filterSessions', async () => {
+      const value = await vscode.window.showInputBox({
+        title: 'Filter sessions',
+        value: sessionsProvider.getFilter(),
+        prompt: 'Filter by title, project, or lane',
+      });
+      if (value === undefined) return;
+      sessionsProvider.setFilter(value);
+    }),
     vscode.commands.registerCommand('generalstaff.refresh', async () => {
-      await CommandDeckPanel.show(context).refresh();
-      await LanesPanel.current?.refresh();
-      await DeskPanel.current?.refresh();
+      await showDeck().refresh();
+      await LanesViewProvider.current?.refresh();
+      await DeskViewProvider.current?.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.refreshLanes', async () => {
-      const panel = LanesPanel.show(context);
-      wireLanesBadge(panel);
-      await panel.refresh();
+      await focusAux('lanes');
+      await lanesProvider.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.refreshDesk', async () => {
-      const panel = DeskPanel.show(context);
-      wireDeskBadge(panel);
-      await panel.refresh();
+      await focusAux('desk');
+      await deskProvider.refresh();
     }),
     vscode.commands.registerCommand('generalstaff.openRawTerminal', () => {
       vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
     }),
   );
 
-  if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('openOnLaunch', true)) {
+  const config = vscode.workspace.getConfiguration('generalstaff');
+  const launch = planOpenOnLaunch({
+    openOnLaunch: config.get<boolean>('openOnLaunch', true),
+    immersiveMode: config.get<boolean>('immersiveMode', false),
+  });
+  if (launch.openCommandDeck) {
     const timer = setTimeout(() => {
-      CommandDeckPanel.show(context);
-      wireLanesBadge(LanesPanel.show(context, vscode.ViewColumn.Beside));
-      wireDeskBadge(DeskPanel.show(context, vscode.ViewColumn.Beside));
-      if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', false)) {
-        // Keep the Workbench activity-bar icons visible for Command / Lanes / Desk + badges;
-        // still hide Explorer chrome and the bottom panel.
+      showDeck();
+      if (launch.closePanel || vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', false)) {
         void vscode.workspace.getConfiguration('workbench').update(
           'activityBar.location',
           'default',
           vscode.ConfigurationTarget.Workspace,
         );
-        void Promise.all([
-          vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar'),
-          vscode.commands.executeCommand('workbench.action.closePanel'),
-        ]);
+        if (launch.closePanel) {
+          void vscode.commands.executeCommand('workbench.action.closePanel');
+        }
+        // Do not close the auxiliary bar — Lanes/Desk toggles live there.
       }
     }, 350);
     context.subscriptions.push({ dispose: () => clearTimeout(timer) });
@@ -889,7 +1146,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  DeskPanel.shutdown();
-  LanesPanel.shutdown();
+  DeskViewProvider.shutdown();
+  LanesViewProvider.shutdown();
   CommandDeckPanel.shutdown();
 }

@@ -12,10 +12,17 @@ import type {
   PermissionMode,
   SeatId,
 } from '../domain.js';
+import {
+  defaultSessionTitle,
+  isPlaceholderTitle,
+  titleFromFirstUserMessage,
+} from './sessionsModel.js';
 
-const storageKey = 'generalstaff.conversations.v1';
+export const conversationsV1Key = 'generalstaff.conversations.v1';
+export const conversationsV2Key = 'generalstaff.conversations.v2';
 const providerStorageKey = 'generalstaff.providerSessions.v1';
-const maxConversations = 30;
+const activeSessionsKey = 'generalstaff.activeSessions.v2';
+const maxConversations = 40;
 
 interface ProviderSession {
   id: string;
@@ -33,6 +40,13 @@ type StoredConversation = Omit<Conversation, 'target' | 'writeConsent'> & {
   writeConsent?: { at: number; target?: CommandTarget; projectId?: string };
 };
 
+export interface ActiveSessionsState {
+  general?: string;
+  projects: Record<string, string>;
+}
+
+type ProviderSessionMap = Record<string, Partial<Record<LaneId, ProviderSession>>>;
+
 function restoredTarget(conversation: StoredConversation): CommandTarget {
   if (conversation.target?.kind === 'general') return { kind: 'general' };
   if (conversation.target?.kind === 'project' && conversation.target.projectId) {
@@ -41,41 +55,64 @@ function restoredTarget(conversation: StoredConversation): CommandTarget {
   return { kind: 'project', projectId: conversation.projectId ?? 'unavailable-project' };
 }
 
-type ProviderSessionMap = Record<string, Partial<Record<LaneId, ProviderSession>>>;
+function normalizeConversation(stored: StoredConversation, recoveredInterrupted: { value: boolean }): Conversation {
+  const { projectId: _legacyProjectId, writeConsent, ...conversation } = stored;
+  const target = restoredTarget(stored);
+  return {
+    ...conversation,
+    kind: conversation.kind ?? 'command',
+    title: conversation.title || defaultSessionTitle({ kind: conversation.kind ?? 'command', target }),
+    target,
+    ...(writeConsent ? { writeConsent: { at: writeConsent.at, target } } : {}),
+    permission: conversation.permission ?? 'read',
+    effort: conversation.effort ?? 'default',
+    context: conversation.context ?? [],
+    decisions: conversation.decisions ?? [],
+    ...(typeof conversation.archivedAt === 'number' ? { archivedAt: conversation.archivedAt } : {}),
+    messages: (conversation.messages ?? []).map((message) => {
+      if (message.status !== 'streaming') return message;
+      recoveredInterrupted.value = true;
+      return {
+        ...message,
+        text: message.text.trim()
+          ? `${message.text}\n\nThe Workbench closed before this run completed.`
+          : 'The Workbench closed before this run completed.',
+        status: 'error' as const,
+      };
+    }),
+  };
+}
+
+/** One-way v1 → v2 migration. Preserves every conversation; adds no archives. */
+export function migrateV1Conversations(v1: StoredConversation[]): Conversation[] {
+  const recovered = { value: false };
+  return v1.map((stored) => normalizeConversation(stored, recovered));
+}
 
 export class ConversationStore {
   private conversations: Conversation[];
   private providerSessions: ProviderSessionMap;
+  private active: ActiveSessionsState;
+  private migratedFromV1 = false;
 
   constructor(private readonly state: vscode.Memento) {
-    let recoveredInterruptedRun = false;
-    this.conversations = state.get<StoredConversation[]>(storageKey, []).map((stored) => {
-      const { projectId: _legacyProjectId, writeConsent, ...conversation } = stored;
-      const target = restoredTarget(stored);
-      return {
-        ...conversation,
-        kind: conversation.kind ?? 'command',
-        target,
-        ...(writeConsent ? { writeConsent: { at: writeConsent.at, target } } : {}),
-        permission: conversation.permission ?? 'read',
-        effort: conversation.effort ?? 'default',
-        context: conversation.context ?? [],
-        decisions: conversation.decisions ?? [],
-        messages: (conversation.messages ?? []).map((message) => {
-          if (message.status !== 'streaming') return message;
-          recoveredInterruptedRun = true;
-          return {
-            ...message,
-            text: message.text.trim()
-              ? `${message.text}\n\nThe Workbench closed before this run completed.`
-              : 'The Workbench closed before this run completed.',
-            status: 'error' as const,
-          };
-        }),
-      };
-    });
+    const recoveredInterrupted = { value: false };
+    const v2 = state.get<StoredConversation[]>(conversationsV2Key);
+    if (v2) {
+      this.conversations = v2.map((stored) => normalizeConversation(stored, recoveredInterrupted));
+    } else {
+      const v1 = state.get<StoredConversation[]>(conversationsV1Key, []);
+      this.conversations = migrateV1Conversations(v1);
+      this.migratedFromV1 = v1.length > 0;
+    }
     this.providerSessions = state.get<ProviderSessionMap>(providerStorageKey, {});
-    if (recoveredInterruptedRun) void this.persist();
+    this.active = state.get<ActiveSessionsState>(activeSessionsKey, { projects: {} });
+    if (!this.active.projects) this.active.projects = {};
+    if (recoveredInterrupted.value || this.migratedFromV1) void this.persist();
+  }
+
+  didMigrateFromV1(): boolean {
+    return this.migratedFromV1;
   }
 
   all(): Conversation[] {
@@ -84,6 +121,33 @@ export class ConversationStore {
 
   get(id: string): Conversation | undefined {
     return this.conversations.find((conversation) => conversation.id === id);
+  }
+
+  activeIds(): Set<string> {
+    const ids = new Set<string>();
+    if (this.active.general) ids.add(this.active.general);
+    for (const id of Object.values(this.active.projects)) ids.add(id);
+    return ids;
+  }
+
+  activeGeneralId(): string | undefined {
+    return this.active.general;
+  }
+
+  activeProjectId(projectId: string): string | undefined {
+    return this.active.projects[projectId];
+  }
+
+  async setActiveGeneral(id: string | undefined): Promise<void> {
+    if (id) this.active.general = id;
+    else delete this.active.general;
+    await this.persistActive();
+  }
+
+  async setActiveProject(projectId: string, id: string | undefined): Promise<void> {
+    if (id) this.active.projects[projectId] = id;
+    else delete this.active.projects[projectId];
+    await this.persistActive();
   }
 
   async create(
@@ -99,7 +163,7 @@ export class ConversationStore {
     const conversation: Conversation = {
       id: crypto.randomUUID(),
       kind: 'command',
-      title: 'New command',
+      title: defaultSessionTitle({ kind: 'command', target }),
       target,
       laneId,
       seat,
@@ -114,6 +178,7 @@ export class ConversationStore {
       updatedAt: now,
     };
     this.conversations.unshift(conversation);
+    if (target.kind === 'project') await this.setActiveProject(target.projectId, conversation.id);
     await this.persist();
     return conversation;
   }
@@ -128,7 +193,7 @@ export class ConversationStore {
     const conversation: Conversation = {
       id: crypto.randomUUID(),
       kind: 'orchestrator',
-      title: 'Orchestrator session',
+      title: defaultSessionTitle({ kind: 'orchestrator', target }),
       target,
       laneId,
       seat: 'orchestrate',
@@ -142,6 +207,7 @@ export class ConversationStore {
       updatedAt: now,
     };
     this.conversations.unshift(conversation);
+    await this.setActiveGeneral(conversation.id);
     await this.persist();
     return conversation;
   }
@@ -150,19 +216,60 @@ export class ConversationStore {
     const conversation = this.get(id);
     if (!conversation || conversation.target.kind !== 'general') return undefined;
     conversation.kind = 'orchestrator';
-    conversation.title = 'Orchestrator session';
+    conversation.title = defaultSessionTitle(conversation);
     conversation.seat = 'orchestrate';
+    conversation.updatedAt = Date.now();
+    await this.setActiveGeneral(conversation.id);
+    await this.persist();
+    return conversation;
+  }
+
+  async rename(id: string, title: string): Promise<Conversation | undefined> {
+    const conversation = this.get(id);
+    if (!conversation) return undefined;
+    const next = title.replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!next) return undefined;
+    conversation.title = next;
     conversation.updatedAt = Date.now();
     await this.persist();
     return conversation;
+  }
+
+  async archive(id: string): Promise<Conversation | undefined> {
+    const conversation = this.get(id);
+    if (!conversation || conversation.archivedAt) return conversation;
+    conversation.archivedAt = Date.now();
+    conversation.updatedAt = Date.now();
+    await this.clearActiveIf(id);
+    await this.persist();
+    return conversation;
+  }
+
+  async unarchive(id: string): Promise<Conversation | undefined> {
+    const conversation = this.get(id);
+    if (!conversation || conversation.archivedAt === undefined) return conversation;
+    delete conversation.archivedAt;
+    conversation.updatedAt = Date.now();
+    await this.persist();
+    return conversation;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const index = this.conversations.findIndex((conversation) => conversation.id === id);
+    if (index < 0) return false;
+    this.conversations.splice(index, 1);
+    delete this.providerSessions[id];
+    await this.clearActiveIf(id);
+    await this.persist();
+    return true;
   }
 
   async append(id: string, message: Omit<ConversationMessage, 'id' | 'createdAt'>): Promise<Conversation | undefined> {
     const conversation = this.get(id);
     if (!conversation) return undefined;
     conversation.messages.push({ ...message, id: crypto.randomUUID(), createdAt: Date.now() });
-    if (message.role === 'user' && conversation.title === 'New command') {
-      conversation.title = message.text.replace(/\s+/g, ' ').trim().slice(0, 54) || 'New command';
+    if (message.role === 'user' && isPlaceholderTitle(conversation)) {
+      conversation.title = titleFromFirstUserMessage(message.text);
     }
     conversation.updatedAt = Date.now();
     await this.persist();
@@ -297,21 +404,40 @@ export class ConversationStore {
     return conversation;
   }
 
+  private async clearActiveIf(id: string): Promise<void> {
+    if (this.active.general === id) delete this.active.general;
+    for (const [projectId, activeId] of Object.entries(this.active.projects)) {
+      if (activeId === id) delete this.active.projects[projectId];
+    }
+    await this.persistActive();
+  }
+
   private async persist(): Promise<void> {
-    const sorted = this.conversations.sort((a, b) => b.updatedAt - a.updatedAt);
-    const orchestrator = sorted.find((conversation) => conversation.kind === 'orchestrator');
-    this.conversations = orchestrator
-      ? [orchestrator, ...sorted.filter((conversation) => conversation.id !== orchestrator.id).slice(0, maxConversations - 1)]
-      : sorted.slice(0, maxConversations);
-    await this.state.update(storageKey, this.conversations);
+    const sorted = [...this.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+    const pinned = this.activeIds();
+    const kept: Conversation[] = [];
+    for (const conversation of sorted) {
+      if (pinned.has(conversation.id)) kept.push(conversation);
+    }
+    for (const conversation of sorted) {
+      if (kept.length >= maxConversations) break;
+      if (!pinned.has(conversation.id)) kept.push(conversation);
+    }
+    this.conversations = kept;
+    await this.state.update(conversationsV2Key, this.conversations);
     const retained = new Set(this.conversations.map((conversation) => conversation.id));
     for (const conversationId of Object.keys(this.providerSessions)) {
       if (!retained.has(conversationId)) delete this.providerSessions[conversationId];
     }
     await this.persistProviderSessions();
+    await this.persistActive();
   }
 
   private async persistProviderSessions(): Promise<void> {
     await this.state.update(providerStorageKey, this.providerSessions);
+  }
+
+  private async persistActive(): Promise<void> {
+    await this.state.update(activeSessionsKey, this.active);
   }
 }

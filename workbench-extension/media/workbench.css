@@ -789,6 +789,49 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topbar-session {
+  min-width: 0;
+  flex: 1;
+}
+
+.session-title-button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-title-button:hover h1,
+.session-title-button:focus-visible h1 {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.panel-toggle {
+  position: relative;
+}
+
+.panel-toggle-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 1.1em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgb(var(--warn-rgb) / 0.18);
+  color: var(--rust-readable);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.3;
+  vertical-align: 1px;
 }
 
 .date-chip,
@@ -2363,7 +2406,15 @@ select:focus-visible {
   .hero-kicker, .hero-copy > p { grid-column: 1 / -1; }
   .hero h2 { font-size: 39px; }
   .hero-stats { align-self: end; }
-  .lane-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .content > .composer,
+  .hero .composer,
+  .attention-panel,
+  .activity-panel,
+  .hero-stats {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 @media (max-width: 850px) {

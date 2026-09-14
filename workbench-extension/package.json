@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.15",
+  "version": "0.4.16",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -57,9 +57,61 @@
         }
       },
       {
+        "command": "generalstaff.toggleLanes",
+        "title": "GeneralStaff: Toggle Lanes",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.toggleDesk",
+        "title": "GeneralStaff: Toggle Desk",
+        "category": "GeneralStaff"
+      },
+      {
         "command": "generalstaff.newConversation",
         "title": "GeneralStaff: Focus Orchestrator Session",
         "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.newSession",
+        "title": "GeneralStaff: New Session",
+        "category": "GeneralStaff",
+        "icon": "$(add)"
+      },
+      {
+        "command": "generalstaff.showSessions",
+        "title": "GeneralStaff: Show Sessions",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.openSession",
+        "title": "GeneralStaff: Open Session",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.renameSession",
+        "title": "Rename",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.archiveSession",
+        "title": "Archive",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.unarchiveSession",
+        "title": "Unarchive",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.deleteSession",
+        "title": "Delete",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.filterSessions",
+        "title": "Filter Sessions",
+        "category": "GeneralStaff",
+        "icon": "$(filter)"
       },
       {
         "command": "generalstaff.refresh",
@@ -91,60 +143,100 @@
         "linux": "ctrl+shift+g"
       },
       {
-        "command": "generalstaff.openLanes",
+        "command": "generalstaff.toggleLanes",
         "key": "cmd+shift+l",
         "mac": "cmd+shift+l",
         "win": "ctrl+shift+l",
         "linux": "ctrl+shift+l"
       },
       {
-        "command": "generalstaff.openDesk",
+        "command": "generalstaff.toggleDesk",
         "key": "cmd+shift+d",
         "mac": "cmd+shift+d",
         "win": "ctrl+shift+d",
         "linux": "ctrl+shift+d"
+      },
+      {
+        "command": "generalstaff.newSession",
+        "key": "cmd+shift+n",
+        "mac": "cmd+shift+n",
+        "win": "ctrl+shift+n",
+        "linux": "ctrl+shift+n"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "generalstaff.newSession",
+          "when": "view == generalstaff.sessionsNav",
+          "group": "navigation"
+        },
+        {
+          "command": "generalstaff.filterSessions",
+          "when": "view == generalstaff.sessionsNav",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "generalstaff.renameSession",
+          "when": "view == generalstaff.sessionsNav && (viewItem == sessionIdle || viewItem == sessionActive || viewItem == sessionArchived)",
+          "group": "inline@1"
+        },
+        {
+          "command": "generalstaff.archiveSession",
+          "when": "view == generalstaff.sessionsNav && (viewItem == sessionIdle || viewItem == sessionActive)",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "generalstaff.unarchiveSession",
+          "when": "view == generalstaff.sessionsNav && viewItem == sessionArchived",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "generalstaff.deleteSession",
+          "when": "view == generalstaff.sessionsNav && (viewItem == sessionIdle || viewItem == sessionActive || viewItem == sessionArchived)",
+          "group": "1_actions@2"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
           "id": "generalstaff-command",
           "title": "Command",
           "icon": "media/icon-command.svg"
-        },
+        }
+      ],
+      "secondarySidebar": [
         {
-          "id": "generalstaff-lanes",
-          "title": "Lanes",
-          "icon": "media/icon-lanes.svg"
-        },
-        {
-          "id": "generalstaff-desk",
-          "title": "Desk",
-          "icon": "media/icon-desk.svg"
+          "id": "generalstaff-panels",
+          "title": "GeneralStaff",
+          "icon": "media/icon-command.svg"
         }
       ]
     },
     "views": {
       "generalstaff-command": [
         {
-          "id": "generalstaff.commandNav",
-          "name": "Command",
+          "id": "generalstaff.sessionsNav",
+          "name": "Sessions",
           "icon": "media/icon-command.svg",
-          "contextualTitle": "Command"
+          "contextualTitle": "Sessions"
         }
       ],
-      "generalstaff-lanes": [
+      "generalstaff-panels": [
         {
-          "id": "generalstaff.lanesNav",
-          "name": "Lanes",
+          "type": "webview",
+          "id": "generalstaff.lanesView",
+          "name": "Lanes · detached runs",
           "icon": "media/icon-lanes.svg",
           "contextualTitle": "Lanes · detached runs"
-        }
-      ],
-      "generalstaff-desk": [
+        },
         {
-          "id": "generalstaff.deskNav",
-          "name": "Desk",
+          "type": "webview",
+          "id": "generalstaff.deskView",
+          "name": "Desk · handoff packets",
           "icon": "media/icon-desk.svg",
           "contextualTitle": "Desk · handoff packets"
         }
@@ -191,7 +283,7 @@
         "generalstaff.immersiveMode": {
           "type": "boolean",
           "default": false,
-          "description": "Give the Command Deck the full window by closing VS Code's supporting sidebars and panel on launch. The packaged GeneralStaff workspace enables this."
+          "description": "Give the Command Deck the full window by closing VS Code's supporting sidebars and panel on launch. The packaged GeneralStaff workspace enables this. Lanes and Desk stay available as toggles in the secondary side bar."
         },
         "generalstaff.grokRunner": {
           "type": "string",
@@ -215,7 +307,8 @@
     "probe:claude-readonly-boundary": "node --import tsx scripts/probe-claude-readonly-boundary.ts",
     "probe:general-command": "node --import tsx scripts/probe-general-command.ts",
     "package": "npx @vscode/vsce package --no-dependencies",
-    "package:distribution": "npx @vscode/vsce package --no-dependencies --out ../distribution/generalstaff-workbench.vsix"
+    "package:distribution": "npx @vscode/vsce package --no-dependencies --out ../distribution/generalstaff-workbench.vsix",
+    "proof:m3d": "node --import tsx scripts/render-m3d-proofs.ts"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

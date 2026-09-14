@@ -1723,16 +1723,20 @@ select:focus-visible {
 
 .conversation-meta {
   display: flex;
+  flex-wrap: nowrap;
+  min-width: 0;
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
 }
 
 .session-identity {
   display: grid;
-  min-width: 190px;
+  flex: 0 1 11rem;
+  min-width: 0;
+  max-width: 40%;
   grid-template-columns: 12px minmax(0, 1fr);
   align-items: center;
   column-gap: 5px;
@@ -1803,8 +1807,9 @@ select:focus-visible {
 
 .meta-chips {
   display: flex;
+  flex-wrap: nowrap;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   align-items: center;
   gap: 7px;
   overflow: hidden;
@@ -1812,7 +1817,7 @@ select:focus-visible {
 
 .meta-chips span,
 .meta-chips button {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -1824,6 +1829,13 @@ select:focus-visible {
   font-size: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.meta-chips > span:first-child {
+  /* Seat name — the only shrinkable chip (R3-1 / R4). Must follow the
+     general chip rule so flex: 1 1 0 wins specificity order. */
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .meta-chips button {
@@ -2059,11 +2071,13 @@ details[open] > summary > .card-chevron {
 }
 
 .conversation-meta .lanes-context-meter {
+  flex: 0 0 auto;
+  flex-shrink: 0;
   margin-top: 4px;
   margin-bottom: 4px;
-  max-width: none;
-  width: min(100%, 36rem);
-  min-width: 18rem;
+  max-width: 14rem;
+  width: min(42%, 14rem);
+  min-width: 7rem;
 }
 
 .conversation-meta .lanes-context-copy {

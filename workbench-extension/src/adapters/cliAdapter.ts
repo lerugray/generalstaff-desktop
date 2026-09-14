@@ -1204,9 +1204,18 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
       }
       return; // one follow-up per flush
     }
-    // R2-6: keep stdin open across rounds so the next follow-up reuses this process
-    // instead of paying a fresh spawn. Stop / dispose still closes the channel.
-
+    // Round complete and nothing queued — close stdin so the door can exit (idle / your turn).
+    // A queued follow-up is written above before we reach this close. Keeping stdin open
+    // forever (R2-6 mis-implementation) meant `completed` never resolved and the strip
+    // never returned to "idle — your turn".
+    if (!turnBusy && !awaitingFollowUpAck && !stdinClosed && child.stdin && !child.stdin.destroyed) {
+      try {
+        child.stdin.end();
+      } catch {
+        // ignore
+      }
+      stdinClosed = true;
+    }
   };
 
   if (invocation.stdin !== undefined) {

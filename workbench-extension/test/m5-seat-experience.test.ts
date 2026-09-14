@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import test from 'node:test';
@@ -9,12 +10,77 @@ import {
   invocationFor,
   normalizeCliLine,
   promptForSeat,
+  runCliAdapter,
   streamJsonUserLine,
+  type RunEvent,
 } from '../src/adapters/cliAdapter.js';
+import type { LaneSummary } from '../src/domain.js';
 import { formatContextUsageMeter } from '../src/services/contextCeiling.js';
 
 const root = path.resolve(process.cwd());
 const media = path.join(root, 'media');
+
+/** Fake CC door: NDJSON result per stdin line; exit when stdin ends. */
+function installFakeDoor(delayFirstMs = 0): { executable: string; cleanup: () => void } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gs-m5-door-'));
+  const script = path.join(dir, 'fake-door.mjs');
+  fs.writeFileSync(
+    script,
+    `import * as readline from 'node:readline';
+const delayFirstMs = ${Number(delayFirstMs)};
+let lineCount = 0;
+const rl = readline.createInterface({ input: process.stdin });
+rl.on('line', (line) => {
+  lineCount += 1;
+  const n = lineCount;
+  const emit = () => {
+    process.stdout.write(JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: 'ok-' + n,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }) + '\\n');
+  };
+  if (n === 1 && delayFirstMs > 0) setTimeout(emit, delayFirstMs);
+  else emit();
+});
+rl.on('close', () => process.exit(0));
+`,
+  );
+  const wrapper = path.join(dir, 'fake-door.sh');
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+  fs.chmodSync(wrapper, 0o755);
+  return {
+    executable: wrapper,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function fakeLane(executable: string): LaneSummary {
+  return {
+    id: 'glm-ollama-cc',
+    runner: 'glm-ollama-cc',
+    name: 'GLM 5.3 · Workbench seat',
+    detail: 'fake door',
+    evidenceLabel: 'Ollama Cloud CC door',
+    state: 'available',
+    executable,
+    roles: ['orchestrate'],
+    permissions: ['read'],
+    efforts: [{ id: 'default', label: 'Default' }],
+    defaultEffort: 'default',
+    contextCeiling: { tokens: 1_048_576, provenance: 'stated', modelLabel: 'glm-5.3' },
+  };
+}
+
+function raceComplete<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error(`${label} did not complete within ${ms}ms`)), ms);
+    }),
+  ]);
+}
 
 test('M2: seat conduct requires acting on queued operator messages at the next boundary', () => {
   const prompt = promptForSeat('orchestrate', 'read', 'Catch up.');
@@ -51,10 +117,65 @@ test('M1: streamJsonUserLine is one NDJSON user envelope', () => {
 });
 
 
-test('M1: live channel stays open across rounds (R2-6)', () => {
-  const src = fs.readFileSync(path.join(root, 'src/adapters/cliAdapter.ts'), 'utf8');
-  assert.ok(!/Round complete and nothing queued/.test(src), 'idle turn must not close stdin');
-  assert.match(src, /R2-6: keep stdin open across rounds/);
+test('M1: idle seat with nothing queued completes within 5s (R4 lifecycle)', async () => {
+  const door = installFakeDoor(0);
+  try {
+    const events: RunEvent[] = [];
+    const run = runCliAdapter(
+      {
+        conversationId: 'm5-idle-complete',
+        target: { kind: 'general' },
+        cwd: root,
+        lane: fakeLane(door.executable),
+        seat: 'orchestrate',
+        effort: 'default',
+        permission: 'read',
+        prompt: 'Reply exactly PING',
+        continuity: 'new',
+      },
+      (event) => events.push(event),
+    );
+    const completion = await raceComplete(run.completed, 5_000, 'idle round');
+    assert.equal(completion.receipt.exitCode, 0);
+    assert.ok(events.some((event) => event.type === 'turn-boundary'));
+    assert.ok(events.some((event) => event.type === 'complete'));
+  } finally {
+    door.cleanup();
+  }
+});
+
+test('M1: queued follow-up delivers then round completes (R4 lifecycle)', async () => {
+  const door = installFakeDoor(250);
+  try {
+    const events: RunEvent[] = [];
+    const run = runCliAdapter(
+      {
+        conversationId: 'm5-queued-complete',
+        target: { kind: 'general' },
+        cwd: root,
+        lane: fakeLane(door.executable),
+        seat: 'orchestrate',
+        effort: 'default',
+        permission: 'read',
+        prompt: 'First turn',
+        continuity: 'new',
+      },
+      (event) => events.push(event),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(typeof run.enqueueFollowUp, 'function');
+    assert.equal(run.enqueueFollowUp!('queued follow-up'), true);
+    const completion = await raceComplete(run.completed, 5_000, 'queued round');
+    assert.equal(completion.receipt.exitCode, 0);
+    const boundaries = events.filter((event) => event.type === 'turn-boundary');
+    assert.ok(boundaries.length >= 2, `expected ≥2 turn-boundaries, got ${boundaries.length}`);
+    assert.ok(
+      events.some((event) => event.type === 'status' && /follow-up (?:sent to seat|delivered)/i.test(event.text)),
+      'follow-up must be acknowledged on the live channel',
+    );
+  } finally {
+    door.cleanup();
+  }
 });
 
 test('M1: result envelopes emit turn-boundary', () => {
@@ -388,6 +509,25 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
   const stripText = await page.locator('.activity-strip-line').innerText();
   assert.match(stripText, /Bash/i);
 
+  // R4: when the seat goes idle (round complete), strip must read "idle — your turn".
+  await page.evaluate((id) => {
+    window.postMessage(
+      {
+        type: 'conversation-delta',
+        conversationId: id,
+        messageId: 'asst-1',
+        text: 'Round finished.',
+        status: 'complete',
+      },
+      '*',
+    );
+  }, conversationId);
+  await page.waitForFunction(() => {
+    const line = document.querySelector('.activity-strip-line')?.textContent || '';
+    return /idle\s*[—-]\s*your turn/i.test(line);
+  });
+  assert.match(await page.locator('.activity-strip-line').innerText(), /idle\s*[—-]\s*your turn/i);
+
   // M7: fill width equals tooltip percent within 1 point (CSP-safe CSSOM path).
   async function assertMeter(page: Page, usedTokens: number, expectedPercent: number): Promise<void> {
     const measured = await page.evaluate(
@@ -507,4 +647,39 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
       );
     }
   }
+
+  // R4 / R3-1: at 760 the chip row must not overlap the context meter.
+  await page.setViewportSize({ width: 760, height: 700 });
+  await page.waitForTimeout(30);
+  const chipMeter = (await page.evaluate(`(() => {
+    const chips = document.querySelector('.meta-chips');
+    const meter = document.querySelector('.conversation-meta .lanes-context-meter');
+    if (!chips || !meter) return null;
+    const a = chips.getBoundingClientRect();
+    const b = meter.getBoundingClientRect();
+    const overlaps =
+      a.left < b.right - 1 &&
+      a.right > b.left + 1 &&
+      a.top < b.bottom - 1 &&
+      a.bottom > b.top + 1;
+    return {
+      overlaps,
+      chipsRight: a.right,
+      meterLeft: b.left,
+      chipsTop: a.top,
+      meterTop: b.top,
+    };
+  })()`)) as {
+    overlaps: boolean;
+    chipsRight: number;
+    meterLeft: number;
+    chipsTop: number;
+    meterTop: number;
+  } | null;
+  assert.ok(chipMeter, 'meta-chips and meter must exist at 760');
+  assert.equal(
+    chipMeter!.overlaps,
+    false,
+    `R4 chips overlap meter at 760 (chips.right=${chipMeter!.chipsRight} meter.left=${chipMeter!.meterLeft})`,
+  );
 });

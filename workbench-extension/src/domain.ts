@@ -140,7 +140,10 @@ export type TranscriptBlock =
       summary: string;
       detail?: string;
       status?: 'running' | 'ok' | 'error';
+      /** Collapsed one-line preview (clipOneLine). */
       resultPreview?: string;
+      /** Expanded body — newlines preserved, scroll-capped in CSS (LOOK D1). */
+      result?: string;
     };
 
 export interface ConversationMessage {
@@ -236,7 +239,10 @@ export type RunEvent =
       type: 'tool-result';
       toolUseId?: string;
       ok: boolean;
+      /** Collapsed one-line preview. */
       preview: string;
+      /** Full result body with newlines (capped); drives the expanded card. */
+      body?: string;
       turnId?: string;
     }
   | { type: 'error'; text: string }

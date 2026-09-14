@@ -17,6 +17,12 @@ import {
 import { requireAllowedPath } from './security/paths.js';
 import { ConversationStore } from './services/conversations.js';
 import { extractDecisionCards } from './services/decisions.js';
+import {
+  applyDecisionTextToBlocks,
+  buildPriorContextTranscript,
+  findToolBlockForResult,
+  needsNewBubble,
+} from './services/runTranscript.js';
 import { resolveGeneralStaffRoot, scanFleet } from './services/fleet.js';
 import type { CliLaneDiscoveryOptions } from './services/lanes.js';
 import { ProjectNoteStore } from './services/notes.js';
@@ -56,6 +62,7 @@ class CommandDeckPanel {
   private deskBadge = 0;
   private auxFocus: AuxPanel | null = null;
   private focusedConversationId: string | undefined;
+  private readonly output: vscode.OutputChannel;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -64,6 +71,8 @@ class CommandDeckPanel {
     private readonly orchestrator: OrchestratorSessionManager,
   ) {
     this.notes = new ProjectNoteStore(context.globalState);
+    this.output = vscode.window.createOutputChannel('GeneralStaff Workbench');
+    context.subscriptions.push(this.output);
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, context.subscriptions);
     this.panel.webview.onDidReceiveMessage((value: unknown) => void this.handle(value), null, context.subscriptions);
@@ -542,12 +551,7 @@ class CommandDeckPanel {
     }
     const cwd = target.workingDirectory;
     const privateRuntime = await discoverPrivateRuntime(this.snapshot.rootPath, this.privateRuntimeOptions());
-    const priorContext = conversation.messages
-      .filter((message) => message.text.trim() && message.status !== 'streaming')
-      .slice(-12)
-      .map((message) => `${message.role === 'user' ? 'Operator' : 'GeneralStaff'}: ${message.text}`)
-      .join('\n\n')
-      .slice(-30_000);
+    const priorContext = buildPriorContextTranscript(conversation.messages);
     const selectedContext = (conversation.context ?? [])
       .map((item) => `- ${item.label}: ${item.path}`)
       .join('\n');
@@ -636,7 +640,12 @@ class CommandDeckPanel {
       let lastStreamKind: 'assistant' | 'other' | undefined;
       let eventChain: Promise<void> = Promise.resolve();
       const enqueueEvent = (work: () => Promise<void>) => {
-        eventChain = eventChain.then(work).catch(() => undefined);
+        eventChain = eventChain.then(work).catch((error: unknown) => {
+          // Surface chain failures (MINOR 12) — never swallow silently.
+          const reason = error instanceof Error ? error.message : String(error);
+          void this.notice(`Run event chain error: ${reason}`, 'error', conversationId);
+          this.output?.appendLine(`[run-event] ${conversationId}: ${reason}`);
+        });
       };
       const appendOutput = (chunk: string) => {
         const limit = 200_000;
@@ -653,13 +662,8 @@ class CommandDeckPanel {
         .map((block) => block.text)
         .join('\n\n');
       const ensureTurn = async (turnId?: string): Promise<void> => {
-        const needsNewBubble = Boolean(
-          turnId
-          && currentTurnId
-          && turnId !== currentTurnId
-          && (blocks.length > 0 || output.trim()),
-        );
-        if (!needsNewBubble) {
+        const hasContent = blocks.length > 0 || Boolean(output.trim());
+        if (!needsNewBubble(currentTurnId, turnId, hasContent)) {
           if (turnId) currentTurnId = turnId;
           return;
         }
@@ -678,7 +682,14 @@ class CommandDeckPanel {
         output = '';
         outputClipped = false;
         lastStreamKind = undefined;
-        await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
+        // Post only the affected conversation (MINOR 10) — not the entire store.
+        const updatedConversation = this.store.get(conversationId);
+        if (updatedConversation) {
+          await this.panel.webview.postMessage({
+            type: 'conversation',
+            conversation: updatedConversation,
+          });
+        }
       };
 
       const run = runAdapter(
@@ -738,16 +749,15 @@ class CommandDeckPanel {
             });
           } else if (event.type === 'tool-result') {
             enqueueEvent(async () => {
-              const match = event.toolUseId
-                ? blocks.find((block) => block.type === 'tool' && block.id === event.toolUseId)
-                : [...blocks].reverse().find((block) => block.type === 'tool' && block.status === 'running');
-              if (match && match.type === 'tool') {
+              const match = findToolBlockForResult(blocks, event.toolUseId);
+              if (match) {
                 match.status = event.ok ? 'ok' : 'error';
                 match.resultPreview = event.preview;
+                if (event.body !== undefined) match.result = event.body;
               }
               lastStreamKind = 'other';
               await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'streaming', blocks);
-              const label = match && match.type === 'tool'
+              const label = match
                 ? `${match.name} · ${match.summary} · ${event.ok ? 'ok' : 'error'}`
                 : `${event.ok ? 'ok' : 'error'}${event.preview ? ` · ${event.preview}` : ''}`;
               await this.panel.webview.postMessage({
@@ -830,12 +840,8 @@ class CommandDeckPanel {
             const extracted = extractDecisionCards(finalText, currentAssistantId);
             if (extracted.decisions.length) {
               finalText = extracted.text || 'GeneralStaff needs your decision before it can continue.';
-              blocks = blocks.map((block) => (
-                block.type === 'text' ? { ...block, text: finalText } : block
-              ));
-              if (!blocks.some((block) => block.type === 'text')) {
-                blocks.push({ type: 'text', text: finalText });
-              }
+              // First text block only — never duplicate across text→tool→text (MAJOR 3).
+              blocks = applyDecisionTextToBlocks(blocks, finalText);
               await this.store.addDecisions(conversationId, extracted.decisions);
             }
           }

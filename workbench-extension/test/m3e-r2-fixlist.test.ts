@@ -181,12 +181,18 @@ test('MINOR 4: output-only usage does not become assistant occupancy', () => {
   assert.equal(parsed, undefined);
 });
 
-test('MINOR 5: CC_DOOR_STATED_CONTEXT_TOKENS matches the checked-in door export snippet', () => {
-  const snippet = fs.readFileSync(DOOR_SNIPPET, 'utf8');
-  const match = snippet.match(/CLAUDE_CODE_MAX_CONTEXT_TOKENS=["']?(\d+)/);
-  assert.ok(match, 'door snippet must export CLAUDE_CODE_MAX_CONTEXT_TOKENS');
+test('MINOR 5: CC_DOOR_STATED_CONTEXT_TOKENS matches scripts/gsd-cc-door.sh (1048576)', () => {
+  // FIXLIST-R3 CODE 6: read the REAL door script, not only the fixture mirror.
+  const doorPath = path.resolve(process.cwd(), '../scripts/gsd-cc-door.sh');
+  const door = fs.readFileSync(doorPath, 'utf8');
+  const match = door.match(/CLAUDE_CODE_MAX_CONTEXT_TOKENS=["']?(\d+)/);
+  assert.ok(match, 'scripts/gsd-cc-door.sh must export CLAUDE_CODE_MAX_CONTEXT_TOKENS');
   assert.equal(Number(match[1]), CC_DOOR_STATED_CONTEXT_TOKENS);
-  assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_000_000);
+  assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_048_576);
+
+  const snippet = fs.readFileSync(DOOR_SNIPPET, 'utf8');
+  const snippetMatch = snippet.match(/CLAUDE_CODE_MAX_CONTEXT_TOKENS=["']?(\d+)/);
+  assert.equal(Number(snippetMatch?.[1]), CC_DOOR_STATED_CONTEXT_TOKENS);
 });
 
 test('MINOR 7: redacted_thinking becomes a collapsed thinking placeholder', () => {
@@ -205,7 +211,7 @@ test('MINOR 7: redacted_thinking becomes a collapsed thinking placeholder', () =
   assert.deepEqual(list[0], { type: 'thinking', text: 'Thinking · redacted', turnId: 'msg_redacted' });
 });
 
-test('MINOR 8+9: tool detail is capped and clipOneLine respects rune boundaries', () => {
+test('MINOR 8+9: tool detail is capped and clipOneLine fails on unfixed UTF-16 slice (max=4)', () => {
   const huge = 'x'.repeat(10_000);
   const labeled = normalizeCliLine(
     'claude',
@@ -221,8 +227,13 @@ test('MINOR 8+9: tool detail is capped and clipOneLine respects rune boundaries'
   assert.ok(tool && tool.type === 'tool');
   assert.ok((tool.detail?.length ?? 0) <= 8_192);
 
-  const emoji = '😀😀😀😀';
-  const clipped = clipOneLine(emoji, 3);
+  // FIXLIST-R3 CODE 5: max=4 lands mid-surrogate on old slice(0, max-1) — must fail on unfixed code.
+  const emoji = '😀😀😀😀😀';
+  const clipped = clipOneLine(emoji, 4);
   assert.equal(clipped.includes('\uFFFD'), false);
-  assert.equal(Array.from(clipped.replace(/…$/u, '')).length <= 2, true);
+  assert.equal(Array.from(clipped.replace(/…$/u, '')).length, 3);
+
+  // Unfixed UTF-16 slice at max-1=3 splits a surrogate — this is the discriminating mutant.
+  const unfixed = `${emoji.slice(0, 3)}…`;
+  assert.equal(unfixed.includes('\uFFFD') || /[\uD800-\uDFFF]/.test(unfixed), true);
 });

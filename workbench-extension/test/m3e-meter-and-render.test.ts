@@ -86,21 +86,21 @@ test('D1 meter = occupancy: fixture reads 91% on old arithmetic, 13% occupancy o
   assert.notEqual(Math.round((occupancy.usedTokens / oldCeiling) * 100), 91);
 });
 
-test('D2 one denominator: CC-door seats use the door export (1_000_000), not 1_048_576', () => {
-  assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_000_000);
+test('D2 one denominator: CC-door seats use the door export (1_048_576)', () => {
+  assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_048_576);
   for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
     const ceiling = contextCeilingFor(id);
-    assert.equal(ceiling.tokens, 1_000_000);
+    assert.equal(ceiling.tokens, 1_048_576);
     assert.equal(ceiling.provenance, 'stated');
-    assert.match(formatContextUsageMeter(ceiling, null).label, /^1M ceiling only$/);
+    assert.match(formatContextUsageMeter(ceiling, null).label, /^1\.05M ceiling only$/);
   }
-  // Direct Ollama seats keep the verified /api/show window.
+  // Direct Ollama seats keep the verified /api/show window (same 1_048_576).
   assert.equal(contextCeilingFor('glm-ollama').tokens, 1_048_576);
   assert.equal(contextCeilingFor('deepseek-ollama').tokens, 1_048_576);
 
   const meter = formatContextUsageMeter(contextCeilingFor('glm-ollama-cc'), 140_628);
-  assert.equal(meter.percent, 14);
-  assert.match(meter.label, /140\.6k \/ 1M \(14%\)/);
+  assert.equal(meter.percent, 13);
+  assert.match(meter.label, /140\.6k \/ 1\.05M \(13%\)/);
 });
 
 test('D3 tool cards: fixture tools carry name + one-line label and ok/error results', () => {

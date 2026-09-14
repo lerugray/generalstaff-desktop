@@ -60,7 +60,7 @@ test('every seat has a ceiling + provenance; no Ollama seat is assumed-default',
   for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
     const ceiling = contextCeilingFor(id);
     assert.equal(ceiling.provenance, 'stated');
-    assert.equal(ceiling.tokens, 1_000_000);
+    assert.equal(ceiling.tokens, 1_048_576);
   }
 
   assert.equal(contextCeilingFor('claude').provenance, 'native');
@@ -101,7 +101,7 @@ test('rendered ceiling strings match the brief examples', () => {
   assert.equal(formatTokenCount(200_000), '200k');
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('deepseek-ollama-cc')),
-    'deepseek-v4.1-flash · 1M context (stated by launcher)',
+    'deepseek-v4.1-flash · 1.05M context (stated by launcher)',
   );
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('claude')),
@@ -133,13 +133,13 @@ test('rendered ceiling strings match the brief examples', () => {
 test('usage meter never invents a used count; formats used/ceiling when present', () => {
   const ceiling = contextCeilingFor('deepseek-ollama-cc');
   assert.deepEqual(formatContextUsageMeter(ceiling, null), {
-    label: '1M ceiling only',
+    label: '1.05M ceiling only',
     percent: null,
     warn: false,
   });
   assert.deepEqual(formatContextUsageMeter(ceiling, 196_200), {
-    label: '196.2k / 1M (20%)',
-    percent: 20,
+    label: '196.2k / 1.05M (19%)',
+    percent: 19,
     warn: false,
   });
   assert.equal(formatContextUsageMeter(contextCeilingFor('cline'), 12).label, 'context unknown');

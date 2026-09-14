@@ -15,6 +15,7 @@ import {
   decideOrchestratorSeat,
   formatSeatChoiceNotice,
   PREFERRED_OLLAMA_ORCHESTRATOR_LANE,
+  sessionPermissionChoices,
 } from '../src/services/orchestratorSeat.js';
 
 test('parses classic seven_day utilization and 0–1 weekly percent limits', () => {
@@ -76,6 +77,13 @@ test('formatSeatChoiceNotice is one desk line', () => {
     formatSeatChoiceNotice('GLM 5.3 · Workbench seat', 'Anthropic weekly 91% used; preferring Ollama GLM'),
     'Seat: GLM 5.3 · Workbench seat — Anthropic weekly 91% used; preferring Ollama GLM',
   );
+});
+
+test('session permission prompt lists write first as the recommended default', () => {
+  const choices = sessionPermissionChoices();
+  assert.equal(choices[0]?.permission, 'write');
+  assert.match(choices[0]?.label ?? '', /recommended/i);
+  assert.equal(choices[1]?.permission, 'read');
 });
 
 test('loads Claude Code access token from the credentials file without logging it', async (context) => {

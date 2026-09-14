@@ -39,6 +39,7 @@ import {
   decideOrchestratorSeat,
   formatSeatChoiceNotice,
   orchestratorReadyLane,
+  sessionPermissionChoices,
 } from './services/orchestratorSeat.js';
 import { PreviewServer } from './services/previewServer.js';
 import {
@@ -360,9 +361,24 @@ class CommandDeckPanel {
     }
     if (!lane) lane = fallback;
 
+    const permissionPick = await vscode.window.showQuickPick(
+      sessionPermissionChoices().map((choice) => ({
+        label: choice.label,
+        description: choice.description,
+        permission: choice.permission,
+      })),
+      {
+        title: 'This session: read-only or read+write?',
+        placeHolder: 'Read + write is recommended for orchestrator sessions',
+        ignoreFocusOut: true,
+      },
+    );
+    // Recommended default for orchestrator sessions when the operator dismisses the prompt.
+    const permission = permissionPick?.permission ?? 'write';
+
     return {
       lane,
-      permission: 'read',
+      permission,
       notice: formatSeatChoiceNotice(lane.name, reason),
     };
   }

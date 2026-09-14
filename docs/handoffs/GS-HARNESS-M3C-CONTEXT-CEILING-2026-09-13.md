@@ -93,3 +93,40 @@ Workbench **0.4.14**. Context ceiling is visible before seat choice and while a 
 - `npm run check` — **109/109**
 - VSIX rebuilt via `npm run package:distribution`
 - Proofs regenerated (detail meter `196.2k / 1.05M (19%)`; seat picker shows stated / native / unknown labels)
+
+---
+
+## Harvest 2 (0.4.15)
+
+Workbench **0.4.15**. Claude-seat native ceiling corrected against Claude Code model-config § Extended context (`https://code.claude.com/docs/en/model-config.md`).
+
+### Corrected ceiling table
+
+| Lane / model | modelLabel | tokens | provenance |
+| --- | --- | --- | --- |
+| `claude` (Fable) | fable | 1 000 000 | `native` — “On models with a native 1M window, such as Sonnet 5 and the Fable models…” |
+| Sonnet 5 | sonnet | 1 000 000 | `native` — “On the Anthropic API, Sonnet 5 always runs with the 1M context window.” |
+| Opus | opus | 1 000 000 | `native`, note `1M on Max tiers` — “On Max, Team, and Enterprise plans, including both Team Standard and Team Premium seats, Opus is automatically upgraded to 1M context with no additional configuration.” (this operator: Max 20x) |
+| Haiku | haiku | 200 000 | `native` (not in the native-1M set) |
+| `codex` | gpt-5.6-sol | — | `unknown` |
+| `kimi` | kimi-k3 | — | `unknown` |
+| `cline` | glm-5.3 via cline | — | `unknown` |
+| `cursor` | cursor-auto | — | `unknown` |
+| `grok` | grok-4.6 | — | `unknown` |
+| `glm-ollama` / flash / deepseek / CC doors | (unchanged) | 1 048 576 | `stated` |
+
+Picker label for the Claude seat: **`fable · 1M context (native)`**.
+
+### Files touched this pass
+
+- `workbench-extension/src/services/contextCeiling.ts` — per-model native ceilings; remove single 200k Anthropic constant
+- `workbench-extension/test/contextCeiling.test.ts` — fable/sonnet = 1M native; Claude 5-family must not read 200k
+- `workbench-extension/media/workbench.js` — native label includes `(native)` / Max-tier note
+- `workbench-extension/package.json` / lock → **0.4.15**; `CHANGELOG.md`; root `README.md` Versions
+- Proofs regenerated; VSIX via `npm run package:distribution`
+
+### Verification
+
+- `npm run check` — **110/110**
+- VSIX rebuilt to `distribution/generalstaff-workbench.vsix`
+

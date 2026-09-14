@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.15 — 2026-09-14
+
+- Correct Claude-seat native ceilings: per-model, not one 200k constant. Fable and Sonnet are **1M native**; Opus is **1M on Max tiers** (operator on Max 20x); Haiku stays **200k**. Picker label reads `fable · 1M context (native)`.
+- Cite Claude Code model-config § Extended context for the native-1M and Opus Max-tier upgrade wording.
+
 ## 0.4.14 — 2026-09-14
 
 - Context ceiling on every seat: services-layer `contextCeiling` (tokens + provenance) attached at discovery — `stated` / `native` / `assumed-default` / `unknown`.

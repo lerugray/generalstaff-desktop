@@ -5,11 +5,15 @@ import test from 'node:test';
 import { normalizeCliLine } from '../src/adapters/cliAdapter.js';
 import {
   ASSUMED_DEFAULT_WARNING,
+  CLAUDE_NATIVE_1M_TOKENS,
+  CLAUDE_NATIVE_HAIKU_TOKENS,
+  CLAUDE_OPUS_MAX_TIER_NOTE,
   CONTEXT_CEILING_BY_LANE,
   contextCeilingFor,
   formatContextCeilingLabel,
   formatContextUsageMeter,
   formatTokenCount,
+  nativeContextCeilingFor,
 } from '../src/services/contextCeiling.js';
 import { parseClaudeStreamUsage } from '../src/services/claudeUsage.js';
 import { OLLAMA_CLOUD_CONTEXT_TOKENS } from '../src/services/ollamaCloud.js';
@@ -57,13 +61,40 @@ test('every seat has a ceiling + provenance; no Ollama seat is assumed-default',
   }
 
   assert.equal(contextCeilingFor('claude').provenance, 'native');
-  assert.equal(contextCeilingFor('claude').tokens, 200_000);
+  assert.equal(contextCeilingFor('claude').tokens, CLAUDE_NATIVE_1M_TOKENS);
   assert.equal(contextCeilingFor('cline').provenance, 'unknown');
   assert.equal(contextCeilingFor('cline').tokens, null);
 });
 
+test('fable and sonnet are native 1M; no Claude 5-family seat reads 200k', () => {
+  const fable = nativeContextCeilingFor('fable');
+  const sonnet = nativeContextCeilingFor('sonnet');
+  const opus = nativeContextCeilingFor('opus');
+  const haiku = nativeContextCeilingFor('haiku');
+
+  assert.equal(fable.tokens, 1_000_000);
+  assert.equal(fable.provenance, 'native');
+  assert.equal(sonnet.tokens, 1_000_000);
+  assert.equal(sonnet.provenance, 'native');
+  assert.equal(opus.tokens, 1_000_000);
+  assert.equal(opus.provenance, 'native');
+  assert.equal(opus.provenanceNote, CLAUDE_OPUS_MAX_TIER_NOTE);
+  assert.equal(haiku.tokens, CLAUDE_NATIVE_HAIKU_TOKENS);
+  assert.equal(haiku.provenance, 'native');
+
+  // Claude 5-family seats (fable / sonnet / opus) must not silently inherit the old 200k constant.
+  for (const family of ['fable', 'sonnet', 'opus'] as const) {
+    const ceiling = nativeContextCeilingFor(family);
+    assert.notEqual(ceiling.tokens, 200_000, `${family} must not read 200k`);
+    assert.equal(ceiling.tokens, 1_000_000);
+  }
+  assert.equal(contextCeilingFor('claude').tokens, 1_000_000);
+  assert.notEqual(contextCeilingFor('claude').tokens, 200_000);
+});
+
 test('rendered ceiling strings match the brief examples', () => {
   assert.equal(formatTokenCount(1_048_576), '1.05M');
+  assert.equal(formatTokenCount(1_000_000), '1M');
   assert.equal(formatTokenCount(200_000), '200k');
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('deepseek-ollama-cc')),
@@ -71,7 +102,15 @@ test('rendered ceiling strings match the brief examples', () => {
   );
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('claude')),
-    'fable · 200k context',
+    'fable · 1M context (native)',
+  );
+  assert.equal(
+    formatContextCeilingLabel(nativeContextCeilingFor('opus')),
+    'opus · 1M context (native, 1M on Max tiers)',
+  );
+  assert.equal(
+    formatContextCeilingLabel(nativeContextCeilingFor('haiku')),
+    'haiku · 200k context (native)',
   );
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('cline')),
@@ -144,7 +183,6 @@ test('normalizeCliLine emits context-usage for Claude-protocol assistant and res
     { type: 'context-usage', usedTokens: 130 },
   );
 
-  // result prose stays suppressed; usage still surfaces.
   assert.deepEqual(
     normalizeCliLine(
       'claude',

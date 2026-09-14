@@ -89,7 +89,8 @@
     if (ceiling.provenance === 'stated') return `${modelLabel} · ${amount} context (stated by launcher)`;
     if (ceiling.provenance === 'assumed-default') return `${modelLabel} · ${amount} context (CLI default)`;
     if (ceiling.provenance === 'unknown') return `${modelLabel} · ${amount} context`;
-    return `${modelLabel} · ${amount} context`;
+    const note = ceiling.provenanceNote ? `, ${ceiling.provenanceNote}` : '';
+    return `${modelLabel} · ${amount} context (native${note})`;
   }
 
   function formatContextUsageMeter(ceiling, usedTokens) {

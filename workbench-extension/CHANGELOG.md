@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.14 — 2026-09-14
+
+- Context ceiling on every seat: services-layer `contextCeiling` (tokens + provenance) attached at discovery — `stated` / `native` / `assumed-default` / `unknown`.
+- Seat picker and model-bench cards show plain-words ceilings (e.g. `deepseek-v4.1-flash · 1.05M context (stated by launcher)`); assumed-default seats warn that Claude Code will compact at 200k.
+- Lanes list + detail show the ceiling; Claude Code stream-json seats get a live used/ceiling meter (input + cache_read + cache_creation); otherwise ceiling only — never a fake used count.
+- Register meter is a thin rule with a filled span; brass only for the warning state.
+
 ## 0.4.13 — 2026-09-13
 
 - Ruling ping body is now `"<PACKET-NAME>: <verdict>"` (founding-spec closed shape).

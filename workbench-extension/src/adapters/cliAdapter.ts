@@ -13,6 +13,7 @@ import type {
   SeatId,
 } from '../domain.js';
 import { redact } from '../security/redaction.js';
+import { parseClaudeStreamUsage } from '../services/claudeUsage.js';
 import { extraAddDirArgs } from '../services/handoffPaths.js';
 import { ollamaCcDoorFor } from '../services/ollamaCloud.js';
 import type { McpServerLaunch } from '../services/privateRuntime.js';
@@ -754,9 +755,10 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
 
   // Claude's terminal `result` repeats the accumulated assistant response that
   // has already arrived as assistant stream events. Suppress that known final
-  // envelope without deduplicating arbitrary text from other lanes.
+  // envelope's prose — but still surface context usage for the live meter (M3c).
   if (speaksClaudeProtocol(laneId) && (type === 'result' || type === 'run_result')) {
-    return undefined;
+    const usage = parseClaudeStreamUsage(safeLine);
+    return usage ? { type: 'context-usage', usedTokens: usage.usedTokens } : undefined;
   }
 
   // Claude-protocol lanes: walk message.content[] explicitly. Never use the
@@ -769,6 +771,8 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
       }
       const text = claudeProtocolAssistantText(record);
       if (text) events.push({ type: 'assistant-delta', text });
+      const usage = parseClaudeStreamUsage(safeLine);
+      if (usage) events.push({ type: 'context-usage', usedTokens: usage.usedTokens });
       return packEvents(events);
     }
     if (/tool|command|action/i.test(type)) {

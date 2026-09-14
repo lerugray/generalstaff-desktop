@@ -71,6 +71,22 @@
     </span>`;
   }
 
+  function renderContextMeter(context) {
+    if (!context) return '';
+    const warn = context.warn ? ' is-warn' : '';
+    const percent = typeof context.percent === 'number' ? context.percent : null;
+    const fill = percent == null
+      ? ''
+      : `<span class="lanes-context-fill" style="width:${Math.max(2, Math.min(100, percent))}%"></span>`;
+    const mark = context.warn
+      ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
+      : '';
+    return `<div class="lanes-context-meter${warn}" title="${escapeHtml(context.label || '')}">
+      <div class="lanes-context-rule">${fill}</div>
+      <span class="lanes-context-copy">${escapeHtml(context.meterLabel || context.label || '')}${mark}</span>
+    </div>`;
+  }
+
   function renderRow(row) {
     const selected = state.selectedKey === row.key ? ' is-selected' : '';
     const dirty = row.dirty ? ' · dirty' : '';
@@ -83,6 +99,12 @@
       ? '<span class="lane-attention-mark lanes-amber" aria-hidden="true" title="needs attention"></span>'
       : '';
     const attentionClass = row.attention ? ' is-attention' : '';
+    const contextWarn = row.contextWarn
+      ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
+      : '';
+    const context = row.contextLabel
+      ? `<div class="lanes-context-line">${escapeHtml(row.contextLabel)}${contextWarn}</div>`
+      : '';
     return `<article class="lane-counter ${counterClass(row.counterColor)}${attentionClass}${selected}" data-kind="${escapeHtml(row.kind)}" data-state="${escapeHtml(row.state)}" data-key="${escapeHtml(row.key)}" data-id="${escapeHtml(row.id)}" data-host="${escapeHtml(row.host)}"${selectable ? ' role="button" tabindex="0"' : ''}>
       ${attentionMark}
       <div class="lane-counter-body">
@@ -95,6 +117,7 @@
           <span class="lane-door">${escapeHtml(row.modelDoor)}</span>
           <span class="lane-sentinel">${escapeHtml(row.sentinel)}</span>
         </div>
+        ${context}
         <div class="lane-marginalia">
           <span>${escapeHtml(row.elapsed)}</span>
           <span>${escapeHtml(row.sha)}${dirty}</span>
@@ -174,6 +197,7 @@
       </header>
       ${error}
       <div class="lanes-detail-fields">${fields}</div>
+      ${renderContextMeter(detail.context)}
       ${sentinels}
       <section class="lanes-detail-section">
         <h3>run.status</h3>

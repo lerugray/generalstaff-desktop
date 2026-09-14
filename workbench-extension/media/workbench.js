@@ -36,6 +36,8 @@
     creatingConversation: false,
     runStatus: {},
     runActivity: {},
+    /** Live used-token counts keyed by conversationId (Claude Code stream-json). */
+    contextUsage: {},
     pendingActionConversationId: null,
     notice: null,
     operatorDisplayName: '',
@@ -60,6 +62,64 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;');
+  }
+
+  /** Formatters mirror services/contextCeiling.ts — values come from the host; webview only renders. */
+  function formatTokenCount(tokens) {
+    if (!Number.isFinite(tokens) || tokens < 0) return '0';
+    if (tokens >= 1_000_000) {
+      const millions = tokens / 1_000_000;
+      const rounded = Math.round(millions * 100) / 100;
+      const text = Number.isInteger(rounded) ? String(rounded) : String(rounded).replace(/\.?0+$/u, '');
+      return `${text}M`;
+    }
+    if (tokens >= 1_000) {
+      const thousands = tokens / 1_000;
+      const rounded = Math.round(thousands * 10) / 10;
+      return `${Number.isInteger(rounded) ? String(rounded) : String(rounded)}k`;
+    }
+    return String(Math.round(tokens));
+  }
+
+  function formatContextCeilingLabel(ceiling) {
+    if (!ceiling) return 'context unknown';
+    const modelLabel = ceiling.modelLabel || 'model';
+    if (ceiling.tokens == null) return `${modelLabel} · context unknown`;
+    const amount = formatTokenCount(ceiling.tokens);
+    if (ceiling.provenance === 'stated') return `${modelLabel} · ${amount} context (stated by launcher)`;
+    if (ceiling.provenance === 'assumed-default') return `${modelLabel} · ${amount} context (CLI default)`;
+    if (ceiling.provenance === 'unknown') return `${modelLabel} · ${amount} context`;
+    return `${modelLabel} · ${amount} context`;
+  }
+
+  function formatContextUsageMeter(ceiling, usedTokens) {
+    const warn = ceiling?.provenance === 'assumed-default';
+    if (!ceiling || ceiling.tokens == null) return { label: 'context unknown', percent: null, warn };
+    const ceilingLabel = formatTokenCount(ceiling.tokens);
+    if (usedTokens == null || !Number.isFinite(usedTokens) || usedTokens < 0) {
+      return { label: `${ceilingLabel} ceiling only`, percent: null, warn };
+    }
+    const percent = Math.min(100, Math.max(0, Math.round((usedTokens / ceiling.tokens) * 100)));
+    return {
+      label: `${formatTokenCount(usedTokens)} / ${ceilingLabel} (${percent}%)`,
+      percent,
+      warn,
+    };
+  }
+
+  function renderContextMeter(ceiling, usedTokens) {
+    if (!ceiling) return '';
+    const meter = formatContextUsageMeter(ceiling, usedTokens);
+    const fill = meter.percent == null
+      ? ''
+      : `<span class="lanes-context-fill" style="width:${Math.max(2, Math.min(100, meter.percent))}%"></span>`;
+    const mark = meter.warn
+      ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
+      : '';
+    return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" title="${escapeHtml(formatContextCeilingLabel(ceiling))}">
+      <div class="lanes-context-rule">${fill}</div>
+      <span class="lanes-context-copy">${escapeHtml(meter.label)}${mark}</span>
+    </div>`;
   }
 
   function renderText(value) {
@@ -277,7 +337,14 @@
         <span>Model lane</span>
         <select id="lane-select" ${disabled ? 'disabled' : ''}>
           ${compatibleLanes()
-            .map((lane) => `<option value="${lane.id}" ${lane.id === state.selectedLaneId ? 'selected' : ''}>${escapeHtml(lane.name)}</option>`)
+            .map((lane) => {
+              const label = formatContextCeilingLabel(lane.contextCeiling);
+              const warn = lane.contextCeiling?.provenance === 'assumed-default' ? ' ⚠' : '';
+              const title = lane.contextCeiling?.provenance === 'assumed-default'
+                ? 'Claude Code will compact at 200k unless the launcher states the window.'
+                : label;
+              return `<option value="${lane.id}" title="${escapeHtml(title)}" ${lane.id === state.selectedLaneId ? 'selected' : ''}>${escapeHtml(lane.name)} · ${escapeHtml(label)}${warn}</option>`;
+            })
             .join('')}
         </select>
       </label>`;
@@ -404,11 +471,16 @@
               const permissionCompatible = (lane.permissions || ['read', 'write']).includes(state.selectedPermission);
               const unavailable = lane.state !== 'available' || !permissionCompatible;
               const permissionIssue = state.selectedPermission === 'write' ? 'read only' : 'edit access only';
+              const ceilingLabel = formatContextCeilingLabel(lane.contextCeiling);
+              const warn = lane.contextCeiling?.provenance === 'assumed-default'
+                ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
+                : '';
               return `
                 <button class="lane-card ${lane.id === state.selectedLaneId ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}" data-lane-id="${escapeHtml(lane.id)}" ${unavailable ? 'disabled' : ''}>
                   <div class="lane-card-top"><span class="lane-glyph">${escapeHtml(lane.name.slice(0, 1))}</span><span class="availability ${unavailable ? 'unavailable' : lane.state}">${!permissionCompatible ? permissionIssue : lane.state}</span></div>
                   <strong>${escapeHtml(lane.name)}</strong>
                   <p>${escapeHtml(lane.detail)}</p>
+                  <small class="lane-context-label">${escapeHtml(ceilingLabel)}${warn}</small>
                   <small>${escapeHtml(lane.evidenceLabel || 'Evidence class not recorded')}</small>
                 </button>`;
             })
@@ -589,6 +661,7 @@
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
             </div>
+            ${renderContextMeter(lane?.contextCeiling, state.contextUsage[conversation.id])}
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
           <section class="message-stream">
@@ -960,6 +1033,11 @@
         if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
       }
       patchConversationDelta(message);
+    } else if (message.type === 'context-usage') {
+      if (typeof message.conversationId === 'string' && typeof message.usedTokens === 'number') {
+        state.contextUsage[message.conversationId] = message.usedTokens;
+        render();
+      }
     } else if (message.type === 'run-event') {
       if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
       const lines = state.runActivity[message.conversationId] || [];

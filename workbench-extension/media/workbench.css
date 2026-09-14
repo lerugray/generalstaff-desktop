@@ -2718,6 +2718,58 @@ select:focus-visible {
   opacity: 0.85;
 }
 
+/* M3c context ceiling — thin rule + type at chit scale; brass only for assumed-default warn */
+.lanes-context-line,
+.lane-context-label {
+  margin-top: 2px;
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.lanes-context-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+
+.lanes-context-rule {
+  position: relative;
+  height: 2px;
+  width: 100%;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.lanes-context-fill {
+  display: block;
+  height: 100%;
+  background: var(--paper-muted);
+}
+
+.lanes-context-meter.is-warn .lanes-context-fill {
+  background: var(--brass);
+}
+
+.lanes-context-copy {
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.lanes-context-warn {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+.conversation-meta .lanes-context-meter {
+  margin-top: 10px;
+  max-width: 28rem;
+}
+
 /* Detail = one plate; rules not nested boxes; no amber accents */
 .lanes-detail {
   position: relative;

@@ -33,6 +33,18 @@ export interface EffortOption {
   label: string;
 }
 
+/**
+ * Context ceiling for a seat (M3c). Single source of truth lives in
+ * `services/contextCeiling.ts` and is attached at discovery — the webview never invents it.
+ */
+export type ContextCeilingProvenance = 'stated' | 'native' | 'assumed-default' | 'unknown';
+
+export interface ContextCeiling {
+  tokens: number | null;
+  provenance: ContextCeilingProvenance;
+  modelLabel: string;
+}
+
 export interface LaneSummary {
   id: LaneId;
   runner: LaneId;
@@ -45,6 +57,8 @@ export interface LaneSummary {
   permissions: PermissionMode[];
   efforts: EffortOption[];
   defaultEffort: EffortId;
+  /** Token ceiling Claude Code / the seat will run with, plus provenance. */
+  contextCeiling: ContextCeiling;
 }
 
 export interface SkillSummary {
@@ -192,4 +206,6 @@ export type RunEvent =
   | { type: 'assistant-delta'; text: string }
   | { type: 'tool'; text: string }
   | { type: 'error'; text: string }
-  | { type: 'complete'; receipt: ConversationReceipt };
+  | { type: 'complete'; receipt: ConversationReceipt }
+  /** Live context usage from Claude Code stream-json (M3c). */
+  | { type: 'context-usage'; usedTokens: number };

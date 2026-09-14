@@ -29,22 +29,33 @@ function installFakeDoor(delayFirstMs = 0): { executable: string; cleanup: () =>
     `import * as readline from 'node:readline';
 const delayFirstMs = ${Number(delayFirstMs)};
 let lineCount = 0;
+let chain = Promise.resolve();
 const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (line) => {
+rl.on('line', () => {
   lineCount += 1;
   const n = lineCount;
-  const emit = () => {
-    process.stdout.write(JSON.stringify({
-      type: 'result',
-      subtype: 'success',
-      result: 'ok-' + n,
-      usage: { input_tokens: 1, output_tokens: 1 },
-    }) + '\\n');
-  };
-  if (n === 1 && delayFirstMs > 0) setTimeout(emit, delayFirstMs);
-  else emit();
+  chain = chain.then(
+    () =>
+      new Promise((resolve) => {
+        const emit = () => {
+          process.stdout.write(
+            JSON.stringify({
+              type: 'result',
+              subtype: 'success',
+              result: 'ok-' + n,
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }) + '\\n',
+          );
+          resolve();
+        };
+        if (n === 1 && delayFirstMs > 0) setTimeout(emit, delayFirstMs);
+        else setTimeout(emit, 5);
+      }),
+  );
 });
-rl.on('close', () => process.exit(0));
+rl.on('close', () => {
+  chain.finally(() => process.exit(0));
+});
 `,
   );
   const wrapper = path.join(dir, 'fake-door.sh');
@@ -167,11 +178,14 @@ test('M1: queued follow-up delivers then round completes (R4 lifecycle)', async 
     assert.equal(run.enqueueFollowUp!('queued follow-up'), true);
     const completion = await raceComplete(run.completed, 5_000, 'queued round');
     assert.equal(completion.receipt.exitCode, 0);
-    const boundaries = events.filter((event) => event.type === 'turn-boundary');
-    assert.ok(boundaries.length >= 2, `expected ≥2 turn-boundaries, got ${boundaries.length}`);
     assert.ok(
-      events.some((event) => event.type === 'status' && /follow-up (?:sent to seat|delivered)/i.test(event.text)),
-      'follow-up must be acknowledged on the live channel',
+      events.some((event) => event.type === 'status' && /follow-up sent to seat/i.test(event.text)),
+      'follow-up must be written onto the live channel',
+    );
+    assert.ok(
+      events.some((event) => event.type === 'status' && /follow-up delivered/i.test(event.text))
+        || events.filter((event) => event.type === 'turn-boundary').length >= 2,
+      'follow-up must be delivered (ack or second turn-boundary) before the round ends',
     );
   } finally {
     door.cleanup();

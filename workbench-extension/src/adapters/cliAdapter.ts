@@ -487,19 +487,36 @@ function claudeMessageId(record: Record<string, unknown>): string | undefined {
   return typeof id === 'string' && id.trim() ? id : undefined;
 }
 
+/**
+ * Clip to a UTF-16 budget without splitting surrogate pairs (FIXLIST-R3 CODE 4).
+ * Used by capPersisted for 8KB bodies. clipOneLine stays rune-counted (below).
+ */
+export function clipAtRuneBudget(value: string, maxCodeUnits: number): string {
+  if (maxCodeUnits <= 0) return '';
+  if (value.length <= maxCodeUnits) return value;
+  const budget = Math.max(0, maxCodeUnits - 1); // leave room for …
+  let out = '';
+  for (const rune of value) {
+    if (out.length + rune.length > budget) break;
+    out += rune;
+  }
+  return `${out}…`;
+}
+
 /** Clip to one line on a Unicode rune boundary (MINOR 9) — never split surrogate pairs. */
 export function clipOneLine(value: string, max: number): string {
   const line = value.replace(/\s+/gu, ' ').trim();
-  if (Array.from(line).length <= max) return line;
-  return `${Array.from(line).slice(0, Math.max(0, max - 1)).join('')}…`;
+  const runes = Array.from(line);
+  if (runes.length <= max) return line;
+  return `${runes.slice(0, Math.max(0, max - 1)).join('')}…`;
 }
 
 const TOOL_DETAIL_MAX = 8_192;
 const TOOL_RESULT_MAX = 8_192;
 
+/** Persist at most `max` UTF-16 code units without splitting a rune (NEW-3). */
 function capPersisted(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
+  return clipAtRuneBudget(value, max);
 }
 
 function toolInputRecord(item: Record<string, unknown>): Record<string, unknown> {

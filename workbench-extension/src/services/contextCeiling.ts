@@ -68,11 +68,12 @@ export const CLAUDE_OPUS_MAX_TIER_NOTE = '1M on Max tiers';
 
 /**
  * Token count the CC-door launcher injects via `CLAUDE_CODE_MAX_CONTEXT_TOKENS`.
- * One source of truth with `gsd-cc-door.sh` (exports `1000000`) — the value Claude Code
- * believes. Direct Ollama seats still use `OLLAMA_CLOUD_CONTEXT_TOKENS` (1_048_576 from
- * /api/show); CC-door seats divide by this constant so the meter matches the process env.
+ * One source of truth with `scripts/gsd-cc-door.sh` (exports `1048576`) — Ollama Cloud's
+ * real /api/show window (FIXLIST-R3 CODE 6). Direct Ollama seats use the same
+ * `OLLAMA_CLOUD_CONTEXT_TOKENS` (1_048_576); CC-door seats divide by this constant so
+ * the meter matches the process env.
  */
-export const CC_DOOR_STATED_CONTEXT_TOKENS = 1_000_000;
+export const CC_DOOR_STATED_CONTEXT_TOKENS = 1_048_576;
 
 /** Per-model native Claude Code ceilings (Claude 5 family + Haiku). */
 export function nativeContextCeilingFor(family: ClaudeNativeModelFamily): ContextCeiling {

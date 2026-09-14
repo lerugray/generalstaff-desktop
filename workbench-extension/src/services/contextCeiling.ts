@@ -68,12 +68,11 @@ export const CLAUDE_OPUS_MAX_TIER_NOTE = '1M on Max tiers';
 
 /**
  * Token count the CC-door launcher injects via `CLAUDE_CODE_MAX_CONTEXT_TOKENS`.
- * The handoff names `1000000`; the Workbench already carries the verified Ollama
- * `context_length` (`OLLAMA_CLOUD_CONTEXT_TOKENS` = 1_048_576 from /api/show, 2026-09-13)
- * and states that window on every Ollama seat. Ceiling display uses that constant so the
- * picker matches the real model window the launcher is protecting.
+ * One source of truth with `gsd-cc-door.sh` (exports `1000000`) — the value Claude Code
+ * believes. Direct Ollama seats still use `OLLAMA_CLOUD_CONTEXT_TOKENS` (1_048_576 from
+ * /api/show); CC-door seats divide by this constant so the meter matches the process env.
  */
-export const CC_DOOR_STATED_CONTEXT_TOKENS = OLLAMA_CLOUD_CONTEXT_TOKENS;
+export const CC_DOOR_STATED_CONTEXT_TOKENS = 1_000_000;
 
 /** Per-model native Claude Code ceilings (Claude 5 family + Haiku). */
 export function nativeContextCeilingFor(family: ClaudeNativeModelFamily): ContextCeiling {
@@ -183,7 +182,7 @@ export function formatTokenCount(tokens: number): string {
 /**
  * Plain-words ceiling for the seat picker / lane cards.
  * Examples:
- *   `deepseek-v4.1-flash · 1.05M context (stated by launcher)`
+ *   `deepseek-v4.1-flash · 1M context (stated by launcher)`
  *   `fable · 1M context (native)`
  *   `opus · 1M context (native, 1M on Max tiers)`
  *   `glm-5.3 via cline · context unknown`

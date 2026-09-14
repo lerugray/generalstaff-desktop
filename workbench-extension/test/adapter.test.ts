@@ -36,8 +36,14 @@ test('Claude-protocol lanes extract only text blocks and never leak tool_use pay
     const events = normalizeCliLine(laneId, JSON.stringify(writeEnvelope));
     const list = Array.isArray(events) ? events : [events];
     assert.deepEqual(list, [
-      { type: 'tool', text: 'Write' },
       { type: 'assistant-delta', text: 'I will update the handoff note.' },
+      {
+        type: 'tool',
+        text: 'Write · /tmp/handoff.md',
+        name: 'Write',
+        summary: '/tmp/handoff.md',
+        detail: '/tmp/handoff.md',
+      },
     ]);
     assert.equal(JSON.stringify(list).includes('SECRET_FILE_BODY'), false);
   }
@@ -50,7 +56,13 @@ test('Claude-protocol lanes extract only text blocks and never leak tool_use pay
         message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/a.md' } }] },
       }),
     ),
-    { type: 'tool', text: 'Read' },
+    {
+      type: 'tool',
+      text: 'Read · /tmp/a.md',
+      name: 'Read',
+      summary: '/tmp/a.md',
+      detail: '/tmp/a.md',
+    },
   );
 
   assert.equal(
@@ -76,8 +88,8 @@ test('nestedText-style payloads on non-Claude lanes still reject tool_use conten
       }),
     ),
     [
-      { type: 'tool', text: 'Write' },
       { type: 'assistant-delta', text: 'Safe prose' },
+      { type: 'tool', text: 'Write' },
     ],
   );
 });

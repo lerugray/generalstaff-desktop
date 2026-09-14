@@ -480,6 +480,93 @@ function claudeMessageContent(record: Record<string, unknown>): unknown[] | unde
   return Array.isArray(content) ? content : undefined;
 }
 
+function claudeMessageId(record: Record<string, unknown>): string | undefined {
+  const message = record.message;
+  if (typeof message !== 'object' || message === null || Array.isArray(message)) return undefined;
+  const id = (message as Record<string, unknown>).id;
+  return typeof id === 'string' && id.trim() ? id : undefined;
+}
+
+function clipOneLine(value: string, max: number): string {
+  const line = value.replace(/\s+/gu, ' ').trim();
+  if (line.length <= max) return line;
+  return `${line.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function toolInputRecord(item: Record<string, unknown>): Record<string, unknown> {
+  const input = item.input;
+  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return {};
+}
+
+/** One-line label for a Claude-protocol tool_use (Claude Code desktop shape). */
+export function claudeProtocolToolLabel(item: Record<string, unknown>): {
+  name: string;
+  summary: string;
+  detail: string;
+  toolUseId?: string;
+} {
+  const name = textAt(item, ['name', 'tool']) ?? 'tool';
+  const input = toolInputRecord(item);
+  const toolUseId = typeof item.id === 'string' && item.id.trim() ? item.id : undefined;
+  let summary = '';
+  let detail = '';
+
+  if (name === 'Bash' || name === 'bash') {
+    const command = textAt(input, ['command']) ?? '';
+    summary = clipOneLine(command, 80);
+    detail = command;
+  } else if (name === 'Read' || name === 'Edit' || name === 'Write'
+    || name === 'read' || name === 'edit' || name === 'write') {
+    const filePath = textAt(input, ['file_path', 'path', 'filePath']) ?? '';
+    summary = filePath;
+    detail = filePath;
+  } else if (name === 'Grep' || name === 'Glob' || name === 'grep' || name === 'glob') {
+    const pattern = textAt(input, ['pattern', 'glob', 'glob_pattern']) ?? '';
+    summary = pattern;
+    detail = pattern;
+  } else if (name === 'Agent' || name === 'Task' || name === 'agent' || name === 'task') {
+    const description = textAt(input, ['description', 'prompt']) ?? '';
+    summary = clipOneLine(description, 80);
+    detail = description;
+  } else {
+    const description = textAt(input, ['description', 'command', 'path', 'file_path', 'pattern']) ?? '';
+    summary = clipOneLine(description, 80);
+    detail = description;
+  }
+
+  return {
+    name,
+    summary: summary || name,
+    detail: detail || summary || name,
+    ...(toolUseId ? { toolUseId } : {}),
+  };
+}
+
+function toolResultPreview(content: unknown): string {
+  if (typeof content === 'string') return clipOneLine(content, 120);
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (typeof block === 'string' && block.trim()) {
+        parts.push(block);
+        continue;
+      }
+      if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+      const item = block as Record<string, unknown>;
+      if (typeof item.text === 'string' && item.text.trim()) parts.push(item.text);
+    }
+    return clipOneLine(parts.join('\n'), 120);
+  }
+  if (typeof content === 'object' && content !== null) {
+    const text = textAt(content as Record<string, unknown>, ['text', 'content', 'message']);
+    if (text) return clipOneLine(text, 120);
+  }
+  return '';
+}
+
 /** Explicit Claude-protocol assistant text: only `type: "text"` content blocks. */
 export function claudeProtocolAssistantText(record: Record<string, unknown>): string | undefined {
   const content = claudeMessageContent(record);
@@ -495,18 +582,72 @@ export function claudeProtocolAssistantText(record: Record<string, unknown>): st
   return parts.length ? parts.join('') : undefined;
 }
 
-function claudeProtocolToolNames(record: Record<string, unknown>): string[] {
+/**
+ * Walk Claude-protocol assistant content in order: thinking → text → tool cards.
+ * Never leaks tool_use input bodies into assistant prose.
+ */
+export function claudeProtocolAssistantEvents(record: Record<string, unknown>): RunEvent[] {
   const content = claudeMessageContent(record);
   if (!content) return [];
-  const names: string[] = [];
+  const turnId = claudeMessageId(record);
+  const events: RunEvent[] = [];
   for (const block of content) {
     if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
     const item = block as Record<string, unknown>;
-    if (item.type !== 'tool_use') continue;
-    const name = textAt(item, ['name', 'tool']);
-    if (name) names.push(name);
+    if (item.type === 'thinking' && typeof item.thinking === 'string' && item.thinking.trim()) {
+      events.push({ type: 'thinking', text: item.thinking, ...(turnId ? { turnId } : {}) });
+      continue;
+    }
+    // Some builds nest thinking under `text` with type thinking.
+    if (item.type === 'thinking' && typeof item.text === 'string' && item.text.trim()) {
+      events.push({ type: 'thinking', text: item.text, ...(turnId ? { turnId } : {}) });
+      continue;
+    }
+    if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
+      events.push({ type: 'assistant-delta', text: item.text, ...(turnId ? { turnId } : {}) });
+      continue;
+    }
+    if (item.type === 'tool_use') {
+      const labeled = claudeProtocolToolLabel(item);
+      const oneLine = labeled.summary && labeled.summary !== labeled.name
+        ? `${labeled.name} · ${labeled.summary}`
+        : labeled.name;
+      events.push({
+        type: 'tool',
+        text: oneLine,
+        name: labeled.name,
+        summary: labeled.summary,
+        detail: labeled.detail,
+        ...(labeled.toolUseId ? { toolUseId: labeled.toolUseId } : {}),
+        ...(turnId ? { turnId } : {}),
+      });
+    }
   }
-  return names;
+  return events;
+}
+
+/** tool_result blocks on a Claude-protocol `user` envelope (ok/error + first line). */
+export function claudeProtocolToolResultEvents(record: Record<string, unknown>): RunEvent[] {
+  const content = claudeMessageContent(record);
+  if (!content) return [];
+  const events: RunEvent[] = [];
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+    const item = block as Record<string, unknown>;
+    if (item.type !== 'tool_result') continue;
+    const toolUseId = typeof item.tool_use_id === 'string' ? item.tool_use_id
+      : typeof item.toolUseId === 'string' ? item.toolUseId
+        : undefined;
+    const ok = item.is_error !== true && item.isError !== true;
+    const preview = toolResultPreview(item.content);
+    events.push({
+      type: 'tool-result',
+      ok,
+      preview,
+      ...(toolUseId ? { toolUseId } : {}),
+    });
+  }
+  return events;
 }
 
 function packEvents(events: RunEvent[]): RunEvent | RunEvent[] | undefined {
@@ -616,11 +757,17 @@ function normalizeCursorLine(record: Record<string, unknown>, type: string): Run
     // model_call_id flushes and untimestamped finals duplicate prior prose (Cursor docs).
     if (record.timestamp_ms === undefined || record.model_call_id !== undefined) return undefined;
     const events: RunEvent[] = [];
-    for (const name of claudeProtocolToolNames(record)) {
-      events.push({ type: 'tool', text: name });
+    for (const event of claudeProtocolAssistantEvents(record)) {
+      // Cursor path keeps tools as compact names; thinking stays out of the bubble.
+      if (event.type === 'thinking') continue;
+      if (event.type === 'tool') {
+        events.push({ type: 'tool', text: event.name ?? event.text });
+        continue;
+      }
+      if (event.type === 'assistant-delta') {
+        events.push({ type: 'assistant-delta', text: event.text });
+      }
     }
-    const text = claudeProtocolAssistantText(record);
-    if (text) events.push({ type: 'assistant-delta', text });
     return packEvents(events);
   }
   if (/error|failed/i.test(type)) {
@@ -755,25 +902,29 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | RunEv
 
   // Claude's terminal `result` repeats the accumulated assistant response that
   // has already arrived as assistant stream events. Suppress that known final
-  // envelope's prose — but still surface context usage for the live meter (M3c).
+  // envelope's prose. Its usage is SESSION SPEND (cumulative), not occupancy —
+  // emit session-spend only; never overwrite the meter with it (M3e).
   if (speaksClaudeProtocol(laneId) && (type === 'result' || type === 'run_result')) {
     const usage = parseClaudeStreamUsage(safeLine);
-    return usage ? { type: 'context-usage', usedTokens: usage.usedTokens } : undefined;
+    if (usage?.source === 'result') {
+      return { type: 'session-spend', tokens: usage.usedTokens };
+    }
+    return undefined;
   }
 
   // Claude-protocol lanes: walk message.content[] explicitly. Never use the
   // generic nestedText key-name crawl — it leaks Write/Edit tool payloads.
   if (speaksClaudeProtocol(laneId)) {
     if (type === 'assistant') {
-      const events: RunEvent[] = [];
-      for (const name of claudeProtocolToolNames(record)) {
-        events.push({ type: 'tool', text: name });
-      }
-      const text = claudeProtocolAssistantText(record);
-      if (text) events.push({ type: 'assistant-delta', text });
+      const events = claudeProtocolAssistantEvents(record);
       const usage = parseClaudeStreamUsage(safeLine);
-      if (usage) events.push({ type: 'context-usage', usedTokens: usage.usedTokens });
+      if (usage?.source === 'assistant') {
+        events.push({ type: 'context-usage', usedTokens: usage.usedTokens });
+      }
       return packEvents(events);
+    }
+    if (type === 'user') {
+      return packEvents(claudeProtocolToolResultEvents(record));
     }
     if (/tool|command|action/i.test(type)) {
       const tool = textAt(record, ['name', 'tool', 'command', 'text']);

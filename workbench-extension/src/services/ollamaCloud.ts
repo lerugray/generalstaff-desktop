@@ -27,8 +27,9 @@ const ollamaCcDoors = {
 
 /**
  * Every Ollama Cloud tag the Workbench offers reports context_length 1048576 from
- * https://ollama.com/api/show (verified 2026-09-13). Claude Code assumes 200k for a model it
- * does not recognise, so the CC-door launcher states this explicitly.
+ * https://ollama.com/api/show (verified 2026-09-13). Direct Ollama seats use that
+ * figure. CC-door seats instead state `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` via
+ * gsd-cc-door.sh — the Workbench meter divides by that export (see contextCeiling.ts).
  */
 export const OLLAMA_CLOUD_CONTEXT_TOKENS = 1_048_576;
 

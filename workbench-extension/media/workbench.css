@@ -1835,6 +1835,8 @@ select:focus-visible {
 }
 
 .message-body {
+  display: grid;
+  gap: 10px;
   color: var(--paper);
   font-size: 12px;
   line-height: 1.72;
@@ -1847,6 +1849,7 @@ select:focus-visible {
 .message-body pre {
   margin: 13px 0;
   overflow: auto;
+  max-height: 18rem;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1855,6 +1858,61 @@ select:focus-visible {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
   line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.turn-prose {
+  display: grid;
+  gap: 0.55em;
+}
+
+.thinking-card,
+.tool-card {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(var(--surface-2-rgb) / 0.35);
+  font-size: 12px;
+  color: var(--paper-muted);
+}
+
+.thinking-card > summary,
+.tool-card > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px;
+  letter-spacing: 0.01em;
+}
+
+.thinking-card > summary::-webkit-details-marker,
+.tool-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-card[open] > summary,
+.tool-card[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.thinking-card-body,
+.tool-card-detail,
+.tool-card-result {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tool-card-result {
+  border-top: 1px solid var(--line);
+  color: var(--paper-faint);
+}
+
+.tool-card.status-error > summary {
+  color: var(--rust-readable, var(--iron-red, #b44));
 }
 
 .message.error .message-body {

@@ -36,8 +36,12 @@
     creatingConversation: false,
     runStatus: {},
     runActivity: {},
-    /** Live used-token counts keyed by conversationId (Claude Code stream-json). */
+    /** Live occupancy keyed by conversationId (Claude Code stream-json). */
     contextUsage: {},
+    /** First assistant-turn occupancy (preamble) keyed by conversationId. */
+    contextFirstOccupancy: {},
+    /** Cumulative session spend from the result envelope, keyed by conversationId. */
+    contextSessionSpend: {},
     pendingActionConversationId: null,
     notice: null,
     operatorDisplayName: '',
@@ -111,8 +115,28 @@
     };
   }
 
-  function renderContextMeter(ceiling, usedTokens) {
+  function contextMeterTooltip(ceiling, conversationId) {
+    const parts = [];
+    const used = state.contextUsage[conversationId];
+    const first = state.contextFirstOccupancy[conversationId];
+    const spend = state.contextSessionSpend[conversationId];
+    if (typeof used === 'number' && Number.isFinite(used)) {
+      parts.push(`${formatTokenCount(used)} occupancy`);
+    }
+    if (typeof first === 'number' && Number.isFinite(first) && typeof used === 'number') {
+      const added = Math.max(0, used - first);
+      parts.push(`preamble ${formatTokenCount(first)} · added ${formatTokenCount(added)}`);
+    }
+    if (typeof spend === 'number' && Number.isFinite(spend)) {
+      parts.push(`session spend ${formatTokenCount(spend)}`);
+    }
+    if (ceiling) parts.push(formatContextCeilingLabel(ceiling));
+    return parts.join(' · ');
+  }
+
+  function renderContextMeter(ceiling, conversationId) {
     if (!ceiling) return '';
+    const usedTokens = conversationId ? state.contextUsage[conversationId] : undefined;
     const meter = formatContextUsageMeter(ceiling, usedTokens);
     const fill = meter.percent == null
       ? ''
@@ -120,10 +144,57 @@
     const mark = meter.warn
       ? `<span class="lanes-context-warn lanes-amber" title="Claude Code will compact at 200k unless the launcher states the window." aria-label="context warning">⚠</span>`
       : '';
-    return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" title="${escapeHtml(formatContextCeilingLabel(ceiling))}">
+    const tip = escapeHtml(contextMeterTooltip(ceiling, conversationId));
+    return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" title="${tip}">
       <div class="lanes-context-rule">${fill}</div>
       <span class="lanes-context-copy">${escapeHtml(meter.label)}${mark}</span>
     </div>`;
+  }
+
+  function formatThinkingChars(count) {
+    if (count >= 1000) {
+      const k = Math.round(count / 100) / 10;
+      return `${k}k`;
+    }
+    return String(count);
+  }
+
+  function renderTranscriptBlocks(blocks) {
+    return blocks.map((block) => {
+      if (block.type === 'text') {
+        return `<div class="turn-prose">${renderText(block.text)}</div>`;
+      }
+      if (block.type === 'thinking') {
+        const chars = String(block.text || '').length;
+        return `<details class="thinking-card">
+          <summary>Thinking · ${escapeHtml(formatThinkingChars(chars))} chars</summary>
+          <pre class="thinking-card-body">${escapeHtml(block.text || '')}</pre>
+        </details>`;
+      }
+      if (block.type === 'tool') {
+        const status = block.status === 'ok' ? 'ok' : block.status === 'error' ? 'error' : 'running';
+        const statusLabel = status === 'running' ? '…' : status;
+        const summary = `${block.name || 'tool'} · ${block.summary || ''}${status !== 'running' ? ` · ${statusLabel}` : ''}`;
+        const detail = block.detail || block.summary || '';
+        const result = block.resultPreview
+          ? `<div class="tool-card-result">${escapeHtml(block.resultPreview)}</div>`
+          : '';
+        return `<details class="tool-card status-${status}">
+          <summary>${escapeHtml(summary)}</summary>
+          <pre class="tool-card-detail">${escapeHtml(detail)}</pre>
+          ${result}
+        </details>`;
+      }
+      return '';
+    }).join('');
+  }
+
+  function renderMessageBody(message) {
+    if (Array.isArray(message.blocks) && message.blocks.length) {
+      return renderTranscriptBlocks(message.blocks);
+    }
+    if (message.text) return renderText(message.text);
+    return '<div class="thinking"><i></i><i></i><i></i><span>Taking the seat…</span></div>';
   }
 
   function renderText(value) {
@@ -648,7 +719,7 @@
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
             </div>
-            ${renderContextMeter(lane?.contextCeiling, state.contextUsage[conversation.id])}
+            ${renderContextMeter(lane?.contextCeiling, conversation.id)}
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
           <section class="message-stream">
@@ -657,7 +728,7 @@
                 (message) => `
                   <article class="message ${message.role} ${message.status || ''}" data-message-id="${escapeHtml(message.id)}">
                     <div class="message-author">${message.role === 'user' ? `<span class="avatar tiny">${escapeHtml(operatorAvatar())}</span><strong>You</strong>` : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
-                    <div class="message-body">${message.text ? renderText(message.text) : '<div class="thinking"><i></i><i></i><i></i><span>Taking the seat…</span></div>'}</div>
+                    <div class="message-body">${renderMessageBody(message)}</div>
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
               )
@@ -936,9 +1007,8 @@
     article.classList.add(message.status);
     const body = article.querySelector('.message-body');
     if (body) {
-      body.innerHTML = message.text
-        ? renderText(message.text)
-        : '<div class="thinking"><i></i><i></i><i></i><span>Taking the seat…</span></div>';
+      const item = { text: message.text, blocks: message.blocks };
+      body.innerHTML = renderMessageBody(item);
     }
     if (stream && wasNearBottom) stream.scrollTop = stream.scrollHeight;
   }
@@ -1024,6 +1094,7 @@
       if (item) {
         item.text = message.text;
         item.status = message.status;
+        if (Array.isArray(message.blocks)) item.blocks = message.blocks;
       }
       if (message.status !== 'streaming') {
         delete state.runStatus[message.conversationId];
@@ -1032,8 +1103,16 @@
       }
       patchConversationDelta(message);
     } else if (message.type === 'context-usage') {
-      if (typeof message.conversationId === 'string' && typeof message.usedTokens === 'number') {
-        state.contextUsage[message.conversationId] = message.usedTokens;
+      if (typeof message.conversationId === 'string') {
+        if (typeof message.usedTokens === 'number') {
+          state.contextUsage[message.conversationId] = message.usedTokens;
+          if (state.contextFirstOccupancy[message.conversationId] == null) {
+            state.contextFirstOccupancy[message.conversationId] = message.usedTokens;
+          }
+        }
+        if (typeof message.sessionSpend === 'number') {
+          state.contextSessionSpend[message.conversationId] = message.sessionSpend;
+        }
         render();
       }
     } else if (message.type === 'run-event') {

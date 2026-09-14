@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
 import { runAdapter } from './adapters/runAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
-import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneId, LaneSummary, RunContinuity } from './domain.js';
+import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneId, LaneSummary, RunContinuity, TranscriptBlock } from './domain.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
@@ -627,9 +627,17 @@ class CommandDeckPanel {
       let output = '';
       let encounteredError = false;
       let outputClipped = false;
+      let currentAssistantId = assistant.id;
+      let currentTurnId: string | undefined;
+      let blocks: TranscriptBlock[] = [];
       // Track whether the last streamed chunk was assistant prose so tool-loop
-      // turns get paragraph breaks instead of gluing every preamble together.
+      // turns get paragraph breaks instead of gluing every preamble together
+      // on lanes that still collapse to a single bubble.
       let lastStreamKind: 'assistant' | 'other' | undefined;
+      let eventChain: Promise<void> = Promise.resolve();
+      const enqueueEvent = (work: () => Promise<void>) => {
+        eventChain = eventChain.then(work).catch(() => undefined);
+      };
       const appendOutput = (chunk: string) => {
         const limit = 200_000;
         if (output.length >= limit) return;
@@ -639,6 +647,38 @@ class CommandDeckPanel {
           output += '\n\n[Workbench clipped additional lane output at 200,000 characters.]';
           outputClipped = true;
         }
+      };
+      const textFromBlocks = () => blocks
+        .filter((block): block is Extract<TranscriptBlock, { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n\n');
+      const ensureTurn = async (turnId?: string): Promise<void> => {
+        const needsNewBubble = Boolean(
+          turnId
+          && currentTurnId
+          && turnId !== currentTurnId
+          && (blocks.length > 0 || output.trim()),
+        );
+        if (!needsNewBubble) {
+          if (turnId) currentTurnId = turnId;
+          return;
+        }
+        await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'complete', blocks);
+        const updatedTurn = await this.store.append(conversationId, {
+          role: 'assistant',
+          text: '',
+          status: 'streaming',
+          blocks: [],
+        });
+        const next = updatedTurn?.messages.at(-1);
+        if (!next) return;
+        currentAssistantId = next.id;
+        currentTurnId = turnId;
+        blocks = [];
+        output = '';
+        outputClipped = false;
+        lastStreamKind = undefined;
+        await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
       };
 
       const run = runAdapter(
@@ -657,22 +697,86 @@ class CommandDeckPanel {
         },
         (event) => {
           if (event.type === 'assistant-delta') {
-            const separator = output && lastStreamKind !== 'assistant' ? '\n\n' : '';
-            appendOutput(`${separator}${event.text}`);
-            lastStreamKind = 'assistant';
-            void this.stream(conversationId, assistant.id, output, 'streaming');
+            enqueueEvent(async () => {
+              await ensureTurn(event.turnId);
+              const separator = output && lastStreamKind !== 'assistant' ? '\n\n' : '';
+              appendOutput(`${separator}${event.text}`);
+              lastStreamKind = 'assistant';
+              const last = blocks[blocks.length - 1];
+              if (last?.type === 'text') {
+                last.text += event.text;
+              } else {
+                blocks.push({ type: 'text', text: event.text });
+              }
+              await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'streaming', blocks);
+            });
+          } else if (event.type === 'thinking') {
+            enqueueEvent(async () => {
+              await ensureTurn(event.turnId);
+              lastStreamKind = 'other';
+              blocks.push({ type: 'thinking', text: event.text });
+              await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'streaming', blocks);
+            });
+          } else if (event.type === 'tool') {
+            enqueueEvent(async () => {
+              await ensureTurn(event.turnId);
+              lastStreamKind = 'other';
+              blocks.push({
+                type: 'tool',
+                ...(event.toolUseId ? { id: event.toolUseId } : {}),
+                name: event.name ?? event.text,
+                summary: event.summary ?? event.text,
+                ...(event.detail ? { detail: event.detail } : {}),
+                status: 'running',
+              });
+              await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'streaming', blocks);
+              await this.panel.webview.postMessage({
+                type: 'run-event',
+                conversationId,
+                event: { type: 'tool', text: event.text },
+              });
+            });
+          } else if (event.type === 'tool-result') {
+            enqueueEvent(async () => {
+              const match = event.toolUseId
+                ? blocks.find((block) => block.type === 'tool' && block.id === event.toolUseId)
+                : [...blocks].reverse().find((block) => block.type === 'tool' && block.status === 'running');
+              if (match && match.type === 'tool') {
+                match.status = event.ok ? 'ok' : 'error';
+                match.resultPreview = event.preview;
+              }
+              lastStreamKind = 'other';
+              await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'streaming', blocks);
+              const label = match && match.type === 'tool'
+                ? `${match.name} · ${match.summary} · ${event.ok ? 'ok' : 'error'}`
+                : `${event.ok ? 'ok' : 'error'}${event.preview ? ` · ${event.preview}` : ''}`;
+              await this.panel.webview.postMessage({
+                type: 'run-event',
+                conversationId,
+                event: { type: 'tool', text: label },
+              });
+            });
           } else if (event.type === 'error') {
-            encounteredError = true;
-            lastStreamKind = 'other';
-            appendOutput(`${output ? '\n\n' : ''}${event.text}`);
-            void this.stream(conversationId, assistant.id, output, 'error');
+            enqueueEvent(async () => {
+              encounteredError = true;
+              lastStreamKind = 'other';
+              appendOutput(`${output ? '\n\n' : ''}${event.text}`);
+              await this.stream(conversationId, currentAssistantId, textFromBlocks() || output, 'error', blocks);
+            });
           } else if (event.type === 'context-usage') {
             void this.panel.webview.postMessage({
               type: 'context-usage',
               conversationId,
               usedTokens: event.usedTokens,
+              ...(event.sessionSpend != null ? { sessionSpend: event.sessionSpend } : {}),
             });
-          } else if (event.type === 'status' || event.type === 'tool') {
+          } else if (event.type === 'session-spend') {
+            void this.panel.webview.postMessage({
+              type: 'context-usage',
+              conversationId,
+              sessionSpend: event.tokens,
+            });
+          } else if (event.type === 'status') {
             lastStreamKind = 'other';
             void this.panel.webview.postMessage({
               type: 'run-event',
@@ -684,7 +788,7 @@ class CommandDeckPanel {
       );
       if (!this.pendingRuns.has(conversationId)) {
         run.stop();
-        await this.stream(conversationId, assistant.id, 'This run was stopped.', 'error');
+        await this.stream(conversationId, currentAssistantId, 'This run was stopped.', 'error', blocks);
         return;
       }
       this.activeRuns.set(conversationId, run);
@@ -692,6 +796,7 @@ class CommandDeckPanel {
 
       void run.completed
         .then(async (completion) => {
+          await eventChain;
           const capabilityNames = privateCapabilityReceiptNames(privateRuntime, lane, conversation.permission);
           const receipt = {
             ...completion.receipt,
@@ -699,12 +804,16 @@ class CommandDeckPanel {
             ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
           };
           const failed = encounteredError || receipt.exitCode !== 0 || receipt.stopped;
-          if (!output.trim()) {
-            output = receipt.stopped
+          let finalText = textFromBlocks() || output;
+          if (!finalText.trim()) {
+            finalText = receipt.stopped
               ? 'This run was stopped.'
               : receipt.exitCode === 0
                 ? 'The lane completed without a text response. Open the command target to inspect its work.'
                 : `The lane exited with code ${receipt.exitCode ?? 'unknown'}.`;
+            if (!blocks.some((block) => block.type === 'text')) {
+              blocks = [...blocks, { type: 'text', text: finalText }];
+            }
           }
           if (completion.providerSessionId) {
             await this.store.setProviderSession(
@@ -718,21 +827,28 @@ class CommandDeckPanel {
             );
           }
           if (!failed) {
-            const extracted = extractDecisionCards(output, assistant.id);
+            const extracted = extractDecisionCards(finalText, currentAssistantId);
             if (extracted.decisions.length) {
-              output = extracted.text || 'GeneralStaff needs your decision before it can continue.';
+              finalText = extracted.text || 'GeneralStaff needs your decision before it can continue.';
+              blocks = blocks.map((block) => (
+                block.type === 'text' ? { ...block, text: finalText } : block
+              ));
+              if (!blocks.some((block) => block.type === 'text')) {
+                blocks.push({ type: 'text', text: finalText });
+              }
               await this.store.addDecisions(conversationId, extracted.decisions);
             }
           }
           await this.store.setReceipt(conversationId, receipt);
-          await this.stream(conversationId, assistant.id, output, failed ? 'error' : 'complete');
+          await this.stream(conversationId, currentAssistantId, finalText, failed ? 'error' : 'complete', blocks);
           await this.panel.webview.postMessage({ type: 'conversations', conversations: this.store.all() });
           await this.refreshAndSend();
         })
         .catch(async (error: unknown) => {
+          await eventChain;
           const reason = error instanceof Error ? error.message : 'The selected lane could not start.';
-          output = `${output}${output ? '\n\n' : ''}${reason}`;
-          await this.stream(conversationId, assistant.id, output, 'error');
+          const finalText = `${textFromBlocks() || output}${output || textFromBlocks() ? '\n\n' : ''}${reason}`;
+          await this.stream(conversationId, currentAssistantId, finalText, 'error', blocks);
           await this.notice(reason, 'error', conversationId);
         })
         .finally(() => this.activeRuns.delete(conversationId));
@@ -794,14 +910,16 @@ class CommandDeckPanel {
     messageId: string,
     text: string,
     status: NonNullable<ConversationMessage['status']>,
+    blocks?: TranscriptBlock[],
   ): Promise<void> {
-    await this.store.updateAssistant(conversationId, messageId, text, status);
+    await this.store.updateAssistant(conversationId, messageId, text, status, blocks);
     await this.panel.webview.postMessage({
       type: 'conversation-delta',
       conversationId,
       messageId,
       text,
       status,
+      ...(blocks ? { blocks } : {}),
     });
   }
 

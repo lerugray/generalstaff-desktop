@@ -283,12 +283,14 @@ export class ConversationStore {
     messageId: string,
     text: string,
     status: NonNullable<ConversationMessage['status']>,
+    blocks?: ConversationMessage['blocks'],
   ): Promise<void> {
     const conversation = this.get(id);
     const message = conversation?.messages.find((item) => item.id === messageId);
     if (!conversation || !message) return;
     message.text = text;
     message.status = status;
+    if (blocks !== undefined) message.blocks = blocks;
     conversation.updatedAt = Date.now();
     if (status !== 'streaming') await this.persist();
   }

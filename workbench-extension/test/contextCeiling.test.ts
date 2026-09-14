@@ -46,18 +46,21 @@ test('every seat has a ceiling + provenance; no Ollama seat is assumed-default',
     }
   }
 
-  const ollamaIds: LaneId[] = [
+  const ollamaDirect: LaneId[] = [
     'glm-ollama',
     'glm-ollama-flash',
     'deepseek-ollama',
-    'deepseek-ollama-cc',
-    'glm-ollama-cc',
   ];
-  for (const id of ollamaIds) {
+  for (const id of ollamaDirect) {
     const ceiling = contextCeilingFor(id);
     assert.notEqual(ceiling.provenance, 'assumed-default', `${id} must not be assumed-default`);
     assert.equal(ceiling.tokens, OLLAMA_CLOUD_CONTEXT_TOKENS);
     assert.equal(ceiling.provenance, 'stated');
+  }
+  for (const id of ['deepseek-ollama-cc', 'glm-ollama-cc'] as const) {
+    const ceiling = contextCeilingFor(id);
+    assert.equal(ceiling.provenance, 'stated');
+    assert.equal(ceiling.tokens, 1_000_000);
   }
 
   assert.equal(contextCeilingFor('claude').provenance, 'native');
@@ -98,7 +101,7 @@ test('rendered ceiling strings match the brief examples', () => {
   assert.equal(formatTokenCount(200_000), '200k');
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('deepseek-ollama-cc')),
-    'deepseek-v4.1-flash · 1.05M context (stated by launcher)',
+    'deepseek-v4.1-flash · 1M context (stated by launcher)',
   );
   assert.equal(
     formatContextCeilingLabel(contextCeilingFor('claude')),
@@ -130,13 +133,13 @@ test('rendered ceiling strings match the brief examples', () => {
 test('usage meter never invents a used count; formats used/ceiling when present', () => {
   const ceiling = contextCeilingFor('deepseek-ollama-cc');
   assert.deepEqual(formatContextUsageMeter(ceiling, null), {
-    label: '1.05M ceiling only',
+    label: '1M ceiling only',
     percent: null,
     warn: false,
   });
   assert.deepEqual(formatContextUsageMeter(ceiling, 196_200), {
-    label: '196.2k / 1.05M (19%)',
-    percent: 19,
+    label: '196.2k / 1M (20%)',
+    percent: 20,
     warn: false,
   });
   assert.equal(formatContextUsageMeter(contextCeilingFor('cline'), 12).label, 'context unknown');
@@ -159,7 +162,7 @@ test('Claude stream-json usage parser sums input + cache_read + cache_creation f
   assert.equal(parseClaudeStreamUsage('{"type":"assistant","message":{"role":"assistant"}}'), undefined);
 });
 
-test('normalizeCliLine emits context-usage for Claude-protocol assistant and result envelopes', () => {
+test('normalizeCliLine emits occupancy for assistant envelopes and session-spend for result', () => {
   const assistant = normalizeCliLine(
     'deepseek-ollama-cc',
     JSON.stringify({
@@ -192,7 +195,7 @@ test('normalizeCliLine emits context-usage for Claude-protocol assistant and res
         usage: { input_tokens: 1, cache_read_input_tokens: 2, cache_creation_input_tokens: 3 },
       }),
     ),
-    { type: 'context-usage', usedTokens: 6 },
+    { type: 'session-spend', tokens: 6 },
   );
   assert.equal(
     normalizeCliLine('claude', JSON.stringify({ type: 'result', result: 'I will update the handoff note.' })),

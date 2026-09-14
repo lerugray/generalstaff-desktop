@@ -129,6 +129,20 @@ export interface FleetSnapshot {
   capabilities: PrivateCapabilitySummary[];
 }
 
+/** Ordered transcript blocks for one assistant turn (M3e — Claude Code desktop shape). */
+export type TranscriptBlock =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
+  | {
+      type: 'tool';
+      id?: string;
+      name: string;
+      summary: string;
+      detail?: string;
+      status?: 'running' | 'ok' | 'error';
+      resultPreview?: string;
+    };
+
 export interface ConversationMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -136,6 +150,8 @@ export interface ConversationMessage {
   createdAt: number;
   status?: 'streaming' | 'complete' | 'error';
   attempt?: 'retry';
+  /** When set, the webview renders these in order instead of flattening to prose-only. */
+  blocks?: TranscriptBlock[];
 }
 
 export interface DecisionOption {
@@ -205,9 +221,30 @@ export interface Conversation {
 
 export type RunEvent =
   | { type: 'status'; text: string }
-  | { type: 'assistant-delta'; text: string }
-  | { type: 'tool'; text: string }
+  | { type: 'assistant-delta'; text: string; turnId?: string }
+  | { type: 'thinking'; text: string; turnId?: string }
+  | {
+      type: 'tool';
+      text: string;
+      name?: string;
+      summary?: string;
+      detail?: string;
+      toolUseId?: string;
+      turnId?: string;
+    }
+  | {
+      type: 'tool-result';
+      toolUseId?: string;
+      ok: boolean;
+      preview: string;
+      turnId?: string;
+    }
   | { type: 'error'; text: string }
   | { type: 'complete'; receipt: ConversationReceipt }
-  /** Live context usage from Claude Code stream-json (M3c). */
-  | { type: 'context-usage'; usedTokens: number };
+  /**
+   * Live context occupancy from Claude Code stream-json (M3c/M3e).
+   * `usedTokens` is always the latest assistant-turn occupancy — never the result envelope's
+   * cumulative session spend. Optional `sessionSpend` arrives only from the final result.
+   */
+  | { type: 'context-usage'; usedTokens: number; sessionSpend?: number }
+  | { type: 'session-spend'; tokens: number };

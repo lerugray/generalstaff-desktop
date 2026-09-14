@@ -498,9 +498,21 @@ async function main(): Promise<void> {
     );
     await deckFrame.waitForSelector('.topbar');
     await deckFrame.waitForSelector(`[data-action="toggle-${kind}"][aria-pressed="true"]`);
-    await auxFrame.waitForSelector('#app');
+    await auxFrame.waitForSelector(kind === 'lanes' ? '.lane-counter' : '.desk-leaf');
     await page.waitForTimeout(250);
+    const bodyMin = await auxFrame.evaluate(() => getComputedStyle(document.body).minWidth);
+    if (bodyMin !== '0px') throw new Error(`aux body min-width should be 0px, got ${bodyMin}`);
     await assertNoHorizontalOverflow(auxFrame);
+    const borderOk = await auxFrame.evaluate((kind) => {
+      const sel = kind === 'lanes' ? '.lane-counter' : '.desk-leaf';
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      return style.borderRightWidth !== '0px' && rect.right <= vw + 0.5;
+    }, kind);
+    if (!borderOk) throw new Error(`${kind} card right border missing or clipped`);
     await page.screenshot({ path: path.join(outDir, outName), type: 'png' });
     console.log('wrote', outName);
     await page.close();

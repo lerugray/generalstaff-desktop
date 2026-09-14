@@ -7,6 +7,12 @@ import type {
   LaneDeskLaneState,
   LaneDeskStatusEnvelope,
 } from './services/laneDeskStatus.js';
+import {
+  contextCeilingFromModelDoor,
+  formatContextCeilingLabel,
+  formatContextUsageMeter,
+  type ContextCeiling,
+} from './services/contextCeiling.js';
 
 export type LaneCounterColor = 'iron-red' | 'dust' | 'ink' | 'quiet' | 'amber';
 
@@ -29,6 +35,10 @@ export interface LanesPanelRow {
   attention: boolean;
   latencyMs?: number;
   message?: string;
+  /** Plain-words context ceiling for the register chit (M3c). */
+  contextLabel: string;
+  contextWarn: boolean;
+  contextPercent: number | null;
 }
 
 export interface LanesPanelModel {
@@ -208,18 +218,24 @@ export function buildLanesPanelModel(
       lastLogLine: host.message || 'unreachable',
       counterColor: 'amber' as const,
       attention: true,
+      contextLabel: 'context unknown',
+      contextWarn: false,
+      contextPercent: null,
       ...(typeof host.latencyMs === 'number' ? { latencyMs: host.latencyMs } : {}),
       ...(host.message ? { message: host.message } : {}),
     }));
 
   const laneRows: LanesPanelRow[] = (envelope.lanes ?? []).map((lane) => {
     const state = String(lane.state || 'unknown');
+    const modelDoor = modelDoorFor(lane);
+    const ceiling = contextCeilingFromModelDoor(modelDoor);
+    const meter = formatContextUsageMeter(ceiling, null);
     return {
       kind: 'lane',
       key: `${lane.host}:${lane.id}`,
       id: lane.id,
       host: String(lane.host),
-      modelDoor: modelDoorFor(lane),
+      modelDoor,
       state,
       elapsed: formatElapsed(lane.age_min),
       sha: lane.sha?.trim() || '—',
@@ -228,6 +244,9 @@ export function buildLanesPanelModel(
       lastLogLine: lane.last_log_line?.trim() || '',
       counterColor: laneCounterColor(state),
       attention: isAttentionLaneState(state),
+      contextLabel: formatContextCeilingLabel(ceiling),
+      contextWarn: meter.warn,
+      contextPercent: meter.percent,
     };
   });
 
@@ -308,6 +327,14 @@ export interface LaneDetailModel {
   harvestActionDisabled: true;
   harvestActionLabel: 'Harvest…';
   harvestActionTooltip: 'M3+';
+  /** Context ceiling + optional live usage meter (M3c). */
+  context: {
+    label: string;
+    meterLabel: string;
+    percent: number | null;
+    warn: boolean;
+    ceiling: ContextCeiling;
+  };
 }
 
 function formatShaPair(want?: string, head?: string, sha?: string): string {
@@ -374,6 +401,10 @@ export function buildLaneDetailModel(
     fallbackId?: string;
     fallbackHost?: string;
     fallbackState?: string;
+    /** Live used tokens from Claude Code stream-json when available; omit for ceiling-only. */
+    usedTokens?: number | null;
+    /** Override ceiling when the Command seat is known more precisely than model/door. */
+    contextCeiling?: ContextCeiling;
   } = {},
 ): LaneDetailModel {
   const laneId = detail?.lane_id || harvest?.lane_id || options.fallbackId || '—';
@@ -384,6 +415,9 @@ export function buildLaneDetailModel(
   const launch = detail?.launched_at || detail?.launch_time || '—';
   const cap = typeof detail?.cap_min === 'number' ? `${detail.cap_min}m` : '—';
   const errorDetail = envelopeError(detail, harvest, options.errorDetail);
+  const modelDoor = formatModelDoor(detail, harvest);
+  const ceiling = options.contextCeiling ?? contextCeilingFromModelDoor(modelDoor);
+  const meter = formatContextUsageMeter(ceiling, options.usedTokens ?? null);
 
   const fields: LaneDetailField[] = [
     { label: 'host', value: host },
@@ -394,7 +428,8 @@ export function buildLaneDetailModel(
       value: formatShaPair(detail?.want_sha || harvest?.git?.want_sha, detail?.head_sha || harvest?.git?.head_sha, detail?.sha),
       marginalia: true,
     },
-    { label: 'model', value: formatModelDoor(detail, harvest) },
+    { label: 'model', value: modelDoor },
+    { label: 'context', value: formatContextCeilingLabel(ceiling) },
     { label: 'launched', value: launch, marginalia: true },
     { label: 'cap', value: cap, marginalia: true },
     { label: 'elapsed', value: formatElapsedDetail(detail), marginalia: true },
@@ -452,12 +487,19 @@ export function buildLaneDetailModel(
       tests,
       attention: harvest?.attention ?? [],
       paths,
-      modelDoor: formatModelDoor(detail, harvest),
+      modelDoor,
     },
     ...(errorDetail ? { errorDetail } : {}),
     harvestActionDisabled: true,
     harvestActionLabel: 'Harvest…',
     harvestActionTooltip: 'M3+',
+    context: {
+      label: formatContextCeilingLabel(ceiling),
+      meterLabel: meter.label,
+      percent: meter.percent,
+      warn: meter.warn,
+      ceiling,
+    },
   };
 }
 

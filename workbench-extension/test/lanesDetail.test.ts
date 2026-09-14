@@ -42,6 +42,9 @@ test('running lane detail + harvest bind fields without path reads', async () =>
   assert.equal(byLabel.branch?.value, 'cursor/gs-harness-m1-lanes-bb9a');
   assert.match(byLabel.sha?.value || '', /WANT a435628 · HEAD d2eb411/);
   assert.equal(byLabel.model?.value, 'composer · cursor');
+  assert.match(byLabel.context?.value || '', /context unknown/);
+  assert.equal(model.context.meterLabel, 'context unknown');
+  assert.equal(model.context.percent, null);
   assert.equal(byLabel.launched?.value, '2026-09-13T20:48:00Z');
   assert.equal(byLabel.cap?.value, '120m');
   assert.equal(byLabel.elapsed?.value, '12m');

@@ -113,6 +113,7 @@ test('the direct adapter requests GLM 5.3 and surfaces content without thinking'
     permissions: ['read'],
     efforts: [{ id: 'default', label: 'Provider default' }],
     defaultEffort: 'default',
+    contextCeiling: { tokens: 1_048_576, provenance: 'stated', modelLabel: 'glm-5.3' },
   };
   const events: RunEvent[] = [];
   let postedBody: Record<string, unknown> | undefined;

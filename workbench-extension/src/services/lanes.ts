@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { EffortId, EffortOption, LaneId, LaneSummary, PermissionMode, SeatId } from '../domain.js';
+import { contextCeilingFor } from './contextCeiling.js';
 import {
   catalogHasModel,
   fetchOllamaCloudCatalog,
@@ -329,6 +330,7 @@ export async function discoverOllamaCloudLanes(
       permissions: ['read', 'write'],
       efforts: ccEfforts,
       defaultEffort: 'default',
+      contextCeiling: contextCeilingFor(definition.id),
     } satisfies LaneSummary);
   }
 
@@ -347,6 +349,7 @@ export async function discoverOllamaCloudLanes(
       permissions: ['read'],
       efforts: [{ id: 'default', label: 'Provider default' }],
       defaultEffort: 'default',
+      contextCeiling: contextCeilingFor(definition.id),
     } satisfies LaneSummary;
   }), ...ccLanes];
 }
@@ -495,6 +498,7 @@ export async function discoverCliLanes(options: CliLaneDiscoveryOptions = {}): P
         permissions: definition.permissions,
         efforts: definition.efforts,
         defaultEffort: definition.defaultEffort,
+        contextCeiling: contextCeilingFor(definition.id),
       } satisfies LaneSummary;
     }),
   );

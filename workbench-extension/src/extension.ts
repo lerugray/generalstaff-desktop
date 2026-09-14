@@ -482,6 +482,12 @@ class CommandDeckPanel {
             lastStreamKind = 'other';
             appendOutput(`${output ? '\n\n' : ''}${event.text}`);
             void this.stream(conversationId, assistant.id, output, 'error');
+          } else if (event.type === 'context-usage') {
+            void this.panel.webview.postMessage({
+              type: 'context-usage',
+              conversationId,
+              usedTokens: event.usedTokens,
+            });
           } else if (event.type === 'status' || event.type === 'tool') {
             lastStreamKind = 'other';
             void this.panel.webview.postMessage({

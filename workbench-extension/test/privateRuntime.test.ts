@@ -23,6 +23,7 @@ const lane = (id: LaneSummary['id'], runner: LaneSummary['runner'] = id): LaneSu
   permissions: ['read'],
   efforts: [{ id: 'default', label: 'Default' }],
   defaultEffort: 'default',
+  contextCeiling: { tokens: null, provenance: 'unknown', modelLabel: id },
 });
 
 async function makeLaneDeskRuntime(parent: string, cliSource = 'process.stdout.write("[]")'): Promise<string> {

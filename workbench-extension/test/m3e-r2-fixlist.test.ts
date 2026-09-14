@@ -17,7 +17,6 @@ import {
 
 const fixtures = path.resolve(process.cwd(), 'test/fixtures');
 const CATCHUP = path.join(fixtures, 'glm-catchup-m3e.jsonl');
-const DOOR_SNIPPET = path.join(fixtures, 'gsd-cc-door-ceiling.env');
 
 function loadCatchupEvents(): RunEvent[] {
   const lines = fs.readFileSync(CATCHUP, 'utf8').split(/\r?\n/u).filter(Boolean);
@@ -182,17 +181,19 @@ test('MINOR 4: output-only usage does not become assistant occupancy', () => {
 });
 
 test('MINOR 5: CC_DOOR_STATED_CONTEXT_TOKENS matches scripts/gsd-cc-door.sh (1048576)', () => {
-  // FIXLIST-R3 CODE 6: read the REAL door script, not only the fixture mirror.
+  // M5 M6: one door, one ceiling — the real scripts/gsd-cc-door.sh only.
   const doorPath = path.resolve(process.cwd(), '../scripts/gsd-cc-door.sh');
+  assert.ok(fs.existsSync(doorPath), `missing ${doorPath}`);
   const door = fs.readFileSync(doorPath, 'utf8');
   const match = door.match(/CLAUDE_CODE_MAX_CONTEXT_TOKENS=["']?(\d+)/);
   assert.ok(match, 'scripts/gsd-cc-door.sh must export CLAUDE_CODE_MAX_CONTEXT_TOKENS');
   assert.equal(Number(match[1]), CC_DOOR_STATED_CONTEXT_TOKENS);
   assert.equal(CC_DOOR_STATED_CONTEXT_TOKENS, 1_048_576);
-
-  const snippet = fs.readFileSync(DOOR_SNIPPET, 'utf8');
-  const snippetMatch = snippet.match(/CLAUDE_CODE_MAX_CONTEXT_TOKENS=["']?(\d+)/);
-  assert.equal(Number(snippetMatch?.[1]), CC_DOOR_STATED_CONTEXT_TOKENS);
+  assert.equal(
+    fs.existsSync(path.join(fixtures, 'gsd-cc-door-ceiling.env')),
+    false,
+    'in-repo ceiling mirror must be deleted',
+  );
 });
 
 test('MINOR 7: redacted_thinking becomes a collapsed thinking placeholder', () => {

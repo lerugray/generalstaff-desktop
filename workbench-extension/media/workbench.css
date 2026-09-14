@@ -1036,9 +1036,11 @@ select:focus-visible {
 
 .composer textarea {
   width: 100%;
-  min-height: 95px;
-  resize: vertical;
-  padding: 14px 2px;
+  min-height: 0;
+  max-height: calc(1.5em * 6 + 8px);
+  resize: none;
+  overflow-y: auto;
+  padding: 8px 2px;
   border: 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -1048,6 +1050,7 @@ select:focus-visible {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 17px;
   line-height: 1.5;
+  field-sizing: content;
 }
 
 .context-row {
@@ -1139,10 +1142,46 @@ select:focus-visible {
 }
 
 .composer-selects {
+  position: relative;
   display: flex;
   min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-gear {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--paper-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.composer-selects-panel {
+  display: none;
+  position: absolute;
+  z-index: 6;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: min(420px, 70vw);
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(var(--surface-2-rgb) / 0.97);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.18);
   flex-wrap: wrap;
   gap: 9px;
+}
+
+.composer-selects[data-open="1"] .composer-selects-panel {
+  display: flex;
 }
 
 .select-field {
@@ -1672,6 +1711,7 @@ select:focus-visible {
 }
 
 .conversation-shell {
+  position: relative;
   display: flex;
   width: min(960px, 100%);
   min-height: 0;
@@ -1788,7 +1828,8 @@ select:focus-visible {
 
 .message-stream {
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  flex-grow: 1;
   overflow: auto;
   padding: 25px 8px 35px;
   scrollbar-width: thin;
@@ -1969,9 +2010,17 @@ details[open] > summary > .card-chevron {
   color: var(--rust-readable, var(--iron-red, #b44));
 }
 
-/* Deck-only meter chrome (FIXLIST-R3 CODE 1) — must NOT leak into Lanes/Desk */
-.conversation-meta .lanes-context-meter {
+/* Deck + Lanes meter chrome (M6) — scoped so unscoped rules cannot bleed. */
+.conversation-meta .lanes-context-meter,
+.aux-view .lanes-context-meter {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+
+.conversation-meta .lanes-context-meter {
   margin-top: 10px;
   max-width: none;
   width: min(100%, 36rem);
@@ -1980,6 +2029,41 @@ details[open] > summary > .card-chevron {
 
 .conversation-meta .lanes-context-copy {
   white-space: nowrap;
+}
+
+.conversation-meta .lanes-context-rule,
+.aux-view .lanes-context-rule {
+  position: relative;
+  height: 2px;
+  width: 100%;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.conversation-meta .lanes-context-fill,
+.aux-view .lanes-context-fill {
+  display: block;
+  height: 100%;
+  background: var(--paper-muted);
+}
+
+.conversation-meta .lanes-context-meter.is-warn .lanes-context-fill,
+.aux-view .lanes-context-meter.is-warn .lanes-context-fill {
+  background: var(--brass);
+}
+
+.conversation-meta .lanes-context-copy,
+.aux-view .lanes-context-copy {
+  color: var(--paper-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.conversation-meta .lanes-context-warn,
+.aux-view .lanes-context-warn {
+  margin-left: 4px;
+  font-size: 11px;
 }
 
 .conversation-meta .lanes-context-hovercard {
@@ -2434,6 +2518,8 @@ details[open] > summary > .card-chevron {
 
 .conversation-compose-wrap {
   position: relative;
+  flex: 0 0 auto;
+  max-height: 30%;
   padding: 0 0 18px;
   background: linear-gradient(transparent, var(--ink) 13%);
 }
@@ -2449,17 +2535,19 @@ details[open] > summary > .card-chevron {
 }
 
 .composer.compact textarea {
-  min-height: 62px;
+  min-height: 0;
   padding-top: 4px;
   border-top: 0;
   font-size: 14px;
+  line-height: 1.45;
 }
 
 .composer.compact .composer-footer {
   padding-top: 9px;
 }
 
-.run-strip {
+.run-strip,
+.activity-strip {
   display: flex;
   max-width: 800px;
   align-items: center;
@@ -2471,6 +2559,70 @@ details[open] > summary > .card-chevron {
   background: rgb(var(--accent-rgb) / 0.04);
   color: var(--paper-muted);
   font-size: 8px;
+}
+
+.activity-strip {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.activity-strip.is-idle {
+  border-color: var(--line);
+  background: rgb(var(--surface-2-rgb) / 0.35);
+  color: var(--paper-faint);
+}
+
+.activity-strip-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-chip {
+  margin-left: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  color: var(--paper-faint);
+  font-size: 7px;
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.delivery-chip.queued {
+  border-color: rgb(var(--accent-rgb) / 0.35);
+  color: var(--brass);
+}
+
+.delivery-chip.delivered {
+  color: var(--paper-muted);
+}
+
+.jump-latest {
+  position: absolute;
+  z-index: 4;
+  right: 18px;
+  bottom: 110px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgb(var(--surface-2-rgb) / 0.95);
+  color: var(--paper-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.thinking-card.is-redacted {
+  border-style: dotted;
+  opacity: 0.78;
+}
+
+.thinking-card.is-redacted > summary {
+  font-style: italic;
+  letter-spacing: 0.03em;
 }
 
 .run-activity {
@@ -2934,44 +3086,6 @@ details[open] > summary > .card-chevron {
   font-size: 11px;
   letter-spacing: 0.02em;
   line-height: 1.35;
-}
-
-/* Shared meter chrome for Lanes + Deck (no position/min-width/nowrap — those are deck-scoped above) */
-.lanes-context-meter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 2px;
-}
-
-.lanes-context-rule {
-  position: relative;
-  height: 2px;
-  width: 100%;
-  background: var(--line);
-  overflow: hidden;
-}
-
-.lanes-context-fill {
-  display: block;
-  height: 100%;
-  background: var(--paper-muted);
-}
-
-.lanes-context-meter.is-warn .lanes-context-fill {
-  background: var(--brass);
-}
-
-.lanes-context-copy {
-  color: var(--paper-faint);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  line-height: 1.3;
-}
-
-.lanes-context-warn {
-  margin-left: 4px;
-  font-size: 11px;
 }
 
 /* Detail = one plate; rules not nested boxes; no amber accents */

@@ -153,6 +153,8 @@ export interface ConversationMessage {
   createdAt: number;
   status?: 'streaming' | 'complete' | 'error';
   attempt?: 'retry';
+  /** Mid-run steering: held until the live process consumes it (M5). */
+  delivery?: 'queued' | 'delivered';
   /** When set, the webview renders these in order instead of flattening to prose-only. */
   blocks?: TranscriptBlock[];
 }
@@ -253,4 +255,6 @@ export type RunEvent =
    * cumulative session spend. Optional `sessionSpend` arrives only from the final result.
    */
   | { type: 'context-usage'; usedTokens: number; sessionSpend?: number }
-  | { type: 'session-spend'; tokens: number };
+  | { type: 'session-spend'; tokens: number }
+  /** Claude-protocol stream-json turn finished; safe to write a held follow-up on the same stdin. */
+  | { type: 'turn-boundary' };

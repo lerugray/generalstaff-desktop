@@ -278,6 +278,20 @@ export class ConversationStore {
     return conversation;
   }
 
+  async setMessageDelivery(
+    id: string,
+    messageId: string,
+    delivery: NonNullable<ConversationMessage['delivery']>,
+  ): Promise<Conversation | undefined> {
+    const conversation = this.get(id);
+    const message = conversation?.messages.find((item) => item.id === messageId);
+    if (!conversation || !message) return undefined;
+    message.delivery = delivery;
+    conversation.updatedAt = Date.now();
+    await this.persist();
+    return conversation;
+  }
+
   async updateAssistant(
     id: string,
     messageId: string,

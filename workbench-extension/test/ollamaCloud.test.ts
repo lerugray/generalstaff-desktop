@@ -9,9 +9,13 @@ import { discoverOllamaCloudLanes } from '../src/services/lanes.js';
 import {
   catalogHasModel,
   catalogModelTags,
+  fetchOllamaCloudMonthlyUsage,
+  formatOllamaMonthlyMeterLabel,
   loadOllamaCloudApiKey,
+  OLLAMA_CLOUD_USAGE_URL,
   ollamaCloudModelFor,
   parseExportedEnvKey,
+  parseOllamaCloudMonthlyUsage,
 } from '../src/services/ollamaCloud.js';
 
 test('reads only the exported Ollama Cloud key from the fixed GeneralStaff env file', async (context) => {
@@ -154,5 +158,45 @@ test('the direct adapter requests GLM 5.3 and surfaces content without thinking'
   assert.deepEqual(
     answerFromOllamaChatCompletion({ choices: [{ message: { thinking: 'reasoning only' } }] }),
     undefined,
+  );
+});
+
+test('parses Ollama Cloud monthly pool usage and formats the meter label', () => {
+  assert.equal(
+    parseOllamaCloudMonthlyUsage({
+      limits: {
+        monthly: { usage: 0.37, models: [{ name: 'glm-5.3', request_count: 12 }] },
+      },
+    }),
+    37,
+  );
+  assert.equal(parseOllamaCloudMonthlyUsage({ limits: { weekly: { usage: 0.5 } } }), undefined);
+  assert.equal(parseOllamaCloudMonthlyUsage({ limits: { monthly: { usage: 1.2 } } }), 100);
+  assert.equal(formatOllamaMonthlyMeterLabel({ status: 'ok', percent: 37 }), 'Ollama month 37% used');
+  assert.equal(formatOllamaMonthlyMeterLabel({ status: 'unavailable' }), 'meter unavailable');
+  assert.equal(formatOllamaMonthlyMeterLabel(undefined), 'meter unavailable');
+});
+
+test('fetchOllamaCloudMonthlyUsage uses Bearer auth and fails quietly on 401/network', async () => {
+  let seenUrl = '';
+  let authorization: string | null = null;
+  const ok = await fetchOllamaCloudMonthlyUsage('cloud-secret', (async (input, init) => {
+    seenUrl = String(input);
+    authorization = new Headers(init?.headers).get('authorization');
+    return new Response(JSON.stringify({ limits: { monthly: { usage: 0.12 } } }), { status: 200 });
+  }) as typeof fetch);
+  assert.equal(seenUrl, OLLAMA_CLOUD_USAGE_URL);
+  assert.equal(authorization, 'Bearer cloud-secret');
+  assert.deepEqual(ok, { status: 'ok', percent: 12 });
+
+  assert.deepEqual(
+    await fetchOllamaCloudMonthlyUsage('cloud-secret', (async () => new Response('nope', { status: 401 })) as typeof fetch),
+    { status: 'unavailable' },
+  );
+  assert.deepEqual(
+    await fetchOllamaCloudMonthlyUsage('cloud-secret', (() => {
+      throw new Error('network down');
+    }) as typeof fetch),
+    { status: 'unavailable' },
   );
 });

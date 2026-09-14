@@ -6,7 +6,10 @@ import type { LaneId } from '../domain.js';
 export const OLLAMA_CLOUD_API_KEY_NAME = 'OLLAMA_CLOUD_API_KEY';
 export const OLLAMA_CLOUD_ENV_PATH = path.join('.generalstaff', '.env');
 export const OLLAMA_CLOUD_TAGS_URL = 'https://ollama.com/api/tags';
+export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/usage';
 export const OLLAMA_CLOUD_CHAT_URL = 'https://ollama.com/v1/chat/completions';
+/** Poll the monthly pool while an Ollama seat is the active conversation lane. */
+export const OLLAMA_MONTHLY_USAGE_POLL_MS = 3 * 60 * 1000;
 
 const ollamaModels = {
   'glm-ollama': 'glm-5.3',
@@ -137,4 +140,65 @@ export async function fetchOllamaCloudCatalog(
 
 export function catalogHasModel(tags: ReadonlySet<string>, model: string): boolean {
   return tags.has(model);
+}
+
+export type OllamaMonthlyUsageStatus = 'ok' | 'unavailable';
+
+export interface OllamaMonthlyUsage {
+  status: OllamaMonthlyUsageStatus;
+  /** 0–100 integer percent when status is ok. */
+  percent?: number;
+}
+
+/**
+ * Parse `limits.monthly.usage` (0–1 fraction) from GET /api/usage.
+ * Returns undefined when the monthly window is absent or malformed.
+ */
+export function parseOllamaCloudMonthlyUsage(payload: unknown): number | undefined {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined;
+  const limits = (payload as Record<string, unknown>).limits;
+  if (typeof limits !== 'object' || limits === null || Array.isArray(limits)) return undefined;
+  const monthly = (limits as Record<string, unknown>).monthly;
+  if (typeof monthly !== 'object' || monthly === null || Array.isArray(monthly)) return undefined;
+  const usage = (monthly as Record<string, unknown>).usage;
+  if (typeof usage !== 'number' || !Number.isFinite(usage) || usage < 0) return undefined;
+  const fraction = Math.min(1, usage);
+  return Math.round(fraction * 100);
+}
+
+/**
+ * Fetch Ollama Cloud monthly pool usage. Never logs the API key.
+ * 401 / network / malformed payloads resolve to `{ status: 'unavailable' }` — no throw.
+ */
+export async function fetchOllamaCloudMonthlyUsage(
+  apiKey: string,
+  fetcher: FetchLike = fetch,
+): Promise<OllamaMonthlyUsage> {
+  try {
+    const response = await fetcher(OLLAMA_CLOUD_USAGE_URL, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) return { status: 'unavailable' };
+    const body = await response.text();
+    if (body.length > 512 * 1024) return { status: 'unavailable' };
+    const percent = parseOllamaCloudMonthlyUsage(JSON.parse(body) as unknown);
+    if (percent === undefined) return { status: 'unavailable' };
+    return { status: 'ok', percent };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+export function formatOllamaMonthlyMeterLabel(usage: OllamaMonthlyUsage | undefined): string {
+  if (!usage || usage.status === 'unavailable' || usage.percent === undefined) {
+    return 'meter unavailable';
+  }
+  return `Ollama month ${usage.percent}% used`;
+}
+
+/** Direct-API or CC-door Ollama Cloud seats share the monthly pool meter. */
+export function isOllamaSeatLaneId(laneId: LaneId): boolean {
+  return isOllamaCloudLaneId(laneId) || isOllamaCcLaneId(laneId);
 }

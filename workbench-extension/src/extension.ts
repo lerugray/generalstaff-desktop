@@ -16,6 +16,7 @@ import {
 } from './extensionPolicy.js';
 import { requireAllowedPath } from './security/paths.js';
 import { ConversationStore } from './services/conversations.js';
+import { fetchAnthropicWeeklyUsage } from './services/claudeUsage.js';
 import { extractDecisionCards } from './services/decisions.js';
 import {
   applyDecisionTextToBlocks,
@@ -26,7 +27,13 @@ import {
 import { resolveGeneralStaffRoot, scanFleet } from './services/fleet.js';
 import type { CliLaneDiscoveryOptions } from './services/lanes.js';
 import { ProjectNoteStore } from './services/notes.js';
-import { fetchAnthropicWeeklyUsage } from './services/claudeUsage.js';
+import {
+  fetchOllamaCloudMonthlyUsage,
+  isOllamaSeatLaneId,
+  loadOllamaCloudApiKey,
+  OLLAMA_MONTHLY_USAGE_POLL_MS,
+  type OllamaMonthlyUsage,
+} from './services/ollamaCloud.js';
 import { OrchestratorSessionManager } from './services/orchestratorSession.js';
 import {
   decideOrchestratorSeat,
@@ -73,6 +80,9 @@ class CommandDeckPanel {
   private auxFocus: AuxPanel | null = null;
   private focusedConversationId: string | undefined;
   private readonly output: vscode.OutputChannel;
+  private ollamaMonthPollTimer: ReturnType<typeof setInterval> | undefined;
+  private ollamaMonthUsage: OllamaMonthlyUsage | undefined;
+  private ollamaMonthPollInFlight = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -418,8 +428,59 @@ class CommandDeckPanel {
       lanesBadgeCount: this.lanesBadge,
       deskBadgeCount: this.deskBadge,
       auxFocus: this.auxFocus,
+      ...(this.ollamaMonthUsage ? { ollamaMonthUsage: this.ollamaMonthUsage } : {}),
     });
     this.onSessionsChanged?.();
+    this.syncOllamaMonthUsagePolling();
+  }
+
+  private activeConversationLaneId(): LaneId | undefined {
+    const id = this.focusedConversationId ?? this.orchestrator.current()?.id;
+    const conversation = id ? this.store.get(id) : this.orchestrator.current();
+    return conversation?.laneId;
+  }
+
+  private syncOllamaMonthUsagePolling(): void {
+    const laneId = this.activeConversationLaneId();
+    const shouldPoll = Boolean(laneId && isOllamaSeatLaneId(laneId));
+    if (!shouldPoll) {
+      if (this.ollamaMonthPollTimer) {
+        clearInterval(this.ollamaMonthPollTimer);
+        this.ollamaMonthPollTimer = undefined;
+      }
+      return;
+    }
+    if (this.ollamaMonthPollTimer) return;
+    void this.refreshOllamaMonthUsage();
+    this.ollamaMonthPollTimer = setInterval(() => {
+      void this.refreshOllamaMonthUsage();
+    }, OLLAMA_MONTHLY_USAGE_POLL_MS);
+  }
+
+  private async refreshOllamaMonthUsage(): Promise<void> {
+    if (this.disposed || this.ollamaMonthPollInFlight) return;
+    const laneId = this.activeConversationLaneId();
+    if (!laneId || !isOllamaSeatLaneId(laneId)) return;
+    this.ollamaMonthPollInFlight = true;
+    try {
+      const apiKey = await loadOllamaCloudApiKey();
+      const usage = apiKey
+        ? await fetchOllamaCloudMonthlyUsage(apiKey)
+        : { status: 'unavailable' as const };
+      this.ollamaMonthUsage = usage;
+      if (this.disposed) return;
+      await this.panel.webview.postMessage({ type: 'ollama-month-usage', usage });
+    } catch {
+      this.ollamaMonthUsage = { status: 'unavailable' };
+      if (!this.disposed) {
+        await this.panel.webview.postMessage({
+          type: 'ollama-month-usage',
+          usage: this.ollamaMonthUsage,
+        });
+      }
+    } finally {
+      this.ollamaMonthPollInFlight = false;
+    }
   }
 
   private async handle(value: unknown): Promise<void> {
@@ -1288,6 +1349,10 @@ class CommandDeckPanel {
 
   private dispose(): void {
     this.disposed = true;
+    if (this.ollamaMonthPollTimer) {
+      clearInterval(this.ollamaMonthPollTimer);
+      this.ollamaMonthPollTimer = undefined;
+    }
     for (const run of this.activeRuns.values()) run.stop();
     this.activeRuns.clear();
     this.pendingRuns.clear();

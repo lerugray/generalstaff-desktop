@@ -46,6 +46,8 @@
     contextFirstOccupancy: {},
     /** Cumulative session spend from the result envelope, keyed by conversationId. */
     contextSessionSpend: {},
+    /** Ollama Cloud monthly pool usage (account-level; only shown on Ollama seats). */
+    ollamaMonthUsage: null,
     pendingActionConversationId: null,
     notice: null,
     operatorDisplayName: '',
@@ -153,6 +155,22 @@
     return parts.join(' · ');
   }
 
+  function isOllamaSeatLaneId(laneId) {
+    return laneId === 'glm-ollama'
+      || laneId === 'glm-ollama-flash'
+      || laneId === 'deepseek-ollama'
+      || laneId === 'deepseek-ollama-cc'
+      || laneId === 'glm-ollama-cc'
+      || laneId === 'glm-flash-ollama-cc';
+  }
+
+  function formatOllamaMonthlyMeterLabel(usage) {
+    if (!usage || usage.status === 'unavailable' || typeof usage.percent !== 'number') {
+      return 'meter unavailable';
+    }
+    return `Ollama month ${usage.percent}% used`;
+  }
+
   function renderContextMeter(ceiling, conversationId) {
     if (!ceiling) return '';
     const usedTokens = conversationId ? state.contextUsage[conversationId] : undefined;
@@ -164,10 +182,16 @@
       ? `<span class="lanes-context-warn lanes-amber" aria-label="context warning">⚠</span>`
       : '';
     const tip = escapeHtml(contextMeterTooltip(ceiling, conversationId));
+    const conversation = conversationId
+      ? state.conversations.find((item) => item.id === conversationId)
+      : null;
+    const monthLabel = conversation && isOllamaSeatLaneId(conversation.laneId)
+      ? ` · ${formatOllamaMonthlyMeterLabel(state.ollamaMonthUsage)}`
+      : '';
     // Real hover card in the Workbench register (LOOK G5) — not a native title= attribute.
     return `<div class="lanes-context-meter${meter.warn ? ' is-warn' : ''}" tabindex="0" data-meter-tip="1">
       <div class="lanes-context-rule">${fill}</div>
-      <span class="lanes-context-copy">${escapeHtml(meter.label)}${mark}</span>
+      <span class="lanes-context-copy">${escapeHtml(meter.label)}${mark}${escapeHtml(monthLabel)}</span>
       <div class="lanes-context-hovercard" role="tooltip">${tip}</div>
     </div>`;
   }
@@ -1268,7 +1292,17 @@
       state.lanesBadgeCount = typeof message.lanesBadgeCount === 'number' ? message.lanesBadgeCount : 0;
       state.deskBadgeCount = typeof message.deskBadgeCount === 'number' ? message.deskBadgeCount : 0;
       state.auxFocus = message.auxFocus === 'lanes' || message.auxFocus === 'desk' ? message.auxFocus : null;
+      if (message.ollamaMonthUsage && typeof message.ollamaMonthUsage === 'object') {
+        state.ollamaMonthUsage = message.ollamaMonthUsage;
+      }
       render();
+    } else if (message.type === 'ollama-month-usage') {
+      if (message.usage && typeof message.usage === 'object') {
+        state.ollamaMonthUsage = message.usage;
+        const activeId = state.activeConversationId;
+        if (activeId) patchContextMeter(activeId);
+        else render();
+      }
     } else if (message.type === 'conversations') {
       state.conversations = message.conversations || [];
       const active = state.conversations.find((item) => item.id === state.activeConversationId);

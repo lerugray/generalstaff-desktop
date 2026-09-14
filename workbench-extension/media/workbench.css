@@ -1872,6 +1872,8 @@ select:focus-visible {
   border-radius: 6px;
   background: rgb(var(--surface-1-rgb, var(--surface-2-rgb)) / 0.55);
   color: var(--paper);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .thinking-card,
@@ -1951,6 +1953,8 @@ details[open] > summary > .card-chevron {
   max-height: 14rem;
   overflow: auto;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
   line-height: 1.45;
@@ -1965,31 +1969,20 @@ details[open] > summary > .card-chevron {
   color: var(--rust-readable, var(--iron-red, #b44));
 }
 
-.lanes-context-meter {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 2px;
-  min-width: 16rem;
-}
-
+/* Deck-only meter chrome (FIXLIST-R3 CODE 1) — must NOT leak into Lanes/Desk */
 .conversation-meta .lanes-context-meter {
+  position: relative;
   margin-top: 10px;
   max-width: none;
   width: min(100%, 36rem);
   min-width: 18rem;
 }
 
-.lanes-context-copy {
-  color: var(--paper-faint);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  line-height: 1.3;
+.conversation-meta .lanes-context-copy {
   white-space: nowrap;
 }
 
-.lanes-context-hovercard {
+.conversation-meta .lanes-context-hovercard {
   display: none;
   position: absolute;
   z-index: 5;
@@ -2007,8 +2000,8 @@ details[open] > summary > .card-chevron {
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
 }
 
-.lanes-context-meter:hover .lanes-context-hovercard,
-.lanes-context-meter:focus-within .lanes-context-hovercard {
+.conversation-meta .lanes-context-meter:hover .lanes-context-hovercard,
+.conversation-meta .lanes-context-meter:focus-within .lanes-context-hovercard {
   display: block;
 }
 
@@ -2943,6 +2936,7 @@ details[open] > summary > .card-chevron {
   line-height: 1.35;
 }
 
+/* Shared meter chrome for Lanes + Deck (no position/min-width/nowrap — those are deck-scoped above) */
 .lanes-context-meter {
   display: flex;
   flex-direction: column;
@@ -2978,11 +2972,6 @@ details[open] > summary > .card-chevron {
 .lanes-context-warn {
   margin-left: 4px;
   font-size: 11px;
-}
-
-.conversation-meta .lanes-context-meter {
-  margin-top: 10px;
-  max-width: 28rem;
 }
 
 /* Detail = one plate; rules not nested boxes; no amber accents */

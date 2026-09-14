@@ -46,3 +46,50 @@ only from a launcher script.
    `docs/handoffs/GS-HARNESS-M3C-PROOF-*.png`. Nothing outside `workbench-extension/`, `distribution/`,
    this doc and the proofs. Append a `## Harvest` section to this doc naming every file changed, the
    ceiling table as shipped, and any seat you left `unknown` and why. Push your branch.
+
+---
+
+## Harvest (2026-09-14)
+
+Workbench **0.4.14**. Context ceiling is visible before seat choice and while a lane runs.
+
+### Ceiling table (as shipped)
+
+| Lane | modelLabel | tokens | provenance |
+| --- | --- | --- | --- |
+| `codex` | gpt-5.6-sol | — | `unknown` |
+| `claude` | fable | 200 000 | `native` (Anthropic / Claude Code default for recognised Claude models) |
+| `kimi` | kimi-k3 | — | `unknown` |
+| `cline` | glm-5.3 via cline | — | `unknown` |
+| `cursor` | cursor-auto | — | `unknown` |
+| `grok` | grok-4.6 | — | `unknown` |
+| `glm-ollama` | glm-5.3 | 1 048 576 | `stated` |
+| `glm-ollama-flash` | glm-5.3-flash | 1 048 576 | `stated` |
+| `deepseek-ollama` | deepseek-v4.1-flash | 1 048 576 | `stated` |
+| `deepseek-ollama-cc` | deepseek-v4.1-flash | 1 048 576 | `stated` (`gsd-cc-door.sh` / `CLAUDE_CODE_MAX_CONTEXT_TOKENS`; Workbench constant = verified Ollama `context_length`) |
+| `glm-ollama-cc` | glm-5.3 | 1 048 576 | `stated` |
+
+**Left `unknown` (no token count):** `codex`, `kimi`, `cline`, `cursor`, `grok` — not Claude Code seats, and the repo does not record a numeric window for them (Kimi is described only as “long-context”). Direct Ollama + CC-door seats are never `assumed-default`.
+
+### Files changed
+
+- `workbench-extension/src/services/contextCeiling.ts` — single source of truth + formatters
+- `workbench-extension/src/services/claudeUsage.ts` — stream-json usage parser
+- `workbench-extension/src/services/lanes.ts` — attach ceiling at discovery
+- `workbench-extension/src/domain.ts` — `ContextCeiling` on `LaneSummary`; `context-usage` run event
+- `workbench-extension/src/adapters/cliAdapter.ts` — emit usage from Claude-protocol assistant/result
+- `workbench-extension/src/extension.ts` — forward `context-usage` to the webview
+- `workbench-extension/src/lanesPanelModel.ts` — list/detail ceiling + meter fields
+- `workbench-extension/media/workbench.js` / `lanes.js` / `workbench.css` — picker labels, meter UI, register rule
+- `workbench-extension/test/contextCeiling.test.ts` + `test/fixtures/claude-stream-usage.jsonl` (reconstruction)
+- `workbench-extension/test/{lanesDetail,ollamaCloud,privateRuntime}.test.ts`, `visual-harness.html`
+- `workbench-extension/scripts/render-m3c-proofs.ts`
+- `workbench-extension/package.json` `0.4.14`, `CHANGELOG.md`, root `README.md` Versions
+- `distribution/generalstaff-workbench.vsix`
+- Proofs: `docs/handoffs/GS-HARNESS-M3C-PROOF-{detail,seat-picker}-{paper,night}.png`
+
+### Verification
+
+- `npm run check` — **109/109**
+- VSIX rebuilt via `npm run package:distribution`
+- Proofs regenerated (detail meter `196.2k / 1.05M (19%)`; seat picker shows stated / native / unknown labels)

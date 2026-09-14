@@ -66,7 +66,7 @@ const lanesHtml = `<!doctype html>
 </body>
 </html>`;
 
-const commandHtml = `<!doctype html>
+const seatPickerHtml = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -75,16 +75,20 @@ const commandHtml = `<!doctype html>
   <title>Command · M3c seat picker</title>
 </head>
 <body>
-  <div id="app" aria-live="polite">
-    <div class="boot"><div class="boot-mark">GS</div></div>
-  </div>
+  <div id="app" aria-live="polite"></div>
   <script src="/media/operatorIdentity.js"></script>
   <script src="/media/composerKeys.js"></script>
   <script>
     (function () {
       var params = new URLSearchParams(location.search);
       var theme = params.get('theme') || 'paper';
-      var store = { selectedTheme: theme, selectedLaneId: 'deepseek-ollama-cc', selectedSeat: 'orchestrate' };
+      var store = {
+        selectedTheme: theme,
+        selectedLaneId: 'deepseek-ollama-cc',
+        selectedSeat: 'orchestrate',
+        selectedEffort: 'default',
+        selectedPermission: 'read'
+      };
       window.acquireVsCodeApi = function () {
         return {
           getState: function () { return store; },
@@ -95,6 +99,39 @@ const commandHtml = `<!doctype html>
     })();
   </script>
   <script src="/media/workbench.js"></script>
+  <script>
+    (function () {
+      var ceiling = function (tokens, provenance, modelLabel) {
+        return { tokens: tokens, provenance: provenance, modelLabel: modelLabel };
+      };
+      var efforts = [{ id: 'default', label: 'Workbench default' }, { id: 'high', label: 'High' }];
+      var snapshot = {
+        rootPath: '/fleet/private',
+        generatedAt: Date.now(),
+        projects: [],
+        attention: [],
+        activity: [],
+        skills: [],
+        capabilities: [],
+        lanes: [
+          { id: 'codex', runner: 'codex', name: 'Codex', detail: 'GPT-class agentic work', evidenceLabel: 'Repo-proven', state: 'available', roles: ['orchestrate','build','review','verify','assist'], permissions: ['read','write'], efforts: efforts, defaultEffort: 'default', contextCeiling: ceiling(null, 'unknown', 'gpt-5.6-sol') },
+          { id: 'claude', runner: 'claude', name: 'Claude Fable', detail: 'Judgment seat', evidenceLabel: 'Daily operator seat', state: 'available', roles: ['orchestrate','build','review','verify','assist'], permissions: ['read','write'], efforts: efforts, defaultEffort: 'default', contextCeiling: ceiling(200000, 'native', 'fable') },
+          { id: 'cline', runner: 'cline', name: 'Cline / GLM', detail: 'Cline Pass', evidenceLabel: 'GLM measured', state: 'available', roles: ['orchestrate','build','review','verify','assist'], permissions: ['read','write'], efforts: efforts, defaultEffort: 'default', contextCeiling: ceiling(null, 'unknown', 'glm-5.3 via cline') },
+          { id: 'deepseek-ollama-cc', runner: 'deepseek-ollama-cc', name: 'DeepSeek V4.1 Flash · Workbench seat', detail: 'Claude Code · 1M context', evidenceLabel: 'Ollama Cloud CC door', state: 'available', roles: ['orchestrate','build','review','verify','assist'], permissions: ['read','write'], efforts: efforts, defaultEffort: 'default', contextCeiling: ceiling(1048576, 'stated', 'deepseek-v4.1-flash') },
+          { id: 'glm-ollama', runner: 'glm-ollama', name: 'GLM 5.3 (Ollama)', detail: 'Ollama Cloud', evidenceLabel: 'Ollama Cloud', state: 'available', roles: ['orchestrate','build','review','verify','assist'], permissions: ['read'], efforts: efforts, defaultEffort: 'default', contextCeiling: ceiling(1048576, 'stated', 'glm-5.3') }
+        ]
+      };
+      window.postMessage({
+        type: 'state',
+        snapshot: snapshot,
+        conversations: [],
+        orchestratorSessionId: null,
+        activeConversationId: null,
+        notes: {},
+        operatorDisplayName: 'Ray'
+      }, '*');
+    })();
+  </script>
 </body>
 </html>`;
 
@@ -126,8 +163,6 @@ async function main(): Promise<void> {
     },
   );
 
-  const harness = await readFile(path.join(root, 'test/visual-harness.html'), 'utf8');
-
   const server = createServer(async (req, res) => {
     try {
       const url = req.url || '/';
@@ -138,9 +173,8 @@ async function main(): Promise<void> {
         return;
       }
       if (pathname === '/command' || pathname.startsWith('/command')) {
-        // Prefer the real visual harness (full snapshot) when linked; fall back to thin shell.
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(harness.includes('acquireVsCodeApi') ? harness : commandHtml);
+        res.end(seatPickerHtml);
         return;
       }
       if (pathname === '/' || pathname.startsWith('/index')) {
@@ -205,12 +239,13 @@ async function main(): Promise<void> {
       await page.waitForSelector('.lanes-context-meter');
     } else {
       await page.goto(`${base}/command?theme=${shot.theme}`, { waitUntil: 'networkidle' });
-      await page.waitForSelector('#lane-select, .lane-card, .composer');
-      // Open the model bench so ceiling labels are visible beside the picker.
-      const laneSelect = page.locator('#lane-select');
-      if (await laneSelect.count()) {
-        await laneSelect.click({ force: true });
+      await page.waitForSelector('#lane-select');
+      await page.waitForSelector('.lane-card');
+      const selected = await page.locator('#lane-select option:checked').textContent();
+      if (!selected?.includes('1.05M') || !selected.includes('stated by launcher')) {
+        throw new Error(`seat picker missing stated ceiling: ${selected}`);
       }
+      await page.locator('.lane-section').scrollIntoViewIfNeeded();
     }
     await page.waitForTimeout(200);
     const outPath = path.join(outDir, shot.name);

@@ -12,9 +12,8 @@ import {
   promptForSeat,
   runCliAdapter,
   streamJsonUserLine,
-  type RunEvent,
 } from '../src/adapters/cliAdapter.js';
-import type { LaneSummary } from '../src/domain.js';
+import type { LaneSummary, RunEvent } from '../src/domain.js';
 import { formatContextUsageMeter } from '../src/services/contextCeiling.js';
 
 const root = path.resolve(process.cwd());

@@ -1,29 +1,41 @@
 /**
- * M3e proofs: transcript pane from the scrubbed glm-catchup fixture.
+ * M3e Round-2 proofs (FIXLIST-R2.md): transcript from the scrubbed glm-catchup fixture.
  * DPR 2; muted Chromium; --no-sandbox; browser closed in finally.
+ * Viewports: 1440×900 and 1100×700.
  *
  * PNGs under docs/verification/m3e-2026-09-14/:
- *   m3e-transcript-first.png
- *   m3e-tool-card-expanded.png
- *   m3e-thinking-collapsed.png
- *   m3e-meter-tooltip.png
+ *   proof-seven-turns-{1440,1100}.png
+ *   proof-tool-expanded-multiline-{1440,1100}.png
+ *   proof-tool-error-{1440,1100}.png
+ *   proof-thinking-expanded-{1440,1100}.png
+ *   proof-meter-tooltip-real-{1440,1100}.png
+ *   proof-meter-14pct-{1440,1100}.png
  *
- * Usage: npx tsx scripts/render-m3e-proofs.ts
+ * Usage: npm run proof:m3e
  */
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, copyFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from 'playwright';
 import { normalizeCliLine } from '../src/adapters/cliAdapter.js';
-import type { Conversation, TranscriptBlock } from '../src/domain.js';
+import type { Conversation, RunEvent, TranscriptBlock } from '../src/domain.js';
 import { contextCeilingFor } from '../src/services/contextCeiling.js';
+import {
+  findToolBlockForResult,
+  reduceRunEventsToTurns,
+} from '../src/services/runTranscript.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const fixtures = path.join(root, 'test/fixtures');
 const media = path.join(root, 'media');
 const outDir = path.resolve(root, '../docs/verification/m3e-2026-09-14');
+const DPR = 2;
+const VIEWPORTS = [
+  { width: 1440, height: 900, tag: '1440' },
+  { width: 1100, height: 700, tag: '1100' },
+] as const;
 
 function contentType(filePath: string): string {
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -33,66 +45,50 @@ function contentType(filePath: string): string {
 
 const efforts = [{ id: 'default', label: 'Workbench default' }, { id: 'high', label: 'High' }];
 
+function loadEvents(lines: string[]): RunEvent[] {
+  const events: RunEvent[] = [];
+  for (const line of lines) {
+    const normalized = normalizeCliLine('glm-ollama-cc', line);
+    if (!normalized) continue;
+    for (const event of Array.isArray(normalized) ? normalized : [normalized]) {
+      events.push(event);
+    }
+  }
+  return events;
+}
+
 function buildConversationFromFixture(lines: string[]): {
   conversation: Conversation;
   occupancy: number;
   firstOccupancy: number;
   sessionSpend: number;
 } {
-  const blocksByTurn = new Map<string, TranscriptBlock[]>();
-  const turnOrder: string[] = [];
+  const events = loadEvents(lines);
+  // Production bubble + correlation path (MAJOR 1).
+  const turns = reduceRunEventsToTurns(events);
+
+  for (const event of events) {
+    if (event.type !== 'tool-result') continue;
+    for (const turn of turns) {
+      const match = findToolBlockForResult(turn.blocks, event.toolUseId);
+      if (match) {
+        match.status = event.ok ? 'ok' : 'error';
+        match.resultPreview = event.preview;
+        if (event.body !== undefined) match.result = event.body;
+        break;
+      }
+    }
+  }
+
   let occupancy = 0;
   let firstOccupancy = 0;
   let sessionSpend = 0;
-  const pendingTools = new Map<string, Extract<TranscriptBlock, { type: 'tool' }>>();
-
-  for (const line of lines) {
-    const normalized = normalizeCliLine('glm-ollama-cc', line);
-    if (!normalized) continue;
-    for (const event of Array.isArray(normalized) ? normalized : [normalized]) {
-      if (event.type === 'context-usage') {
-        occupancy = event.usedTokens;
-        if (!firstOccupancy) firstOccupancy = event.usedTokens;
-        continue;
-      }
-      if (event.type === 'session-spend') {
-        sessionSpend = event.tokens;
-        continue;
-      }
-      if (event.type === 'tool-result') {
-        const match = event.toolUseId
-          ? pendingTools.get(event.toolUseId)
-          : [...pendingTools.values()].at(-1);
-        if (match) {
-          match.status = event.ok ? 'ok' : 'error';
-          match.resultPreview = event.preview;
-        }
-        continue;
-      }
-      const turnId = 'turnId' in event && event.turnId ? event.turnId : 'orphan';
-      if (!blocksByTurn.has(turnId)) {
-        blocksByTurn.set(turnId, []);
-        turnOrder.push(turnId);
-      }
-      const blocks = blocksByTurn.get(turnId)!;
-      if (event.type === 'thinking') {
-        blocks.push({ type: 'thinking', text: event.text });
-      } else if (event.type === 'assistant-delta') {
-        const last = blocks[blocks.length - 1];
-        if (last?.type === 'text') last.text += event.text;
-        else blocks.push({ type: 'text', text: event.text });
-      } else if (event.type === 'tool') {
-        const tool: Extract<TranscriptBlock, { type: 'tool' }> = {
-          type: 'tool',
-          ...(event.toolUseId ? { id: event.toolUseId } : {}),
-          name: event.name ?? event.text,
-          summary: event.summary ?? event.text,
-          ...(event.detail ? { detail: event.detail } : {}),
-          status: 'running',
-        };
-        blocks.push(tool);
-        if (event.toolUseId) pendingTools.set(event.toolUseId, tool);
-      }
+  for (const event of events) {
+    if (event.type === 'context-usage') {
+      occupancy = event.usedTokens;
+      if (!firstOccupancy) firstOccupancy = event.usedTokens;
+    } else if (event.type === 'session-spend') {
+      sessionSpend = event.tokens;
     }
   }
 
@@ -106,20 +102,24 @@ function buildConversationFromFixture(lines: string[]): {
       status: 'complete',
     },
   ];
-  for (const [index, turnId] of turnOrder.entries()) {
-    const blocks = blocksByTurn.get(turnId) ?? [];
-    const text = blocks
+  for (const [index, turn] of turns.entries()) {
+    const text = turn.blocks
       .filter((block): block is Extract<TranscriptBlock, { type: 'text' }> => block.type === 'text')
       .map((block) => block.text)
-      .join('\n\n');
+      .join('\n\n') || turn.text;
     messages.push({
       id: `asst-${index + 1}`,
       role: 'assistant',
       text,
       createdAt: now - 50_000 + index * 1000,
       status: 'complete',
-      blocks,
+      blocks: turn.blocks,
     });
+  }
+
+  const assistantCount = messages.filter((message) => message.role === 'assistant').length;
+  if (assistantCount !== 7) {
+    throw new Error(`expected 7 assistant bubbles, got ${assistantCount}`);
   }
 
   const ceiling = contextCeilingFor('glm-ollama-cc');
@@ -209,19 +209,6 @@ const deckHtml = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/media/workbench.css">
   <title>Command · M3e transcript proof</title>
-  <style>
-    .meter-tooltip-proof {
-      margin-top: 6px;
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      background: rgb(var(--surface-2-rgb) / 0.85);
-      color: var(--paper-muted);
-      font-size: 11px;
-      line-height: 1.4;
-      max-width: 28rem;
-    }
-  </style>
 </head>
 <body>
   <div id="app" aria-live="polite"></div>
@@ -283,6 +270,90 @@ async function injectState(
   await page.waitForSelector('.lanes-context-meter');
   await page.waitForSelector('.tool-card');
   await page.waitForSelector('.thinking-card');
+  await page.waitForSelector('.lanes-context-hovercard', { state: 'attached' });
+  await page.waitForSelector('.card-chevron');
+  await page.waitForSelector('.thinking-glyph');
+  await page.waitForSelector('.tool-glyph');
+  await page.waitForSelector('.assistant-bubble');
+}
+
+async function shootProofs(page: Page, tag: string): Promise<void> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('no viewport');
+
+  await page.locator('.message-stream').evaluate((el) => { el.scrollTop = 0; });
+  await page.waitForTimeout(150);
+  await page.screenshot({
+    path: path.join(outDir, `proof-seven-turns-${tag}.png`),
+    type: 'png',
+    clip: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+  });
+  console.log(`wrote proof-seven-turns-${tag}.png`);
+
+  const tool = page.locator('.tool-card', { hasText: 'git log --oneline -8' }).first();
+  await tool.scrollIntoViewIfNeeded();
+  await tool.locator('summary').click();
+  await page.waitForTimeout(150);
+  const resultText = await tool.locator('.tool-card-result').innerText();
+  if (!resultText.includes('\n')) {
+    throw new Error(`expanded tool result missing newlines: ${JSON.stringify(resultText)}`);
+  }
+  await tool.screenshot({
+    path: path.join(outDir, `proof-tool-expanded-multiline-${tag}.png`),
+    type: 'png',
+  });
+  console.log(`wrote proof-tool-expanded-multiline-${tag}.png`);
+  await tool.locator('summary').click();
+
+  const err = page.locator('.tool-card.status-error').first();
+  await err.scrollIntoViewIfNeeded();
+  await err.screenshot({ path: path.join(outDir, `proof-tool-error-${tag}.png`), type: 'png' });
+  console.log(`wrote proof-tool-error-${tag}.png`);
+
+  const thinking = page.locator('.thinking-card').first();
+  await thinking.scrollIntoViewIfNeeded();
+  const open = await thinking.evaluate((el) => (el as HTMLDetailsElement).open);
+  if (!open) await thinking.locator('summary').click();
+  await page.waitForTimeout(150);
+  await thinking.screenshot({
+    path: path.join(outDir, `proof-thinking-expanded-${tag}.png`),
+    type: 'png',
+  });
+  console.log(`wrote proof-thinking-expanded-${tag}.png`);
+  await thinking.locator('summary').click();
+
+  const meter = page.locator('.lanes-context-meter').first();
+  await meter.scrollIntoViewIfNeeded();
+  const titleAttr = await meter.getAttribute('title');
+  if (titleAttr) throw new Error('meter still has native title= (LOOK G5 regression)');
+  await meter.hover();
+  await page.waitForTimeout(250);
+  const hovercard = page.locator('.lanes-context-hovercard').first();
+  await hovercard.waitFor({ state: 'visible' });
+  const meterBox = await meter.boundingBox();
+  const tipBox = await hovercard.boundingBox();
+  if (!meterBox || !tipBox) throw new Error('meter/hovercard boxes missing');
+  const x = Math.max(0, Math.min(meterBox.x, tipBox.x) - 8);
+  const y = Math.max(0, Math.min(meterBox.y, tipBox.y) - 8);
+  const width = Math.min(
+    viewport.width - x,
+    Math.max(meterBox.x + meterBox.width, tipBox.x + tipBox.width) - x + 16,
+  );
+  const height = Math.min(
+    viewport.height - y,
+    Math.max(meterBox.y + meterBox.height, tipBox.y + tipBox.height) - y + 16,
+  );
+  await page.screenshot({
+    path: path.join(outDir, `proof-meter-tooltip-real-${tag}.png`),
+    type: 'png',
+    clip: { x, y, width, height },
+  });
+  console.log(`wrote proof-meter-tooltip-real-${tag}.png`);
+
+  const label = await page.locator('.lanes-context-copy').first().innerText();
+  if (!/\(14%\)/.test(label)) throw new Error(`expected 14% meter label, got ${JSON.stringify(label)}`);
+  await meter.screenshot({ path: path.join(outDir, `proof-meter-14pct-${tag}.png`), type: 'png' });
+  console.log(`wrote proof-meter-14pct-${tag}.png`);
 }
 
 async function main(): Promise<void> {
@@ -292,6 +363,13 @@ async function main(): Promise<void> {
   if (built.occupancy !== 140_628) throw new Error(`expected occupancy 140628, got ${built.occupancy}`);
   if (built.firstOccupancy !== 132_479) throw new Error(`expected first 132479, got ${built.firstOccupancy}`);
   if (built.sessionSpend !== 957_944) throw new Error(`expected spend 957944, got ${built.sessionSpend}`);
+
+  const gitLog = built.conversation.messages
+    .flatMap((message) => message.blocks ?? [])
+    .find((block) => block.type === 'tool' && /git log --oneline -8/.test(block.summary));
+  if (!gitLog || gitLog.type !== 'tool' || !gitLog.result?.includes('\n')) {
+    throw new Error('git log tool missing multiline result body for LOOK D1 proof');
+  }
 
   await mkdir(outDir, { recursive: true });
 
@@ -334,70 +412,48 @@ async function main(): Promise<void> {
   });
 
   try {
-    const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, deviceScaleFactor: 2 });
-    await page.goto(`${base}/command?theme=paper`, { waitUntil: 'networkidle' });
-    await injectState(page, built.conversation, built.occupancy, built.firstOccupancy, built.sessionSpend);
-    await page.waitForTimeout(250);
+    for (const vp of VIEWPORTS) {
+      const page = await browser.newPage({
+        viewport: { width: vp.width, height: vp.height },
+        deviceScaleFactor: DPR,
+      });
+      await page.goto(`${base}/command?theme=paper`, { waitUntil: 'networkidle' });
+      await injectState(
+        page,
+        built.conversation,
+        built.occupancy,
+        built.firstOccupancy,
+        built.sessionSpend,
+      );
+      await page.waitForTimeout(250);
+      await shootProofs(page, vp.tag);
+      await page.close();
+    }
 
-    // First screen of the transcript pane.
-    await page.locator('.message-stream').evaluate((el) => { el.scrollTop = 0; });
-    await page.screenshot({
-      path: path.join(outDir, 'm3e-transcript-first.png'),
-      type: 'png',
-      clip: { x: 0, y: 0, width: 1100, height: 900 },
-    });
-    console.log('wrote m3e-transcript-first.png');
+    const aliases: Array<[string, string]> = [
+      ['proof-seven-turns-1440.png', 'm3e-transcript-first.png'],
+      ['proof-tool-expanded-multiline-1440.png', 'm3e-tool-card-expanded.png'],
+      ['proof-thinking-expanded-1440.png', 'm3e-thinking-collapsed.png'],
+      ['proof-meter-tooltip-real-1440.png', 'm3e-meter-tooltip.png'],
+      ['proof-seven-turns-1440.png', 'proof-seven-turns.png'],
+      ['proof-tool-expanded-multiline-1440.png', 'proof-tool-expanded-multiline.png'],
+      ['proof-tool-error-1440.png', 'proof-tool-error.png'],
+      ['proof-thinking-expanded-1440.png', 'proof-thinking-expanded.png'],
+      ['proof-meter-tooltip-real-1440.png', 'proof-meter-tooltip-real.png'],
+      ['proof-meter-14pct-1440.png', 'proof-meter-14pct.png'],
+    ];
+    for (const [from, to] of aliases) {
+      await copyFile(path.join(outDir, from), path.join(outDir, to));
+    }
 
-    // Expanded tool card (Bash · git log).
-    const tool = page.locator('.tool-card', { hasText: 'git log --oneline -8' }).first();
-    await tool.scrollIntoViewIfNeeded();
-    await tool.locator('summary').click();
-    await page.waitForTimeout(150);
-    await tool.screenshot({ path: path.join(outDir, 'm3e-tool-card-expanded.png'), type: 'png' });
-    console.log('wrote m3e-tool-card-expanded.png');
-
-    // Collapsed thinking card.
-    const thinking = page.locator('.thinking-card').first();
-    await thinking.scrollIntoViewIfNeeded();
-    const open = await thinking.evaluate((el) => (el as HTMLDetailsElement).open);
-    if (open) await thinking.locator('summary').click();
-    await page.waitForTimeout(100);
-    await thinking.screenshot({ path: path.join(outDir, 'm3e-thinking-collapsed.png'), type: 'png' });
-    console.log('wrote m3e-thinking-collapsed.png');
-
-    // Meter strip + tooltip copy (native title surfaced for the proof).
-    const meter = page.locator('.lanes-context-meter').first();
-    await meter.scrollIntoViewIfNeeded();
-    await page.evaluate(() => {
-      const el = document.querySelector('.lanes-context-meter');
-      if (!el) return;
-      document.querySelector('.meter-tooltip-proof')?.remove();
-      const tip = document.createElement('div');
-      tip.className = 'meter-tooltip-proof';
-      tip.textContent = el.getAttribute('title') || '';
-      el.insertAdjacentElement('afterend', tip);
-    });
-    await page.waitForSelector('.meter-tooltip-proof');
-    const meterBox = await meter.boundingBox();
-    const tipBox = await page.locator('.meter-tooltip-proof').boundingBox();
-    if (!meterBox || !tipBox) throw new Error('meter/tooltip boxes missing');
-    const x = Math.min(meterBox.x, tipBox.x) - 8;
-    const y = Math.min(meterBox.y, tipBox.y) - 8;
-    const width = Math.max(meterBox.x + meterBox.width, tipBox.x + tipBox.width) - x + 8;
-    const height = Math.max(meterBox.y + meterBox.height, tipBox.y + tipBox.height) - y + 8;
-    await page.screenshot({
-      path: path.join(outDir, 'm3e-meter-tooltip.png'),
-      type: 'png',
-      clip: { x, y, width, height },
-    });
-    console.log('wrote m3e-meter-tooltip.png');
-
-    const whatChanged = `M3e makes the context meter report occupancy (latest assistant input+cache_read+cache_creation = 140,628 → 14% of the door's 1M ceiling), not cumulative session spend (957,944 which previously showed as 91% of 1.05M). The CC-door picker ceiling now matches CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000. The transcript renders one bubble per assistant turn with collapsible tool cards (name · one-line label · ok/error) and collapsed thinking cards, and the meter tooltip shows preamble vs added plus session spend.\n`;
+    const whatChanged = `M3e R2: occupancy meter (140,628 → 14% of the door's 1M), real hovercard tooltip (preamble vs added), exchange-counted priorContext, decision text on the first block only, expanded tool cards keep full multiline results, thinking cards visually distinct with chevrons, assistant prose in contained bubbles. Dual-viewport DPR-2 proofs at 1440×900 and 1100×700.\n`;
     await writeFile(path.join(outDir, 'WHAT-CHANGED.md'), whatChanged);
     console.log('wrote WHAT-CHANGED.md');
   } finally {
     await browser.close();
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
   }
 }
 

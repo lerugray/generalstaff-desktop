@@ -102,6 +102,20 @@ test('M2: seat conduct requires acting on queued operator messages at the next b
   assert.ok(conductAt >= 0 && requestAt > conductAt);
 });
 
+test('CC-door seat prompt includes the one-shot preamble once', () => {
+  const glm = promptForSeat('orchestrate', 'write', 'Catch up.', { laneId: 'glm-ollama-cc' });
+  assert.match(glm, /CC-DOOR ONE-SHOT/);
+  assert.match(glm, /one-shot process/i);
+  assert.match(glm, /never end a turn while work is still running/i);
+  assert.match(glm, /nohup \+ sleep-poll/i);
+  assert.match(glm, /Do not arm waiters/i);
+  assert.equal(glm.split('CC-DOOR ONE-SHOT').length - 1, 1);
+  const claude = promptForSeat('orchestrate', 'write', 'Catch up.', { laneId: 'claude' });
+  assert.doesNotMatch(claude, /CC-DOOR ONE-SHOT/);
+  const plain = promptForSeat('orchestrate', 'write', 'Catch up.');
+  assert.doesNotMatch(plain, /CC-DOOR ONE-SHOT/);
+});
+
 test('M1: Claude-protocol doors use stream-json input and keep stdin open', () => {
   for (const laneId of ['claude', 'glm-ollama-cc', 'deepseek-ollama-cc'] as const) {
     const inv = invocationFor(laneId, 'orchestrate', 'read', '/work/repo', 'Steer me.');

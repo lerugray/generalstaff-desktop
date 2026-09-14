@@ -15,7 +15,7 @@ import type {
 import { redact } from '../security/redaction.js';
 import { parseClaudeStreamUsage } from '../services/claudeUsage.js';
 import { extraAddDirArgs } from '../services/handoffPaths.js';
-import { ollamaCcDoorFor } from '../services/ollamaCloud.js';
+import { isOllamaCcLaneId, ollamaCcDoorFor } from '../services/ollamaCloud.js';
 import type { McpServerLaunch } from '../services/privateRuntime.js';
 import { processInvocation } from '../services/processInvocation.js';
 
@@ -168,7 +168,22 @@ const SEAT_CONDUCT = [
   'Speak plain English to the operator. No jargon dumps.',
 ].join('\n');
 
-export function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: string): string {
+/** One-shot process rules for CC-door seats (overrides background-waiter guidance above). */
+const CC_DOOR_ONESHOT = [
+  'CC-DOOR ONE-SHOT (this seat):',
+  '- You are a one-shot process for this turn. Finish the turn before you exit.',
+  '- Never end a turn while work is still running or steps remain.',
+  '- Poll long commands in the foreground (nohup + sleep-poll under the tool timeout).',
+  '- Do not arm waiters, wakeups, background until-loops, or Monitors — they die with this process.',
+  '- Keep status short; hand control back only when the turn is truly done.',
+].join('\n');
+
+export function promptForSeat(
+  seat: SeatId,
+  permission: PermissionMode,
+  prompt: string,
+  options: { laneId?: LaneId } = {},
+): string {
   const boundaries: Record<SeatId, string> = {
     orchestrate:
       'Act as the GeneralStaff orchestrator. Ground yourself in the repository instructions, route or execute proportionately, preserve operator-reserved decisions, and report evidence honestly.',
@@ -190,7 +205,10 @@ export function promptForSeat(seat: SeatId, permission: PermissionMode, prompt: 
     '<gs-decision>{"title":"Short decision title","question":"What must the operator decide?","options":[{"label":"First option","description":"Concrete consequence"},{"label":"Second option","description":"Concrete consequence"}]}</gs-decision>',
     'Use two to four mutually exclusive options. Do not emit the block for ordinary suggestions, and never choose on the operator\'s behalf.',
   ].join('\n');
-  return `${boundaries[seat]}\n\n${SEAT_CONDUCT}\n\nPermission boundary:\n${permissionBoundary}\n\n${decisionBoundary}\n\nOperator request:\n${prompt}`;
+  const oneshot = options.laneId && isOllamaCcLaneId(options.laneId)
+    ? `\n\n${CC_DOOR_ONESHOT}`
+    : '';
+  return `${boundaries[seat]}\n\n${SEAT_CONDUCT}${oneshot}\n\nPermission boundary:\n${permissionBoundary}\n\n${decisionBoundary}\n\nOperator request:\n${prompt}`;
 }
 
 export function invocationFor(
@@ -208,7 +226,7 @@ export function invocationFor(
   label: string;
   effort: EffortId;
 } {
-  const groundedPrompt = promptForSeat(seat, permission, prompt);
+  const groundedPrompt = promptForSeat(seat, permission, prompt, { laneId });
   const writeCapable = permission === 'write';
   const runner = options.runner ?? laneId;
   const requestedEffort = effectiveEffortFor(laneId, seat, options.effort);

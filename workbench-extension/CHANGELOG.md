@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.18 — 2026-09-14
+
+- M5 seat experience: mid-turn steering channel (a message typed while the seat is running is delivered to the live process, not queued for a new one); SEAT CONDUCT block requires the seat to acknowledge and act on a queued operator message at the next turn boundary; live activity strip (tool · elapsed · idle — your turn); incremental rendering — patched DOM updates for run events, context usage, and notices, no scroll jumps on new content; one-row auto-grow composer; context meter bar fill now derives from the same occupancy number as the tooltip (previously filled to 100% immediately regardless of the true percentage).
+- Four cloud-agent rounds, each independently opus-gated (REVIEW/LOOK/re-probe) before the next; final gate SHIP. 149 tests.
+- NOTE: the ship gate now runs `npm run check` (typecheck + compile) as well as `npm test` — round 4's gate missed a `tsc` failure (`RunEvent` imported but not re-exported from `cliAdapter.ts`) because `npm test` alone does not type-check.
+
 ## 0.4.17 — 2026-09-14
 
 - Context meter reads **occupancy** (latest assistant `input + cache_read + cache_creation`), never the result envelope's cumulative session spend. Session spend stays in the meter tooltip.

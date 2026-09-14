@@ -66,7 +66,7 @@ test('M5: composer CSS is one-row auto-grow with no manual resize', () => {
   assert.match(css, /\.composer textarea[\s\S]*?resize:\s*none/);
   assert.match(css, /\.composer-selects[\s\S]*?flex-wrap:\s*nowrap/);
   assert.match(css, /\.composer-gear/);
-  assert.match(css, /\.conversation-compose-wrap[\s\S]*?max-height:\s*30%/);
+  assert.match(css, /\.conversation-compose-wrap[\s\S]*?max-height:\s*2[0-9]%/);
 });
 
 test('M4: run-event / context-usage / notice patch without full innerHTML rebuild hooks', () => {

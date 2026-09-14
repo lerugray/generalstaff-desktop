@@ -507,7 +507,7 @@
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
           <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${orchestrator ? 'One continuous GeneralStaff seat rooted in the private repository.' : escapeHtml(seat?.[1] || '')}</small></div>
         </div>
-        ${`<div class="context-row">
+        ${compact ? '' : `<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : item.kind === 'folder' ? '▣' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>
@@ -888,14 +888,27 @@
     const html = renderActivityStrip(conversation).trim();
     if (!html) {
       existing?.remove();
-      return;
+    } else {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const next = temp.firstElementChild;
+      if (next) {
+        if (existing) existing.replaceWith(next);
+        else document.querySelector('.conversation-compose-wrap')?.prepend(next);
+      }
     }
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    const next = temp.firstElementChild;
-    if (!next) return;
-    if (existing) existing.replaceWith(next);
-    else document.querySelector('.conversation-compose-wrap')?.prepend(next);
+    const running = Boolean(state.runStatus[conversationId]);
+    const send = document.querySelector('.send-button span');
+    if (send && !send.classList.contains('send-arrow')) {
+      const orchestrator = conversation.kind === 'orchestrator';
+      send.textContent = running ? 'Queue' : orchestrator ? 'Send' : 'Issue order';
+    }
+    const prompt = document.getElementById('prompt');
+    if (prompt) {
+      prompt.placeholder = running
+        ? (conversation.kind === 'orchestrator' ? 'Steer the seat…' : 'Steer this run…')
+        : (conversation.kind === 'orchestrator' ? 'Message the orchestrator…' : 'Describe the project outcome…');
+    }
   }
 
   function patchContextMeter(conversationId) {

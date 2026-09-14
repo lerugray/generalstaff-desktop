@@ -1723,10 +1723,10 @@ select:focus-visible {
 
 .conversation-meta {
   display: flex;
-  min-height: 57px;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1831,7 +1831,7 @@ select:focus-visible {
   flex: 1 1 auto;
   flex-grow: 1;
   overflow: auto;
-  padding: 25px 8px 35px;
+  padding: 16px 8px 20px;
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--text-rgb) / 0.13) transparent;
 }
@@ -2021,7 +2021,8 @@ details[open] > summary > .card-chevron {
 }
 
 .conversation-meta .lanes-context-meter {
-  margin-top: 10px;
+  margin-top: 4px;
+  margin-bottom: 4px;
   max-width: none;
   width: min(100%, 36rem);
   min-width: 18rem;
@@ -2519,15 +2520,15 @@ details[open] > summary > .card-chevron {
 .conversation-compose-wrap {
   position: relative;
   flex: 0 0 auto;
-  max-height: 30%;
-  padding: 0 0 18px;
+  max-height: 26%;
+  padding: 0 0 8px;
   background: linear-gradient(transparent, var(--ink) 13%);
 }
 
 .conversation-compose-wrap .composer {
   max-width: 800px;
   margin: 0 auto;
-  padding: 13px 15px;
+  padding: 8px 12px 10px;
 }
 
 .composer.compact .composer-heading {
@@ -2536,14 +2537,20 @@ details[open] > summary > .card-chevron {
 
 .composer.compact textarea {
   min-height: 0;
-  padding-top: 4px;
+  padding-top: 2px;
+  padding-bottom: 2px;
   border-top: 0;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .composer.compact .composer-footer {
-  padding-top: 9px;
+  padding-top: 6px;
+}
+
+.composer.compact .context-row,
+.composer.compact .composer-hint {
+  display: none;
 }
 
 .run-strip,
@@ -2552,8 +2559,8 @@ details[open] > summary > .card-chevron {
   max-width: 800px;
   align-items: center;
   gap: 8px;
-  margin: 0 auto 7px;
-  padding: 7px 10px;
+  margin: 0 auto 4px;
+  padding: 5px 10px;
   border: 1px solid rgb(var(--accent-rgb) / 0.15);
   border-radius: 7px;
   background: rgb(var(--accent-rgb) / 0.04);

@@ -164,13 +164,30 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
     }
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  // GATE-R2 (test-only): the server teardown is registered BEFORE the browser launch. Registering
+  // it after meant a failed launch left this listener open and the whole test FILE hung forever
+  // (node's event loop never drained) instead of reporting one failure.
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('no port');
   const base = `http://127.0.0.1:${address.port}`;
-  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  // GATE-R2 (test-only): honour an installed-elsewhere chromium, and SKIP rather than hang when
+  // this host has no matching build (playwright pins a revision; Ray's Mac carries newer ones).
+  const pinned = chromium.executablePath();
+  const override = process.env.GS_CHROMIUM_EXECUTABLE;
+  if (!fs.existsSync(pinned) && !(override && fs.existsSync(override))) {
+    t.skip(`no chromium for playwright's pinned revision (${pinned}); set GS_CHROMIUM_EXECUTABLE or run: npx playwright install chromium`);
+    return;
+  }
+  const browser = await chromium.launch({
+    ...(fs.existsSync(pinned) || !override ? {} : { executablePath: override }),
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
+  });
   t.after(async () => {
     await browser.close();
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   });
 
   const page = await browser.newPage({ viewport: { width: 1100, height: 700 }, deviceScaleFactor: 1 });

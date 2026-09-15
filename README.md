@@ -41,6 +41,13 @@ The extension discovers installed, authenticated command-line lanes and exposes 
 
 Codex, Fable, Cline, and the Grok trial lane expose the effort values supported by their non-interactive CLI paths. Kimi, Cursor, and both Ollama Cloud lanes use the provider default. The Ollama entries are additional, distinctly labeled direct-API picker options; the existing Cline / GLM lane remains unchanged, and Fable remains the default orchestrator seat. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
+**Ollama-first default routing (0.4.19).** When the Anthropic weekly usage reads above 80% or the
+usage read fails, a new session defaults to the Ollama GLM 5.3 CC-door seat instead of Fable
+(otherwise it prompts for the seat as before). A **GLM 5.3 Flash (cheap)** seat joins the picker
+for lighter-weight turns, and the fleet header shows a **monthly Ollama meter** ("Ollama month N%
+used") now that the Ollama account itself reports usage as a monthly credit pool rather than
+session/weekly windows.
+
 ## Lanes, Desk, and Sessions
 
 The Command Deck is the only surface that opens on launch, full width. **Lanes** and **Desk** live
@@ -70,13 +77,20 @@ the previous session stays listed. The deck topbar shows the active session titl
 Sessions) and the same New session control. Clearing a stuck thread is Delete or New session — there
 is no need to hunt for a hidden reset.
 
-**Versions.** `0.4.17` is the installed Workbench package (installed into the isolated profile
-2026-09-14, after a three-round M3e build/regate cycle — occupancy meter, tool/thinking cards, and
-per-turn transcript rendering, with the deck meter CSS scoped so Lanes/Desk render unchanged) and
-the package on this branch. `0.4.16` closed M3d — Lanes/Desk as auxiliary-bar toggles, Sessions
-sidebar (new/rename/archive/delete), conversations storage `v2`. `0.4.15` corrected Claude Fable/Sonnet
-native ceiling to 1M. `0.4.14` first shipped context ceilings on every seat. `0.4.13` closed M3b. The
-Workbench's working branch is
+**Versions.** `0.4.19` is the installed Workbench package (installed into the isolated profile
+2026-09-14, after an opus adversarial read of `publish-v23` returned seven fix-worthy defects,
+all fixed by a Cursor-auto lane). It ships: a new session default that routes to the **Ollama
+GLM 5.3 CC-door seat** when the Anthropic weekly usage is above 80% or unreadable (otherwise it
+prompts); a **monthly Ollama usage meter** ("Ollama month N% used") replacing the retired
+session/weekly-window reading; a new **GLM 5.3 Flash (cheap)** seat; a read vs read+write prompt
+at session start; a one-shot headless preamble on the CC-door seats; `unrecognized_model` stderr
+filtering; and a root `npm test` wiring. `0.4.18` shipped M5's seat-experience milestone (mid-turn
+steering, seat-conduct rounds, an activity strip, incremental render, a one-row composer, a meter
+bar). `0.4.17` closed M3e — occupancy meter, tool/thinking cards, and per-turn transcript
+rendering, with the deck meter CSS scoped so Lanes/Desk render unchanged. `0.4.16` closed M3d —
+Lanes/Desk as auxiliary-bar toggles, Sessions sidebar (new/rename/archive/delete), conversations
+storage `v2`. `0.4.15` corrected Claude Fable/Sonnet native ceiling to 1M. `0.4.14` first shipped
+context ceilings on every seat. `0.4.13` closed M3b. The Workbench's working branch is
 **`publish-v23`**; `master` carries the older v2.3 line.
 
 These panels are the first milestones of a larger, deliberately personal direction: a command surface

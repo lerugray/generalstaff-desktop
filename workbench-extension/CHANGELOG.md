@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.20 — 2026-09-15
+
+- Make Ollama CC-door edit runs genuinely non-interactive: read-only remains plan mode; explicit edit consent selects `bypassPermissions`, so Bash, web tools, git, and permitted writes no longer wait for an approval prompt the headless process cannot answer.
+- Scope edit authority to the target: General sessions may operate across registered GeneralStaff portfolio repositories and the standing handoff surface within the operator's request; Project sessions remain bounded to the selected repository.
+- Add an immediate bounded-search fallback when a permitted non-Anthropic `WebSearch` returns an empty result, with source verification through `WebFetch`.
+- Restore the complete composer bottom edge at short desktop heights and use a practical two-line initial field; regression coverage exercises the full composer at five desktop viewports.
+- Repair `scripts/bump-version.sh` so extension releases update the extension package and lockfile instead of retired Tauri manifests.
+
 ## 0.4.19 — 2026-09-14
 
 - GLM stopgap seat: new orchestrator sessions no longer silently default to Claude Fable — read Anthropic weekly utilization via the Claude Code OAuth usage endpoint; when it is above 80% or unavailable, auto-select the Ollama GLM CC-door seat and surface the seat + reason on the desk, otherwise prompt for an explicit pick.

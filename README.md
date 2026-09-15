@@ -38,6 +38,8 @@ The extension discovers installed, authenticated command-line lanes and exposes 
 | Grok 4.6 (trial), through Cursor Agent | All five | Read or edit | Native provider session |
 | GLM 5.3 (Ollama), through Ollama Cloud | All five | Read only | Bounded transcript handoff |
 | GLM 5.3 Flash (Ollama), through Ollama Cloud | All five | Read only | Bounded transcript handoff |
+| GLM 5.3 · Workbench seat (Ollama CC door) | All five | Read or edit | Native provider session |
+| DeepSeek V4.1 Flash · Workbench seat (Ollama CC door) | All five | Read or edit | Native provider session |
 
 Codex, Fable, Cline, and the Grok trial lane expose the effort values supported by their non-interactive CLI paths. Kimi, Cursor, and both Ollama Cloud lanes use the provider default. The Ollama entries are additional, distinctly labeled direct-API picker options; the existing Cline / GLM lane remains unchanged, and Fable remains the default orchestrator seat. A native session is reused only when the conversation, logical lane, concrete runner, permission, selected skill, and working directory still match. Otherwise Workbench starts a new session or supplies a bounded recent transcript. Failed and interrupted runs can be retried with a matching native session or reconstructed from the transcript. Provider-raised choices can appear as validated decision cards with one recorded answer.
 
@@ -77,9 +79,13 @@ the previous session stays listed. The deck topbar shows the active session titl
 Sessions) and the same New session control. Clearing a stuck thread is Delete or New session — there
 is no need to hunt for a hidden reset.
 
-**Versions.** `0.4.19` is the installed Workbench package (installed into the isolated profile
-2026-09-14, after an opus adversarial read of `publish-v23` returned seven fix-worthy defects,
-all fixed by a Cursor-auto lane). It ships: a new session default that routes to the **Ollama
+**Versions.** `0.4.20` is the installed Workbench package. It makes the Ollama CC-door seats
+fully non-interactive: read-only still uses plan mode, while an operator-approved edit run uses
+the provider's bypass-permissions mode so Bash, web tools, git, and in-scope portfolio writes do
+not deadlock on prompts the headless process cannot answer. General sessions may edit registered
+GeneralStaff portfolio repositories; project sessions remain bounded to their selected repo.
+The composer now keeps its full bottom edge visible at short desktop heights and opens at a useful
+two-line size. `0.4.19` shipped the new-session default that routes to the **Ollama
 GLM 5.3 CC-door seat** when the Anthropic weekly usage is above 80% or unreadable (otherwise it
 prompts); a **monthly Ollama usage meter** ("Ollama month N% used") replacing the retired
 session/weekly-window reading; a new **GLM 5.3 Flash (cheap)** seat; a read vs read+write prompt

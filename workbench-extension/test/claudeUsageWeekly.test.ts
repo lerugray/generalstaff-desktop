@@ -80,10 +80,15 @@ test('formatSeatChoiceNotice is one desk line', () => {
 });
 
 test('session permission prompt lists write first as the recommended default', () => {
-  const choices = sessionPermissionChoices();
+  const choices = sessionPermissionChoices({ kind: 'general' });
   assert.equal(choices[0]?.permission, 'write');
   assert.match(choices[0]?.label ?? '', /recommended/i);
+  assert.match(choices[0]?.description ?? '', /registered GS portfolio and standing handoff/i);
   assert.equal(choices[1]?.permission, 'read');
+
+  const project = sessionPermissionChoices({ kind: 'project' });
+  assert.match(project[0]?.description ?? '', /selected project repository/i);
+  assert.doesNotMatch(project[0]?.description ?? '', /portfolio/i);
 });
 
 test('loads Claude Code access token from the credentials file without logging it', async (context) => {

@@ -71,6 +71,7 @@ interface ContinuityOptions {
   effort?: EffortId;
   runner?: LaneId;
   mcpServers?: McpServerLaunch[];
+  target?: CommandTarget;
 }
 
 function codexMcpArgs(servers: readonly McpServerLaunch[]): string[] {
@@ -179,11 +180,18 @@ const CC_DOOR_ONESHOT = [
   '- Keep status short; hand control back only when the turn is truly done.',
 ].join('\n');
 
+export function writePermissionBoundary(target?: CommandTarget): string {
+  if (target?.kind === 'general') {
+    return 'The operator explicitly enabled a trusted, non-interactive write run. Local shell, web, and file tools may run without individual approval prompts. You are authorized to work across the registered General Staff portfolio and the standing handoff surface only as required by the operator request. Do not touch anything else.';
+  }
+  return 'The operator explicitly enabled repository edits for this run. Keep changes inside the selected repository and remain within the request.';
+}
+
 export function promptForSeat(
   seat: SeatId,
   permission: PermissionMode,
   prompt: string,
-  options: { laneId?: LaneId } = {},
+  options: { laneId?: LaneId; target?: CommandTarget } = {},
 ): string {
   const boundaries: Record<SeatId, string> = {
     orchestrate:
@@ -198,7 +206,7 @@ export function promptForSeat(
       'Provide a concise, practical answer grounded in the selected command target. Do not expand the scope without asking.',
   };
   const permissionBoundary = permission === 'write'
-    ? 'The operator explicitly enabled repository edits for this run. Keep changes inside the selected repository and remain within the request.'
+    ? writePermissionBoundary(options.target)
     : 'This is a read-only run. Do not modify files, configuration, git state, or external systems.';
   const decisionBoundary = [
     'Decision card protocol:',
@@ -227,7 +235,10 @@ export function invocationFor(
   label: string;
   effort: EffortId;
 } {
-  const groundedPrompt = promptForSeat(seat, permission, prompt, { laneId });
+  const groundedPrompt = promptForSeat(seat, permission, prompt, {
+    laneId,
+    ...(options.target ? { target: options.target } : {}),
+  });
   const writeCapable = permission === 'write';
   const runner = options.runner ?? laneId;
   const requestedEffort = effectiveEffortFor(laneId, seat, options.effort);
@@ -432,10 +443,11 @@ export function invocationFor(
     case 'deepseek-ollama-cc':
     case 'glm-ollama-cc':
     case 'glm-flash-ollama-cc': {
-      // The CC door runs the real Claude Code binary, so the operator's plan-mode read
-      // boundary, effort levels and session resume all behave exactly as they do on the Fable
-      // seat. Only the provider behind it differs. MCP servers are withheld on read-only runs
-      // for the same reason they are on the Claude lane.
+      // The CC door runs the real Claude Code binary. Headless `-p` cannot answer
+      // Bash/WebSearch prompts under acceptEdits, so write consent uses
+      // bypassPermissions (non-interactive) while read stays on provider plan mode.
+      // Native Claude Fable keeps acceptEdits — do not mirror that here.
+      // MCP servers are withheld on read-only runs for the same reason as Claude.
       // M5: stream-json INPUT + open stdin — mid-run messages are held until the next
       // turn boundary, then written on this same live process (PROBE-STEERING.md).
       const ccMcpServers = writeCapable ? mcpServers : [];
@@ -456,7 +468,7 @@ export function invocationFor(
           'stream-json',
           '--verbose',
           '--permission-mode',
-          writeCapable ? 'acceptEdits' : 'plan',
+          writeCapable ? 'bypassPermissions' : 'plan',
           '--effort',
           effort,
           ...extraAddDirArgs(),
@@ -1164,6 +1176,7 @@ export function runCliAdapter(request: RunRequest, onEvent: (event: RunEvent) =>
     effort: request.effort,
     runner: request.lane.runner,
     ...(request.mcpServers ? { mcpServers: request.mcpServers } : {}),
+    target: request.target,
   });
   const protocolLaneId = request.lane.runner === 'cursor' ? 'cursor' : request.lane.id;
   const startedAt = Date.now();

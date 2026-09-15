@@ -86,7 +86,12 @@ export function runOllamaCloudAdapter(
         body: JSON.stringify({
           model,
           stream: false,
-          messages: [{ role: 'user', content: promptForSeat(request.seat, request.permission, request.prompt) }],
+          messages: [{
+            role: 'user',
+            content: promptForSeat(request.seat, request.permission, request.prompt, {
+              target: request.target,
+            }),
+          }],
         }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]),
       });

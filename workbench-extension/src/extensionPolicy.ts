@@ -69,16 +69,23 @@ export async function authorizeWriteAccess(
   return permission !== 'write' || alreadyEnabled || await confirm();
 }
 
-export function writeConsentPrompt(targetName: string, laneName: string): {
+export function writeConsentPrompt(
+  targetName: string,
+  laneName: string,
+  target: CommandTarget = { kind: 'project', projectId: 'unknown' },
+): {
   message: string;
   options: { modal: true; detail: string };
   action: 'Enable edit access';
 } {
+  const detail = target.kind === 'general'
+    ? 'The lane may use write-capable local tools across the registered General Staff portfolio and the standing handoff surface when the operator request requires it. Claude-Code-backed cloud seats run those tools without individual approval prompts. The consent and working directory will be recorded in the run receipt.'
+    : 'The lane may modify files inside the selected project repository only. The consent and working directory will be recorded in the run receipt.';
   return {
     message: `Enable edit access for ${laneName} in ${targetName}?`,
     options: {
       modal: true,
-      detail: 'The lane may modify files inside the selected command target repository. The consent and working directory will be recorded in the run receipt.',
+      detail,
     },
     action: 'Enable edit access',
   };

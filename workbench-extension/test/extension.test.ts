@@ -34,14 +34,22 @@ test('write access requires the host confirmation callback to approve it', async
   assert.equal(read, true);
   assert.equal(confirmations, 1);
 
-  assert.deepEqual(writeConsentPrompt('Alpha', 'Claude'), {
+  assert.deepEqual(writeConsentPrompt('Alpha', 'Claude', { kind: 'project', projectId: 'alpha' }), {
     message: 'Enable edit access for Claude in Alpha?',
     options: {
       modal: true,
-      detail: 'The lane may modify files inside the selected command target repository. The consent and working directory will be recorded in the run receipt.',
+      detail: 'The lane may modify files inside the selected project repository only. The consent and working directory will be recorded in the run receipt.',
     },
     action: 'Enable edit access',
   });
+  assert.match(
+    writeConsentPrompt('General Staff — orchestrator', 'GLM 5.3 · Workbench seat', { kind: 'general' }).options.detail,
+    /registered General Staff portfolio and the standing handoff surface/i,
+  );
+  assert.match(
+    writeConsentPrompt('General Staff — orchestrator', 'GLM 5.3 · Workbench seat', { kind: 'general' }).options.detail,
+    /without individual approval prompts/i,
+  );
 });
 
 test('routing gates lane state, seat, effort, permission, and target-backed writes', () => {

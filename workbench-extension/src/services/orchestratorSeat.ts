@@ -51,15 +51,18 @@ export function formatSeatChoiceNotice(laneName: string, reason: string): string
   return `Seat: ${laneName} — ${reason}`;
 }
 
-export function sessionPermissionChoices(): Array<{
+export function sessionPermissionChoices(target: { kind: 'general' } | { kind: 'project' } = { kind: 'general' }): Array<{
   label: string;
   description: string;
   permission: PermissionMode;
 }> {
+  const writeDescription = target.kind === 'general'
+    ? 'Orchestrator may edit across the registered GS portfolio and standing handoff surface'
+    : 'May edit only the selected project repository for this session';
   return [
     {
       label: 'Read + write (recommended)',
-      description: 'Orchestrator may edit the repository for this session',
+      description: writeDescription,
       permission: 'write',
     },
     {

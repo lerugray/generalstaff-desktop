@@ -489,14 +489,28 @@
       </label>`;
   }
 
+  function writePermissionLabel(general) {
+    return general ? 'Can edit GS portfolio' : 'Can edit repo';
+  }
+
+  function writePermissionBanner(general) {
+    return general
+      ? 'The lane may edit across the registered General Staff portfolio and the standing handoff surface within the operator request. Consent is recorded with the run.'
+      : 'The lane may modify only the selected project repository. Consent is recorded with the run.';
+  }
+
   function renderPermissionSelect() {
     const disabled = currentConversation() && state.runStatus[currentConversation().id];
+    const general = state.selectedTargetKind === 'general'
+      || currentConversation()?.target?.kind === 'general'
+      || currentConversation()?.kind === 'orchestrator';
+    const writeLabel = writePermissionLabel(Boolean(general));
     return `
       <label class="select-field permission-field ${state.selectedPermission === 'write' ? 'write' : ''}">
         <span>Access</span>
         <select id="permission-select" ${disabled ? 'disabled' : ''}>
           <option value="read" ${state.selectedPermission === 'read' ? 'selected' : ''}>Read only</option>
-          <option value="write" ${state.selectedPermission === 'write' ? 'selected' : ''}>Can edit repo</option>
+          <option value="write" ${state.selectedPermission === 'write' ? 'selected' : ''}>${writeLabel}</option>
         </select>
       </label>`;
   }
@@ -545,8 +559,8 @@
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : item.kind === 'folder' ? '▣' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>
         ${compact ? '' : '<p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>'}`}
-        ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
-        <textarea id="prompt" rows="1" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
+        ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>${writePermissionBanner(general)}</span></div>` : ''}
+        <textarea id="prompt" rows="${compact ? '2' : '1'}" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
           <div class="composer-selects" data-collapsed="1">
             <button type="button" class="composer-gear" data-action="toggle-composer-settings" title="Seat settings" aria-label="Seat settings">⚙</button>
@@ -824,7 +838,7 @@
               <span title="${escapeHtml(lane?.name || conversation.laneId)}">${escapeHtml(lane?.name || conversation.laneId)}</span>
               <span class="door-chip" title="${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}">${escapeHtml(shortDoorLabel(lane?.evidenceLabel || 'Evidence class not recorded'))}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
-              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}" title="${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
+              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}" title="${conversation.permission === 'write' ? writePermissionLabel(general || orchestrator) : 'Read only'}">${conversation.permission === 'write' ? writePermissionLabel(general || orchestrator) : 'Read only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip" title="GENERALSTAFF_ROOT">GENERALSTAFF_ROOT</span>'}
             </div>
             ${renderContextMeter(lane?.contextCeiling, conversation.id)}
@@ -928,8 +942,10 @@
     prompt.style.height = 'auto';
     const styles = window.getComputedStyle(prompt);
     const line = Number.parseFloat(styles.lineHeight) || 21;
+    const compact = Boolean(prompt.closest('.composer.compact'));
+    const minLines = compact ? 2 : 1;
     const max = line * 6 + 8;
-    prompt.style.height = `${Math.min(max, Math.max(line + 4, prompt.scrollHeight))}px`;
+    prompt.style.height = `${Math.min(max, Math.max(line * minLines + 4, prompt.scrollHeight))}px`;
   }
 
   function patchActivityStrip(conversationId) {

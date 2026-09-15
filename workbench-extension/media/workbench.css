@@ -1718,7 +1718,7 @@ select:focus-visible {
   flex: 1;
   flex-direction: column;
   margin: 0 auto;
-  padding: 0 clamp(22px, 4vw, 48px);
+  padding: 0 clamp(22px, 4vw, 48px) 12px;
 }
 
 .conversation-meta {
@@ -1874,7 +1874,7 @@ select:focus-visible {
 
 .message-stream {
   position: relative;
-  min-height: 70%;
+  min-height: 60%;
   flex: 1 1 auto;
   flex-grow: 1;
   overflow: auto;
@@ -2573,16 +2573,16 @@ details[open] > summary > .card-chevron {
 .conversation-compose-wrap {
   position: relative;
   flex: 0 0 auto;
-  max-height: 22%;
-  overflow: hidden;
-  padding: 0 0 4px;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
   background: linear-gradient(transparent, var(--ink) 13%);
 }
 
 .conversation-compose-wrap .composer {
   max-width: 800px;
   margin: 0 auto;
-  padding: 8px 12px 10px;
+  padding: 6px 12px 8px;
 }
 
 .composer.compact .composer-heading {
@@ -2590,16 +2590,16 @@ details[open] > summary > .card-chevron {
 }
 
 .composer.compact textarea {
-  min-height: 0;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  min-height: calc(1.4em * 2);
+  padding-top: 4px;
+  padding-bottom: 4px;
   border-top: 0;
   font-size: 14px;
   line-height: 1.4;
 }
 
 .composer.compact .composer-footer {
-  padding-top: 6px;
+  padding-top: 4px;
 }
 
 .composer.compact .composer-hint {
@@ -2619,19 +2619,19 @@ details[open] > summary > .card-chevron {
 }
 
 .composer.compact .composer-footer {
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .composer.compact .send-button {
-  padding: 6px 10px;
+  padding: 5px 10px;
   min-height: 0;
 }
 
 .run-strip,
 .conversation-compose-wrap .activity-strip {
   margin-bottom: 2px;
-  padding-top: 3px;
-  padding-bottom: 3px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 .activity-strip {

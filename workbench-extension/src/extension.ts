@@ -362,7 +362,7 @@ class CommandDeckPanel {
     if (!lane) lane = fallback;
 
     const permissionPick = await vscode.window.showQuickPick(
-      sessionPermissionChoices().map((choice) => ({
+      sessionPermissionChoices({ kind: 'general' }).map((choice) => ({
         label: choice.label,
         description: choice.description,
         permission: choice.permission,
@@ -545,7 +545,7 @@ class CommandDeckPanel {
         if (!(await authorizeWriteAccess(
           message.permission,
           false,
-          () => this.confirmWrite(target.name, lane.name),
+          () => this.confirmWrite(target.name, lane.name, target.target),
         ))) {
           await this.notice('Edit access was not enabled.', 'error');
           return;
@@ -592,7 +592,7 @@ class CommandDeckPanel {
         if (!(await authorizeWriteAccess(
           message.permission,
           conversation.permission === 'write',
-          () => this.confirmWrite(target.name, lane.name),
+          () => this.confirmWrite(target.name, lane.name, target.target),
         ))) {
           await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
           await this.notice('Edit access remains off.', 'error');
@@ -1240,8 +1240,8 @@ class CommandDeckPanel {
     }
   }
 
-  private async confirmWrite(targetName: string, laneName: string): Promise<boolean> {
-    const prompt = writeConsentPrompt(targetName, laneName);
+  private async confirmWrite(targetName: string, laneName: string, target: CommandTarget): Promise<boolean> {
+    const prompt = writeConsentPrompt(targetName, laneName, target);
     const choice = await vscode.window.showWarningMessage(
       prompt.message,
       prompt.options,

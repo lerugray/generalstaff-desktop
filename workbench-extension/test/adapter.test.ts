@@ -248,6 +248,56 @@ test('builds Grok CLI primary invocations with the exact headless permission con
   assert.match(write.label, /provider default effort/);
 });
 
+test('Ollama CC doors use plan for read and bypassPermissions for write (not acceptEdits)', () => {
+  for (const laneId of ['glm-ollama-cc', 'glm-flash-ollama-cc', 'deepseek-ollama-cc'] as const) {
+    const read = invocationFor(laneId, 'orchestrate', 'read', '/work/repo', 'Direct this.');
+    assert.equal(
+      read.args[read.args.indexOf('--permission-mode') + 1],
+      'plan',
+      `${laneId} read must use provider-enforced plan mode`,
+    );
+    assert.equal(read.args.includes('acceptEdits'), false);
+    assert.equal(read.args.includes('bypassPermissions'), false);
+
+    const write = invocationFor(laneId, 'orchestrate', 'write', '/work/repo', 'Direct this.');
+    assert.equal(
+      write.args[write.args.indexOf('--permission-mode') + 1],
+      'bypassPermissions',
+      `${laneId} write must use non-interactive bypassPermissions (acceptEdits deadlocks Bash/WebSearch in headless -p)`,
+    );
+    assert.equal(write.args.includes('acceptEdits'), false);
+  }
+
+  const nativeClaudeWrite = invocationFor('claude', 'orchestrate', 'write', '/work/repo', 'Direct this.');
+  assert.equal(
+    nativeClaudeWrite.args[nativeClaudeWrite.args.indexOf('--permission-mode') + 1],
+    'acceptEdits',
+    'native Claude lane must keep acceptEdits',
+  );
+});
+
+test('write permission boundary is target-aware without weakening read-only', () => {
+  const generalWrite = invocationFor('claude', 'orchestrate', 'write', '/fleet', 'Catch up.', {
+    target: { kind: 'general' },
+  });
+  assert.match(generalWrite.stdin ?? '', /registered General Staff portfolio/i);
+  assert.match(generalWrite.stdin ?? '', /standing handoff surface/i);
+  assert.match(generalWrite.stdin ?? '', /without individual approval prompts/i);
+  assert.doesNotMatch(generalWrite.stdin ?? '', /Keep changes inside the selected repository/);
+
+  const projectWrite = invocationFor('claude', 'build', 'write', '/work/alpha', 'Ship it.', {
+    target: { kind: 'project', projectId: 'alpha' },
+  });
+  assert.match(projectWrite.stdin ?? '', /Keep changes inside the selected repository/);
+  assert.doesNotMatch(projectWrite.stdin ?? '', /registered General Staff portfolio/);
+
+  const generalRead = invocationFor('claude', 'orchestrate', 'read', '/fleet', 'Catch up.', {
+    target: { kind: 'general' },
+  });
+  assert.match(generalRead.stdin ?? '', /This is a read-only run/);
+  assert.doesNotMatch(generalRead.stdin ?? '', /portfolio|handoff surface/i);
+});
+
 test('keeps Cursor named-model Grok as the bounded fallback runner', () => {
   const read = invocationFor('grok', 'orchestrate', 'read', '/work/repo', 'Direct this.', { runner: 'cursor' });
   assert.equal(read.args[read.args.indexOf('--model') + 1], 'cursor-grok-4.6-high');

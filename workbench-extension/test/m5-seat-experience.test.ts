@@ -491,23 +491,22 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
     if (!stream || !shell) return 0;
     return stream.getBoundingClientRect().height / shell.getBoundingClientRect().height;
   });
-  // Compact composer budget: wrap capped near 30% so the stream keeps the pane.
+  // Compact composer budget: natural compact height; transcript keeps ≥60% of the pane.
   const composeBudget = await page.evaluate(() => {
     const wrap = document.querySelector('.conversation-compose-wrap') as HTMLElement | null;
     const shell = document.querySelector('.conversation-shell') as HTMLElement | null;
     if (!wrap || !shell) return null;
     const wrapH = wrap.getBoundingClientRect().height;
     const shellH = shell.getBoundingClientRect().height;
-    return { wrapShare: wrapH / shellH, streamShare: streamRatioFrom(shell), maxHeight: getComputedStyle(wrap).maxHeight };
+    return { wrapShare: wrapH / shellH, streamShare: streamRatioFrom(shell) };
     function streamRatioFrom(shell: HTMLElement) {
       const stream = document.querySelector('.message-stream') as HTMLElement | null;
       return stream ? stream.getBoundingClientRect().height / shell.getBoundingClientRect().height : 0;
     }
   });
   assert.ok(composeBudget, 'compose wrap and shell must exist');
-  assert.match(composeBudget!.maxHeight, /(?:2\d|30)%|\d+px/);
-  assert.ok(composeBudget!.wrapShare <= 0.32, `compose wrap share ${composeBudget!.wrapShare} > 0.32`);
-  assert.ok(streamRatio >= 0.65, `transcript ratio ${streamRatio} < 0.65`);
+  assert.ok(composeBudget!.wrapShare <= 0.4, `compose wrap share ${composeBudget!.wrapShare} > 0.4`);
+  assert.ok(streamRatio >= 0.6, `transcript ratio ${streamRatio} < 0.6`);
 
   // M4: non-zero mid-scroll stays put across hot-path events.
   const scroll = await page.evaluate(async (id) => {
@@ -602,7 +601,7 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
     };
   })()`)) as { permission: ChipMeasure; root: ChipMeasure };
   assert.ok(chipState.permission, 'permission chip missing');
-  assert.match(chipState.permission!.text, /Read only|Can edit repo/i);
+  assert.match(chipState.permission!.text, /Read only|Can edit repo|Can edit GS portfolio/i);
   assert.equal(chipState.permission!.title, chipState.permission!.text);
   assert.equal(chipState.permission!.scrollWider, false, 'permission chip must not ellipsis');
   if (chipState.root) {
@@ -644,6 +643,70 @@ test('M4/M5/M7 UI: mid-scroll stable, compact context row, meter fill, strip tex
   assert.ok(jumpGeometry, 'jump pill should exist above the compose wrap');
   assert.ok(jumpGeometry!.pillBottom <= jumpGeometry!.wrapTop + 1, 'pill must sit above the compose wrap');
   assert.equal(jumpGeometry!.overlapsStop, false, 'pill must not cover Stop');
+
+  // Composer geometry: full box incl. bottom border stays visibly inset; compact textarea ≈2 lines;
+  // transcript ≥60%; no clipping/overflow at deck and short sidebar sizes.
+  const geometrySizes = [
+    { width: 1365, height: 768 },
+    { width: 1100, height: 700 },
+    { width: 760, height: 700 },
+    { width: 1100, height: 600 },
+    { width: 760, height: 600 },
+  ] as const;
+  const minInset = 8;
+  for (const size of geometrySizes) {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(40);
+    const geometry = (await page.evaluate(`(() => {
+      const composer = document.querySelector('.conversation-compose-wrap .composer');
+      const textarea = document.querySelector('.composer.compact textarea, #prompt');
+      const stream = document.querySelector('.message-stream');
+      const shell = document.querySelector('.conversation-shell');
+      const wrap = document.querySelector('.conversation-compose-wrap');
+      if (!composer || !textarea || !stream || !shell || !wrap) return null;
+      const c = composer.getBoundingClientRect();
+      const t = textarea.getBoundingClientRect();
+      const s = stream.getBoundingClientRect();
+      const sh = shell.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 19.6;
+      const clipped =
+        c.bottom > window.innerHeight - 7.5 ||
+        c.right > window.innerWidth + 0.5 ||
+        document.documentElement.scrollHeight > window.innerHeight + 1;
+      return {
+        composerBottom: c.bottom,
+        inset: window.innerHeight - c.bottom,
+        textareaHeight: t.height,
+        minTwoLine: lineHeight * 2 - 1,
+        streamShare: s.height / sh.height,
+        clipped,
+        overflowX: document.documentElement.scrollWidth > window.innerWidth + 1,
+      };
+    })()`)) as {
+      composerBottom: number;
+      inset: number;
+      textareaHeight: number;
+      minTwoLine: number;
+      streamShare: number;
+      clipped: boolean;
+      overflowX: boolean;
+    } | null;
+    assert.ok(geometry, `composer geometry missing at ${size.width}x${size.height}`);
+    assert.ok(
+      geometry!.inset >= minInset,
+      `composer bottom inset ${geometry!.inset} < ${minInset} at ${size.width}x${size.height}`,
+    );
+    assert.ok(
+      geometry!.textareaHeight >= geometry!.minTwoLine,
+      `textarea height ${geometry!.textareaHeight} < ~2 lines (${geometry!.minTwoLine}) at ${size.width}x${size.height}`,
+    );
+    assert.ok(
+      geometry!.streamShare >= 0.6,
+      `transcript share ${geometry!.streamShare} < 0.6 at ${size.width}x${size.height}`,
+    );
+    assert.equal(geometry!.clipped, false, `composer/viewport clipped at ${size.width}x${size.height}`);
+    assert.equal(geometry!.overflowX, false, `horizontal overflow at ${size.width}x${size.height}`);
+  }
 
   // R2-1: Send and gear must sit inside the pane at both deck and sidebar widths.
   for (const size of [

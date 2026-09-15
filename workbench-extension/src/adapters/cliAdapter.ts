@@ -177,6 +177,7 @@ const CC_DOOR_ONESHOT = [
   '- Never end a turn while work is still running or steps remain.',
   '- Poll long commands in the foreground (nohup + sleep-poll under the tool timeout).',
   '- Do not arm waiters, wakeups, background until-loops, or Monitors — they die with this process.',
+  '- On this non-Anthropic door, an allowed WebSearch may return no results. Fall back immediately to a bounded web query through Bash/curl or another available search lane, then verify sources with WebFetch; do not report that web access is unavailable.',
   '- Keep status short; hand control back only when the turn is truly done.',
 ].join('\n');
 

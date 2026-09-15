@@ -109,6 +109,8 @@ test('CC-door seat prompt includes the one-shot preamble once', () => {
   assert.match(glm, /never end a turn while work is still running/i);
   assert.match(glm, /nohup \+ sleep-poll/i);
   assert.match(glm, /Do not arm waiters/i);
+  assert.match(glm, /WebSearch may return no results/i);
+  assert.match(glm, /Bash\/curl/i);
   assert.equal(glm.split('CC-DOOR ONE-SHOT').length - 1, 1);
   const claude = promptForSeat('orchestrate', 'write', 'Catch up.', { laneId: 'claude' });
   assert.doesNotMatch(claude, /CC-DOOR ONE-SHOT/);

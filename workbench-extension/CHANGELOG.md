@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.19 — 2026-09-14
+
+- GLM stopgap seat: new orchestrator sessions no longer silently default to Claude Fable — read Anthropic weekly utilization via the Claude Code OAuth usage endpoint; when it is above 80% or unavailable, auto-select the Ollama GLM CC-door seat and surface the seat + reason on the desk, otherwise prompt for an explicit pick.
+- Ollama Cloud monthly pool meter: poll `GET https://ollama.com/api/usage` with the door's Bearer credential while an Ollama seat is active; surface `limits.monthly.usage` as "Ollama month N% used" beside the context meter, with a quiet "meter unavailable" state on 401/network failure.
+- Add a GLM 5.3 Flash cheap CC-door seat.
+- CC-door one-shot preamble added to the seat prompt (the headless door has no re-invocation — the seat must never end its turn while work is outstanding).
+- Prompt read vs read+write once on orchestrator session start, instead of silently defaulting.
+- Filter `unrecognized_model` stderr noise on Ollama CC-door runs.
+- Add a root `npm test` script so the Workbench suite runs from the repo root.
+
 ## 0.4.18 — 2026-09-14
 
 - M5 seat experience: mid-turn steering channel (a message typed while the seat is running is delivered to the live process, not queued for a new one); SEAT CONDUCT block requires the seat to acknowledge and act on a queued operator message at the next turn boundary; live activity strip (tool · elapsed · idle — your turn); incremental rendering — patched DOM updates for run events, context usage, and notices, no scroll jumps on new content; one-row auto-grow composer; context meter bar fill now derives from the same occupancy number as the tooltip (previously filled to 100% immediately regardless of the true percentage).

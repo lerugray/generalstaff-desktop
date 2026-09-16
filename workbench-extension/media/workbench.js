@@ -604,7 +604,7 @@
         <span class="receipt-mark">${healthy ? '✓' : '!'}</span>
         <div class="receipt-copy">
           <strong>${healthy ? 'Lane completed' : receipt.stopped ? 'Run stopped' : 'Lane needs attention'}</strong>
-          <small>${escapeHtml(receipt.modelLabel)} · ${seconds}s · exit ${receipt.exitCode ?? '—'} · ${receipt.permission === 'write' ? 'edit access' : 'read only'} · ${continuity}${receipt.skillId ? ` · /${escapeHtml(receipt.skillId)}` : ''}${receipt.capabilities?.length ? ` · ${escapeHtml(receipt.capabilities.join(' + '))}` : ''}</small>
+          <small>${escapeHtml(receipt.modelLabel)} · ${seconds}s · exit ${receipt.exitCode ?? '—'} · ${receipt.permission === 'write' ? `inside ${escapeHtml(currentRoomName({ target: receipt.target }))}` : 'looking only'} · ${continuity}${receipt.skillId ? ` · /${escapeHtml(receipt.skillId)}` : ''}${receipt.capabilities?.length ? ` · ${escapeHtml(receipt.capabilities.join(' + '))}` : ''}</small>
           <details>
             <summary>Run evidence</summary>
             <dl><dt>Working directory</dt><dd>${escapeHtml(receipt.workingDirectory || 'not recorded')}</dd><dt>Continuity</dt><dd>${escapeHtml(continuity)}</dd><dt>Room</dt><dd>${receipt.permission === 'write' ? `Entered ${formatWhen(receipt.consentedAt)}` : 'Looking only'}</dd></dl>

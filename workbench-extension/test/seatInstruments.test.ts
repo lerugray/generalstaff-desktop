@@ -95,8 +95,8 @@ test('desk chrome renders full seat names and health, never two-letter chips', a
   assert.match(css, /\.seat-bank \{/u);
   assert.match(css, /\.seat-instrument \{/u);
   assert.match(css, /flex-wrap:\s*wrap/u);
-  assert.match(css, /\.seat-instrument strong \{[\s\S]*?white-space:\s*normal/u);
-  assert.doesNotMatch(css, /\.seat-instrument strong \{[\s\S]*?white-space:\s*nowrap/u);
+  assert.match(css, /\.seat-instrument strong \{[^}]*white-space:\s*normal/u);
+  assert.doesNotMatch(css, /\.seat-instrument strong \{[^}]*white-space:\s*nowrap/u);
   assert.match(css, /\.meta-chips \.evidence-chip \{ display: none; \}/u);
   assert.doesNotMatch(css, /\.seat-bank[^{]*\{[^}]*display:\s*none/u);
   assert.doesNotMatch(css, /\.seat-instrument strong[^{]*\{[^}]*display:\s*none/u);

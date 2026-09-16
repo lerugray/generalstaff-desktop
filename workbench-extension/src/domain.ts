@@ -135,6 +135,16 @@ export interface ConversationDecision {
   answerOptionId?: string;
 }
 
+export type CraftReceiptTone = 'working' | 'done' | 'failed' | 'stopped';
+
+export interface CraftReceipt {
+  title: string;
+  what: string;
+  where: string;
+  status: string;
+  tone: CraftReceiptTone;
+}
+
 export interface ConversationReceipt {
   laneId: LaneId;
   laneName: string;
@@ -154,6 +164,8 @@ export interface ConversationReceipt {
   skillName?: string;
   capabilities?: string[];
   consentedAt?: number;
+  cards?: CraftReceipt[];
+  summary?: CraftReceipt;
 }
 
 export interface ConversationContextItem {
@@ -184,6 +196,6 @@ export interface Conversation {
 export type RunEvent =
   | { type: 'status'; text: string }
   | { type: 'assistant-delta'; text: string }
-  | { type: 'tool'; text: string }
+  | { type: 'tool'; text: string; place?: string }
   | { type: 'error'; text: string }
   | { type: 'complete'; receipt: ConversationReceipt };

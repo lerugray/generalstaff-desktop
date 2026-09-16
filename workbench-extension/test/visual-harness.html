@@ -87,7 +87,7 @@
             { id: 'error-user', role: 'user', text: 'Verify the release candidate.', status: 'complete', createdAt: now - 90000 },
             { id: 'error-assistant', role: 'assistant', text: 'Cursor could not complete the verification because its authenticated session is unavailable. No project files were changed.', status: 'error', createdAt: now - 85000 },
           ],
-          receipt: { laneId: 'cursor', laneName: 'Cursor Agent', seat: 'verify', effort: 'default', target: { kind: 'project', projectId: 'generalstaff' }, modelLabel: 'Cursor Agent · auto', startedAt: now - 90000, finishedAt: now - 85000, exitCode: 1, stopped: false, permission: 'read', workingDirectory: '/fleet/generalstaff', continuity: 'native', evidence: ['stderr: authentication unavailable'] },
+          receipt: { laneId: 'cursor', laneName: 'Cursor Agent', seat: 'verify', effort: 'default', target: { kind: 'project', projectId: 'generalstaff' }, modelLabel: 'Cursor Agent · auto', startedAt: now - 90000, finishedAt: now - 85000, exitCode: 1, stopped: false, permission: 'read', workingDirectory: '/fleet/generalstaff', continuity: 'native', evidence: ['stderr: authentication unavailable'], cards: [{ title: 'Read a file', what: 'Read a file.', where: 'product-contract.md in GeneralStaff', status: 'In progress', tone: 'working' }, { title: 'This step failed', what: 'Cursor could not complete the verification because its authenticated session is unavailable.', where: 'in GeneralStaff', status: 'Did not finish', tone: 'failed' }], summary: { title: 'Work did not finish', what: 'This pass could not finish in GeneralStaff.', where: 'in GeneralStaff', status: 'Did not finish', tone: 'failed' } },
         }];
         persisted.activeConversationId = 'error-conversation';
         persisted.selectedProjectId = 'generalstaff';
@@ -107,7 +107,7 @@
               { id: 'option-import', label: 'Import path', description: 'Prioritize bringing existing project data into the restored system.' },
             ],
           }],
-          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'orchestrate', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 120000, finishedAt: now - 90000, exitCode: 0, stopped: false, permission: 'read', workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: decision returned'] },
+          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'orchestrate', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 120000, finishedAt: now - 90000, exitCode: 0, stopped: false, permission: 'read', workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: decision returned'], cards: [{ title: 'Read a file', what: 'Read a file.', where: 'MISSION.md in SnesOS', status: 'In progress', tone: 'working' }], summary: { title: 'Work finished', what: 'Looked through SnesOS.', where: 'in SnesOS', status: 'Finished', tone: 'done' } },
         }];
         persisted.activeConversationId = 'decision-conversation';
         persisted.selectedProjectId = 'snesos';
@@ -120,7 +120,7 @@
             { id: 'consent-user', role: 'user', text: 'Prepare the next bounded playable slice and edit the project files that need it.', status: 'complete', createdAt: now - 240000 },
             { id: 'consent-assistant', role: 'assistant', text: 'The seat is inside SnesOS. File changes stay in that project.', status: 'complete', createdAt: now - 180000 },
           ],
-          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'build', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 240000, finishedAt: now - 180000, exitCode: 0, stopped: false, permission: 'write', consentedAt: now - 180000, workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: files changed inside SnesOS'] },
+          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'build', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 240000, finishedAt: now - 180000, exitCode: 0, stopped: false, permission: 'write', consentedAt: now - 180000, workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: files changed inside SnesOS'], cards: [{ title: 'Changed a file', what: 'Changed a file.', where: 'src/main.ts in SnesOS', status: 'In progress', tone: 'working' }], summary: { title: 'Work finished', what: 'Changed files in SnesOS.', where: 'in SnesOS', status: 'Finished', tone: 'done' } },
         }];
         persisted.activeConversationId = 'consent-conversation';
         persisted.selectedProjectId = 'snesos';
@@ -158,7 +158,18 @@
               if (selected) setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation: selected }, '*'), 25);
             }
             if (mode === 'active') {
-              setTimeout(() => window.postMessage({ type: 'run-event', conversationId: 'active-conversation', event: { type: 'status', text: 'Comparing claims with the packaged artifact' } }, '*'), 35);
+              setTimeout(() => window.postMessage({
+                type: 'run-event',
+                conversationId: 'active-conversation',
+                event: { type: 'tool', text: 'In progress' },
+                card: { title: 'Read a file', what: 'Read a file.', where: 'product-contract.md in GeneralStaff', status: 'In progress', tone: 'working' },
+              }, '*'), 35);
+              setTimeout(() => window.postMessage({
+                type: 'run-event',
+                conversationId: 'active-conversation',
+                event: { type: 'tool', text: 'In progress' },
+                card: { title: 'Searched the files', what: 'Searched the files.', where: 'in GeneralStaff', status: 'In progress', tone: 'working' },
+              }, '*'), 80);
             }
           }
           if (message.type === 'new-conversation') {
@@ -172,7 +183,8 @@
             conversation.title = message.text.slice(0, 54);
             conversation.messages.push({ id: 'user-1', role: 'user', text: message.text, status: 'complete', createdAt: Date.now() });
             conversation.messages.push({ id: 'assistant-1', role: 'assistant', text: 'I have the seat. I will inspect the governing context, keep the scope bounded, and return a verified receipt.', status: 'complete', createdAt: Date.now() + 1 });
-            conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, target: conversation.target, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: conversation.target.kind === 'general' ? '/fleet' : `/fleet/${conversation.target.projectId}`, continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'] };
+            const room = conversation.target.kind === 'general' ? 'General Staff' : conversation.target.projectId;
+            conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, target: conversation.target, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: conversation.target.kind === 'general' ? '/fleet' : `/fleet/${conversation.target.projectId}`, continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'], cards: [{ title: 'Read a file', what: 'Read a file.', where: `MISSION.md in ${room}`, status: 'In progress', tone: 'working' }], summary: { title: 'Work finished', what: conversation.permission === 'write' ? `Changed files in ${room}.` : `Looked through ${room}.`, where: `in ${room}`, status: 'Finished', tone: 'done' } };
             setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 80);
           }
           if (message.type === 'update-routing') {
@@ -197,14 +209,14 @@
             decision.answerOptionId = message.optionId;
             decision.answeredAt = Date.now();
             setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 10);
-            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: 'Continuing with your decision' } }, '*'), 30);
+            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: 'In progress' }, card: { title: 'Taking the Codex seat', what: 'Taking the Codex seat.', where: 'in SnesOS', status: 'In progress', tone: 'working' } }, '*'), 30);
           }
           if (message.type === 'retry-run') {
             const conversation = conversations.find((item) => item.id === message.conversationId);
             if (!conversation) return;
             conversation.messages.push({ id: `retry-${Date.now()}`, role: 'assistant', text: '', status: 'streaming', attempt: 'retry', createdAt: Date.now() });
             setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 10);
-            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: message.strategy === 'transcript' ? 'Starting transcript recovery' : 'Resuming the provider session' } }, '*'), 25);
+            setTimeout(() => window.postMessage({ type: 'run-event', conversationId: message.conversationId, event: { type: 'status', text: 'In progress' }, card: { title: message.strategy === 'transcript' ? 'Continued from the written record' : 'Taking the Codex seat', what: message.strategy === 'transcript' ? 'Continued from the written record.' : 'Taking the Codex seat.', where: 'in GeneralStaff', status: 'In progress', tone: 'working' } }, '*'), 25);
           }
         },
       });

@@ -28,6 +28,14 @@ test('normalizes tool and error events without exposing credentials', () => {
     type: 'tool',
     text: 'ReadFile',
   });
+  assert.deepEqual(
+    normalizeCliLine('claude', JSON.stringify({
+      type: 'tool_use',
+      name: 'Read',
+      input: { path: '/fleet/snesos/src/main.ts' },
+    })),
+    { type: 'tool', text: 'Read', place: '/fleet/snesos/src/main.ts' },
+  );
   const error = normalizeCliLine(
     'cline',
     JSON.stringify({ type: 'error', message: 'AUTH_TOKEN=abcdefghijklmnopqrstuvwxyz failed' }),

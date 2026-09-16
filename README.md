@@ -12,7 +12,7 @@ Workbench reads the selected GeneralStaff root and builds its project view from 
 
 The Orchestrator session is pinned above the project list and opens by default as the full command deck. Every message belongs to the same host-owned session and runs with `cwd` set to the GeneralStaff root, so follow-ups retain the visible transcript and, when supported, the same native provider conversation. The project list is the narrower path: selecting a project keeps the existing one-order-at-a-time repository/state behavior.
 
-The orchestrator transcript, selected model, effort, permission, skill, decisions, and latest receipt persist across Workbench and extension-host restarts. Native provider session identifiers remain host-only. When native resume is unavailable or a model/security boundary changes, the same visible session continues through a bounded transcript handoff. Project conversations remain separately scoped to one project.
+The orchestrator transcript, selected model, effort, permission, skill, decisions, and latest receipt persist across Workbench and extension-host restarts. Tool and run cards on that receipt say what happened, where, and how the pass ended. Native provider session identifiers remain host-only. When native resume is unavailable or a model/security boundary changes, the same visible session continues through a bounded transcript handoff. Project conversations remain separately scoped to one project.
 
 Closing the Workbench while idle simply reattaches to the same orchestrator session on reopen. Closing during a turn stops the owned provider process and records a recoverable interruption; the transcript and session identity survive, but the extension does not claim that an in-flight process remains alive in the background.
 

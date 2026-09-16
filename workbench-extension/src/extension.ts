@@ -4,12 +4,20 @@ import * as vscode from 'vscode';
 import { supportsNativeResume, type ActiveRun } from './adapters/cliAdapter.js';
 import { runAdapter } from './adapters/runAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
-import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
+import type { CommandTarget, ConversationContextItem, ConversationMessage, CraftReceipt, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
 import {
   consentNotices,
   consentRoomName,
   writeConsentPrompt,
 } from './consentRoom.js';
+import {
+  keepStatusCard,
+  rememberCard,
+  roomNameForTarget,
+  runReceiptFromResult,
+  toolReceiptFromEvent,
+} from './craftReceipts.js';
+import { redact } from './security/redaction.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
@@ -469,6 +477,23 @@ class CommandDeckPanel {
       let output = '';
       let encounteredError = false;
       let outputClipped = false;
+      let cards: CraftReceipt[] = [];
+      const target = conversation.target;
+      const projectId = target.kind === 'project' ? target.projectId : undefined;
+      const projectName = projectId
+        ? this.snapshot.projects.find((project) => project.id === projectId)?.name
+        : undefined;
+      const roomName = roomNameForTarget(target, projectName);
+      const craftContext = { roomName, workingDirectory: cwd };
+      const keepCard = (card: CraftReceipt) => {
+        cards = rememberCard(cards, {
+          title: redact(card.title, 200),
+          what: redact(card.what, 300),
+          where: redact(card.where, 200),
+          status: redact(card.status, 80),
+          tone: card.tone,
+        });
+      };
       const appendOutput = (chunk: string) => {
         const limit = 200_000;
         if (output.length >= limit) return;
@@ -500,13 +525,29 @@ class CommandDeckPanel {
             void this.stream(conversationId, assistant.id, output, 'streaming');
           } else if (event.type === 'error') {
             encounteredError = true;
+            const card = toolReceiptFromEvent({ kind: 'error', text: event.text, ...craftContext });
+            keepCard(card);
             appendOutput(`${output ? '\n\n' : ''}${event.text}`);
             void this.stream(conversationId, assistant.id, output, 'error');
-          } else if (event.type === 'status' || event.type === 'tool') {
             void this.panel.webview.postMessage({
               type: 'run-event',
               conversationId,
-              event: { type: event.type, text: event.text },
+              event: { type: event.type, text: card.status },
+              card,
+            });
+          } else if (event.type === 'status' || event.type === 'tool') {
+            const card = toolReceiptFromEvent({
+              kind: event.type,
+              text: event.text,
+              ...(event.type === 'tool' && event.place ? { place: event.place } : {}),
+              ...craftContext,
+            });
+            if (event.type === 'tool' || keepStatusCard(event.text)) keepCard(card);
+            void this.panel.webview.postMessage({
+              type: 'run-event',
+              conversationId,
+              event: { type: event.type, text: card.status },
+              card,
             });
           }
         },
@@ -517,18 +558,30 @@ class CommandDeckPanel {
       void run.completed
         .then(async (completion) => {
           const capabilityNames = privateCapabilityReceiptNames(privateRuntime, lane, conversation.permission);
+          const summary = runReceiptFromResult({
+            exitCode: completion.receipt.exitCode,
+            stopped: completion.receipt.stopped,
+            permission: completion.receipt.permission,
+            workingDirectory: completion.receipt.workingDirectory,
+            roomName,
+            laneName: completion.receipt.laneName,
+            continuity: completion.receipt.continuity,
+            ...(skill?.id ? { skillId: skill.id } : {}),
+          });
           const receipt = {
             ...completion.receipt,
             ...(skill ? { skillId: skill.id, skillName: skill.name } : {}),
             ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
+            ...(cards.length ? { cards } : {}),
+            summary,
           };
           const failed = encounteredError || receipt.exitCode !== 0 || receipt.stopped;
           if (!output.trim()) {
             output = receipt.stopped
-              ? 'This run was stopped.'
+              ? 'This pass was stopped.'
               : receipt.exitCode === 0
-                ? 'The lane completed without a text response. Open the command target to inspect its work.'
-                : `The lane exited with code ${receipt.exitCode ?? 'unknown'}.`;
+                ? 'The seat finished without a written reply. Open the project to see the work.'
+                : 'This pass did not finish.';
           }
           if (completion.providerSessionId) {
             await this.store.setProviderSession(

@@ -397,6 +397,28 @@ function textAt(value: unknown, keys: string[]): string | undefined {
   return undefined;
 }
 
+function looksLikePlace(value: string): boolean {
+  return value.length < 400 && !/\n/u.test(value) && /[\\/]|\.[\w]{1,8}$/u.test(value);
+}
+
+function toolPlace(record: Record<string, unknown>, depth = 0): string | undefined {
+  if (depth > 4) return undefined;
+  const direct = textAt(record, ['path', 'file_path', 'filePath', 'filename', 'filepath', 'target_file', 'cwd', 'directory']);
+  if (direct && looksLikePlace(direct)) return redact(direct);
+  for (const key of ['input', 'args', 'arguments', 'item', 'tool_input']) {
+    const nested = record[key];
+    if (typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
+      const found = toolPlace(nested as Record<string, unknown>, depth + 1);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function toolEvent(text: string, place?: string): { type: 'tool'; text: string; place?: string } {
+  return { type: 'tool', text, ...(place ? { place } : {}) };
+}
+
 function nestedText(value: unknown, depth = 0): string | undefined {
   if (depth > 5) return undefined;
   if (typeof value === 'string') return value.trim() ? value : undefined;
@@ -469,13 +491,13 @@ export function normalizeCliLine(laneId: LaneId, line: string): RunEvent | undef
         if (text) return { type: 'assistant-delta', text };
       }
       const command = textAt(itemRecord, ['command', 'name']);
-      if (command) return { type: 'tool', text: command };
+      if (command) return toolEvent(command, toolPlace(itemRecord));
     }
   }
 
   if (/tool|command|action/i.test(type)) {
     const tool = textAt(record, ['name', 'tool', 'command', 'text']);
-    return tool ? { type: 'tool', text: tool } : undefined;
+    return tool ? toolEvent(tool, toolPlace(record)) : undefined;
   }
 
   if (/error|failed/i.test(type)) {

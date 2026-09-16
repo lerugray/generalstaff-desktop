@@ -30,6 +30,47 @@ test('write consent survives restore as a grant for the same target', async () =
   assert.equal(restored?.writeConsent?.at, conversation.writeConsent?.at);
 });
 
+test('craft receipt cards survive restore on the run receipt', async () => {
+  const memory = new MemoryMemento();
+  const first = new ConversationStore(memory);
+  const conversation = await first.create({ kind: 'project', projectId: 'snesos' }, 'codex', 'build', 'default', 'read');
+  await first.setReceipt(conversation.id, {
+    laneId: 'codex',
+    laneName: 'Codex',
+    seat: 'build',
+    effort: 'default',
+    target: { kind: 'project', projectId: 'snesos' },
+    modelLabel: 'GPT-5.6 Sol · high',
+    startedAt: 1,
+    finishedAt: 2,
+    exitCode: 1,
+    stopped: false,
+    permission: 'read',
+    workingDirectory: '/fleet/snesos',
+    evidence: ['stderr: authentication unavailable'],
+    continuity: 'new',
+    cards: [{
+      title: 'This step failed',
+      what: 'This pass hit a problem.',
+      where: 'in SnesOS',
+      status: 'Did not finish',
+      tone: 'failed',
+    }],
+    summary: {
+      title: 'Work did not finish',
+      what: 'This pass could not finish in SnesOS.',
+      where: 'in SnesOS',
+      status: 'Did not finish',
+      tone: 'failed',
+    },
+  });
+
+  const restored = new ConversationStore(memory).get(conversation.id);
+  assert.equal(restored?.receipt?.summary?.title, 'Work did not finish');
+  assert.equal(restored?.receipt?.cards?.[0]?.where, 'in SnesOS');
+  assert.doesNotMatch(JSON.stringify(restored?.receipt?.summary), /exit/i);
+});
+
 test('conversation state survives a new store instance', async () => {
   const memory = new MemoryMemento();
   const first = new ConversationStore(memory);

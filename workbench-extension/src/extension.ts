@@ -15,6 +15,7 @@ import {
   rememberCard,
   roomNameForTarget,
   runReceiptFromResult,
+  sealCards,
   toolReceiptFromEvent,
 } from './craftReceipts.js';
 import { redact } from './security/redaction.js';
@@ -572,7 +573,7 @@ class CommandDeckPanel {
             ...completion.receipt,
             ...(skill ? { skillId: skill.id, skillName: skill.name } : {}),
             ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
-            ...(cards.length ? { cards } : {}),
+            ...(cards.length ? { cards: sealCards(cards) } : {}),
             summary,
           };
           const failed = encounteredError || receipt.exitCode !== 0 || receipt.stopped;

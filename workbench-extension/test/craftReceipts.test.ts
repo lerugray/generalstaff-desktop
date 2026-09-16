@@ -9,6 +9,7 @@ import {
   receiptWhere,
   rememberCard,
   runReceiptFromResult,
+  sealCards,
   shortPlace,
   toolAction,
   toolReceiptFromEvent,
@@ -126,8 +127,9 @@ test('duplicate slips collapse and new copy has no em dashes', () => {
   const first = toolReceiptFromEvent({ kind: 'tool', text: 'Read', roomName: 'SnesOS' });
   const kept = rememberCard(rememberCard([], first), first);
   assert.equal(kept.length, 1);
+  assert.deepEqual(sealCards(kept)[0], { ...first, status: 'Recorded', tone: 'done' });
   const copy = JSON.stringify({
-    tools: ['Read a file', 'Wrote a file', 'Changed a file', 'Taking the Codex seat'],
+    tools: ['Read a file', 'Wrote a file', 'Changed a file', 'Taking the Codex seat', 'Recorded'],
     run: runReceiptFromResult({ exitCode: 1, stopped: false, permission: 'read', roomName: 'SnesOS' }),
     labels: [continuityLabel('native'), continuityLabel('new'), receiptWhere({})],
   });

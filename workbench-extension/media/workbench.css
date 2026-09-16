@@ -2038,6 +2038,8 @@ select:focus-visible {
 .craft-receipt,
 .receipt {
   display: flex;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 760px;
   align-items: flex-start;
   gap: 11px;

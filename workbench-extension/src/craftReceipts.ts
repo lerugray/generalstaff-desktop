@@ -230,6 +230,12 @@ export function rememberCard(cards: CraftReceipt[], next: CraftReceipt | undefin
   return [...cards, next].slice(-maxCraftCards);
 }
 
+export function sealCards(cards: CraftReceipt[]): CraftReceipt[] {
+  return cards.map((card) => (
+    card.tone === 'working' ? { ...card, status: 'Recorded', tone: 'done' } : card
+  ));
+}
+
 export function receiptFromConversation(receipt: ConversationReceipt, roomName?: string): CraftReceipt {
   return receipt.summary ?? runReceiptFromResult({
     exitCode: receipt.exitCode,

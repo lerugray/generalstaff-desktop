@@ -19,6 +19,8 @@ test('the orchestrator session is the default dominant surface and project order
   assert.match(webview, /Open workshop/u);
   assert.match(webview, /id="target-select"/u);
   assert.match(webview, /meter-chip/u);
+  assert.match(webview, /class="seat-bank"/u);
+  assert.match(webview, /class="seat-reading"/u);
   assert.ok(
     webview.indexOf('class="general-command-target') < webview.indexOf('<nav class="rail-nav"'),
     'the orchestrator session must remain above the scrolling project-order rail',

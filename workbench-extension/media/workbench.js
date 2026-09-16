@@ -49,6 +49,20 @@
     assist: ['Fast assist', 'Answer or investigate without expanding scope.'],
   };
 
+  function seatReading(seatId) {
+    const lanes = state.snapshot?.lanes || [];
+    const supporting = lanes.filter((lane) => (lane.roles || []).includes(seatId));
+    const available = supporting.filter((lane) => lane.state === 'available');
+    const checking = supporting.filter((lane) => lane.state === 'checking');
+    let health = 'ready';
+    if (available.length === 0) {
+      health = checking.length > 0 ? 'thin' : 'down';
+    } else if (available.length < supporting.length) {
+      health = 'thin';
+    }
+    return { health, available: available.length, supporting: supporting.length };
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replaceAll('&', '&amp;')
@@ -263,29 +277,44 @@
     return `<span class="meter-chip">${available} of ${lanes.length} lanes ready</span>`;
   }
 
+  function renderSeatBank() {
+    if (!state.snapshot?.rootPath) return '';
+    const active = currentConversation();
+    const locked = active?.kind === 'orchestrator' || Boolean(active && state.runStatus[active.id]);
+    return `
+      <div class="seat-bank" role="group" aria-label="Seats">
+        ${Object.entries(seatCopy)
+          .map(([id, copy]) => {
+            const reading = seatReading(id);
+            const selected = id === state.selectedSeat;
+            const title = `${copy[0]}. ${reading.available} of ${reading.supporting} lanes ready.`;
+            return `
+              <button
+                type="button"
+                class="seat-instrument ${reading.health}${selected ? ' selected' : ''}"
+                data-seat-id="${escapeHtml(id)}"
+                aria-pressed="${selected}"
+                title="${escapeHtml(title)}"
+                ${locked ? 'disabled' : ''}
+              >
+                <strong>${escapeHtml(copy[0])}</strong>
+                <small class="seat-health">${reading.health}</small>
+              </button>`;
+          })
+          .join('')}
+      </div>`;
+  }
+
   function renderTopbar(title, eyebrow) {
     return `
       <header class="topbar">
-        <div><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
+        <div class="topbar-identity"><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
         <div class="topbar-actions">
           ${state.snapshot?.rootPath ? `${renderTargetSelect()}${renderLaneMeter()}` : ''}
           <button class="ghost-button" data-action="toggle-workshop">${state.workshopOpen ? 'Return to desk' : 'Open workshop'}</button>
         </div>
+        ${renderSeatBank()}
       </header>`;
-  }
-
-  function renderSeatSelect() {
-    const active = currentConversation();
-    const disabled = active?.kind === 'orchestrator' || (active && state.runStatus[active.id]);
-    return `
-      <label class="select-field">
-        <span>Seat</span>
-        <select id="seat-select" ${disabled ? 'disabled' : ''}>
-          ${Object.entries(seatCopy)
-            .map(([id, copy]) => `<option value="${id}" ${id === state.selectedSeat ? 'selected' : ''}>${copy[0]}</option>`)
-            .join('')}
-        </select>
-      </label>`;
   }
 
   function renderLaneSelect() {
@@ -359,7 +388,7 @@
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
         <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
-          <div class="composer-selects">${renderSeatSelect()}${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
+          <div class="composer-selects">${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
           <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
             <span>${orchestrator ? 'Send' : 'Issue order'}</span><span class="send-arrow">↑</span>
           </button>
@@ -600,8 +629,9 @@
           <div class="conversation-meta">
             ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
+              <span class="seat-reading">${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)} · ${escapeHtml(seatReading(conversation.seat).health)}</span>
               <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
-              <span>${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
+              <span class="evidence-chip">${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
@@ -723,6 +753,7 @@
     const decisionId = target.dataset.decisionId;
     const optionId = target.dataset.optionId;
     const themeId = target.dataset.themeId;
+    const seatId = target.dataset.seatId;
     const action = target.dataset.action;
 
     if (themeId) {
@@ -739,6 +770,11 @@
       state.selectedLaneId = laneId;
       ensureSelections();
       render();
+    } else if (seatId) {
+      state.selectedSeat = seatId;
+      ensureSelections();
+      render();
+      postRoutingUpdate();
     } else if (conversationId) {
       const conversation = state.conversations.find((item) => item.id === conversationId);
       state.activeConversationId = conversationId;
@@ -823,12 +859,6 @@
   });
 
   app.addEventListener('change', (event) => {
-    if (event.target.id === 'seat-select') {
-      state.selectedSeat = event.target.value;
-      ensureSelections();
-      render();
-      postRoutingUpdate();
-    }
     if (event.target.id === 'lane-select') {
       state.selectedLaneId = event.target.value;
       ensureSelections();

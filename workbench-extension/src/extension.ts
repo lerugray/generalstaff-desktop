@@ -28,8 +28,37 @@ import {
   type PrivateRuntimeOptions,
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
+import { applyDeskLayout, applyWorkshopLayout, type LayoutHost } from './deskLayout.js';
 
 const viewType = 'generalstaff.commandDeck';
+
+function createLayoutHost(): LayoutHost {
+  return {
+    executeCommand: (command) => vscode.commands.executeCommand(command),
+    updateWorkbenchSetting: async (key, value) => {
+      const config = vscode.workspace.getConfiguration('workbench');
+      const inspect = config.inspect(key);
+      const target = inspect?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+      await config.update(key, value, target);
+    },
+  };
+}
+
+const layoutHost = createLayoutHost();
+let workshopOpen = false;
+
+async function setWorkshopOpen(open: boolean): Promise<void> {
+  workshopOpen = open;
+  if (open) {
+    await applyWorkshopLayout(layoutHost);
+  } else {
+    CommandDeckPanel.current?.reveal();
+    await applyDeskLayout(layoutHost, { closeOtherEditors: true });
+  }
+  CommandDeckPanel.current?.notifyWorkshop(open);
+}
 
 interface StartRunOptions {
   appendUser?: boolean;
@@ -88,6 +117,14 @@ class CommandDeckPanel {
 
   static shutdown(): void {
     CommandDeckPanel.current?.dispose();
+  }
+
+  reveal(): void {
+    this.panel.reveal(vscode.ViewColumn.One);
+  }
+
+  notifyWorkshop(open: boolean): void {
+    void this.panel.webview.postMessage({ type: 'workshop-state', open });
   }
 
   focusComposer(): void {
@@ -152,6 +189,7 @@ class CommandDeckPanel {
 
     if (message.type === 'ready' || message.type === 'refresh') {
       await this.refreshAndSend();
+      this.notifyWorkshop(workshopOpen);
       return;
     }
 
@@ -285,6 +323,9 @@ class CommandDeckPanel {
         return;
       case 'choose-root':
         await this.chooseRoot();
+        return;
+      case 'toggle-workshop':
+        await setWorkshopOpen(!workshopOpen);
         return;
       case 'save-note':
         if (!this.snapshot.projects.some((project) => project.id === message.projectId)) return;
@@ -624,13 +665,15 @@ class CommandDeckPanel {
   }
 
   private openTerminal(commandTarget: CommandTarget = { kind: 'general' }): void {
-    const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
-    const cwd = target?.workingDirectory ?? this.snapshot?.rootPath;
-    const terminal = vscode.window.createTerminal({
-      name: target ? `${target.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
-      ...(cwd ? { cwd } : {}),
+    void setWorkshopOpen(true).then(() => {
+      const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
+      const cwd = target?.workingDirectory ?? this.snapshot?.rootPath;
+      const terminal = vscode.window.createTerminal({
+        name: target ? `${target.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
+        ...(cwd ? { cwd } : {}),
+      });
+      terminal.show();
     });
-    terminal.show();
   }
 
   private async pickContext(commandTarget: CommandTarget): Promise<void> {
@@ -680,6 +723,7 @@ class CommandDeckPanel {
       const resolved = resolveOpenFilePath(candidate, this.snapshot.rootPath, this.snapshot.projects);
       const uri = vscode.Uri.file(resolved);
       const extension = path.extname(resolved).toLowerCase();
+      await setWorkshopOpen(true);
       if (extension === '.md') {
         await vscode.commands.executeCommand('markdown.showPreview', uri);
       } else if (extension === '.html' || extension === '.htm') {
@@ -719,7 +763,7 @@ class CommandDeckPanel {
     <div id="app" aria-live="polite">
       <div class="boot">
         <div class="boot-mark">GS</div>
-        <div><strong>Opening Command Deck</strong><span>Reading the fleet without interrupting active work…</span></div>
+        <div><strong>Opening the desk</strong><span>Reading the fleet without interrupting active work…</span></div>
       </div>
     </div>
     <script nonce="${nonce}" src="${script}"></script>
@@ -738,6 +782,9 @@ class CommandDeckPanel {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  const immersive = vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', true);
+  workshopOpen = !immersive;
+
   context.subscriptions.push(
     vscode.commands.registerCommand('generalstaff.openCommandDeck', () => CommandDeckPanel.show(context)),
     vscode.commands.registerCommand('generalstaff.newConversation', () => {
@@ -748,21 +795,27 @@ export function activate(context: vscode.ExtensionContext): void {
       await CommandDeckPanel.show(context).refresh();
     }),
     vscode.commands.registerCommand('generalstaff.openRawTerminal', () => {
-      vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
+      void setWorkshopOpen(true).then(() => {
+        vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
+      });
     }),
+    vscode.commands.registerCommand('generalstaff.openWorkshop', () => setWorkshopOpen(true)),
+    vscode.commands.registerCommand('generalstaff.returnToDesk', () => setWorkshopOpen(false)),
   );
+
+  if (immersive) {
+    void applyDeskLayout(layoutHost);
+  }
 
   if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('openOnLaunch', true)) {
     const timer = setTimeout(() => {
-      CommandDeckPanel.show(context);
-      if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', false)) {
-        void Promise.all([
-          vscode.commands.executeCommand('workbench.action.closeSidebar'),
-          vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar'),
-          vscode.commands.executeCommand('workbench.action.closePanel'),
-        ]);
+      const panel = CommandDeckPanel.show(context);
+      panel.reveal();
+      if (immersive) {
+        void applyDeskLayout(layoutHost, { closeOtherEditors: true });
       }
-    }, 350);
+      panel.notifyWorkshop(workshopOpen);
+    }, 120);
     context.subscriptions.push({ dispose: () => clearTimeout(timer) });
   }
 }

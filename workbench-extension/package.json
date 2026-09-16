@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -47,6 +47,16 @@
       {
         "command": "generalstaff.openRawTerminal",
         "title": "GeneralStaff: Open Supporting Terminal",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.openWorkshop",
+        "title": "GeneralStaff: Open Workshop",
+        "category": "GeneralStaff"
+      },
+      {
+        "command": "generalstaff.returnToDesk",
+        "title": "GeneralStaff: Return to Desk",
         "category": "GeneralStaff"
       }
     ],
@@ -93,8 +103,8 @@
         },
         "generalstaff.immersiveMode": {
           "type": "boolean",
-          "default": false,
-          "description": "Give the Command Deck the full window by closing VS Code's supporting sidebars and panel on launch. The packaged GeneralStaff workspace enables this."
+          "default": true,
+          "description": "Arrive at the desk: hide VS Code sidebars, the activity bar, and the panel so the session fills the window. Open workshop when you want the editor tools."
         }
       }
     }

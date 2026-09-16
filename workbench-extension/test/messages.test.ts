@@ -91,6 +91,10 @@ test('does not accept inherited or malformed message shapes', () => {
   assert.equal(parseWebviewMessage({ type: 'open-file', path: '' }), undefined);
 });
 
+test('accepts the workshop toggle', () => {
+  assert.deepEqual(parseWebviewMessage({ type: 'toggle-workshop' }), { type: 'toggle-workshop' });
+});
+
 test('accepts bounded recovery and decision commands and rejects invented strategies', () => {
   assert.deepEqual(
     parseWebviewMessage({ type: 'retry-run', conversationId: 'one', strategy: 'transcript' }),

@@ -37,7 +37,9 @@
     runStatus: {},
     pendingActionConversationId: null,
     notice: null,
+    workshopOpen: false,
   };
+  let deskArrived = false;
 
   const seatCopy = {
     orchestrate: ['Orchestrate', 'Direct work, preserve decisions, and judge completion.'],
@@ -237,15 +239,37 @@
       </aside>`;
   }
 
+  function renderTargetSelect() {
+    const projects = state.snapshot?.projects || [];
+    const generalSelected = state.selectedTargetKind !== 'project';
+    return `
+      <label class="select-field target-field">
+        <span>Target</span>
+        <select id="target-select">
+          <option value="general" ${generalSelected ? 'selected' : ''}>General Staff</option>
+          ${projects
+            .map(
+              (project) =>
+                `<option value="project:${escapeHtml(project.id)}" ${!generalSelected && project.id === state.selectedProjectId ? 'selected' : ''}>${escapeHtml(project.name)}</option>`,
+            )
+            .join('')}
+        </select>
+      </label>`;
+  }
+
+  function renderLaneMeter() {
+    const lanes = state.snapshot?.lanes || [];
+    const available = lanes.filter((lane) => lane.state === 'available').length;
+    return `<span class="meter-chip">${available} of ${lanes.length} lanes ready</span>`;
+  }
+
   function renderTopbar(title, eyebrow) {
-    const now = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date());
     return `
       <header class="topbar">
         <div><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
         <div class="topbar-actions">
-          <span class="date-chip">${escapeHtml(now)}</span>
-          <button class="ghost-button" data-action="open-terminal">Terminal</button>
-          <button class="avatar" title="Operator">RW</button>
+          ${state.snapshot?.rootPath ? `${renderTargetSelect()}${renderLaneMeter()}` : ''}
+          <button class="ghost-button" data-action="toggle-workshop">${state.workshopOpen ? 'Return to desk' : 'Open workshop'}</button>
         </div>
       </header>`;
   }
@@ -623,7 +647,8 @@
     const selectionEnd = oldPrompt?.selectionEnd;
     ensureSelections();
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
-    app.innerHTML = `<div class="workbench">${renderRail()}${content}${renderNotice()}</div>`;
+    app.innerHTML = `<div class="workbench${deskArrived ? '' : ' arriving'}">${renderRail()}${content}${renderNotice()}</div>`;
+    deskArrived = true;
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
         const stream = document.querySelector('.message-stream');
@@ -792,6 +817,8 @@
       vscode.postMessage({ type: 'pick-context', target: currentConversation()?.target || currentTarget() });
     } else if (action === 'choose-root') {
       vscode.postMessage({ type: 'choose-root' });
+    } else if (action === 'toggle-workshop') {
+      vscode.postMessage({ type: 'toggle-workshop' });
     }
   });
 
@@ -822,6 +849,18 @@
       state.selectedPermission = event.target.value;
       render();
       postRoutingUpdate();
+    }
+    if (event.target.id === 'target-select') {
+      const value = event.target.value;
+      if (value === 'general') {
+        selectOrchestratorSession();
+      } else if (value.startsWith('project:')) {
+        state.selectedTargetKind = 'project';
+        state.selectedProjectId = value.slice('project:'.length);
+        state.activeConversationId = null;
+        state.selectedPermission = 'read';
+      }
+      render();
     }
   });
 
@@ -971,6 +1010,9 @@
       selectOrchestratorSession();
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
+    } else if (message.type === 'workshop-state') {
+      state.workshopOpen = Boolean(message.open);
+      render();
     }
   });
 

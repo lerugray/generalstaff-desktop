@@ -24,6 +24,8 @@ if not exist "%CODE_EXE%" (
 if not exist "%RUNTIME_ROOT%\user" mkdir "%RUNTIME_ROOT%\user"
 if not exist "%RUNTIME_ROOT%\extensions" mkdir "%RUNTIME_ROOT%\extensions"
 
+copy /Y "%REPO_ROOT%\distribution\generalstaff-workbench.code-workspace" "%RUNTIME_ROOT%\generalstaff-workbench.code-workspace" >nul
+
 if not exist "%EXTENSION_PACKAGE%" (
   echo The packaged Workbench extension is missing.
   echo Run scripts\build-workbench.cmd once, then launch again.
@@ -33,4 +35,4 @@ if not exist "%EXTENSION_PACKAGE%" (
 call "%CODE_EXE%" --user-data-dir "%RUNTIME_ROOT%\user" --extensions-dir "%RUNTIME_ROOT%\extensions" --install-extension "%EXTENSION_PACKAGE%" --force
 if errorlevel 1 exit /b 1
 
-start "GeneralStaff Workbench" "%CODE_EXE%" --user-data-dir "%RUNTIME_ROOT%\user" --extensions-dir "%RUNTIME_ROOT%\extensions" --new-window --disable-telemetry --disable-updates --disable-workspace-trust --skip-welcome --skip-release-notes "%REPO_ROOT%\distribution\generalstaff-workbench.code-workspace"
+start "GeneralStaff Workbench" "%CODE_EXE%" --user-data-dir "%RUNTIME_ROOT%\user" --extensions-dir "%RUNTIME_ROOT%\extensions" --new-window --disable-telemetry --disable-updates --disable-workspace-trust --skip-welcome --skip-release-notes "%RUNTIME_ROOT%\generalstaff-workbench.code-workspace"

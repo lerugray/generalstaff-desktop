@@ -64,7 +64,7 @@ test('desk chrome treats consent as a room, not a developer checkbox', async () 
   assert.doesNotMatch(webview, /Can edit repo/u);
   assert.doesNotMatch(webview, /Enable edit access/u);
   assert.doesNotMatch(webview, /Edit access enabled/u);
-  assert.match(css, /\.consent-receipt \{/u);
+  assert.match(css, /\.consent-receipt,/u);
   assert.match(css, /\.room-gate \{/u);
   assert.match(css, /@keyframes room-enter/u);
 });

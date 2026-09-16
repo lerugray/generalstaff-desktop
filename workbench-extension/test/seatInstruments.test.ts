@@ -92,7 +92,7 @@ test('desk chrome renders full seat names and health, never two-letter chips', a
   }
   assert.doesNotMatch(webview, /id="seat-select"/u);
   assert.doesNotMatch(webview, /seatCopy\[[^\]]+\]\s*\?\.\s*\[0\]\.slice\(0,\s*2\)/u);
-  assert.match(css, /\.seat-bank \{/u);
+  assert.match(css, /\.seat-bank \{[^}]*grid-template-columns:/u);
   assert.match(css, /\.seat-instrument \{/u);
   assert.match(css, /flex-wrap:\s*wrap/u);
   assert.match(css, /\.seat-instrument strong \{[^}]*white-space:\s*normal/u);

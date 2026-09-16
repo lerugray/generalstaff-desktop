@@ -777,17 +777,16 @@ select:focus-visible {
 }
 
 .seat-bank {
-  display: flex;
+  display: grid;
   grid-column: 1 / -1;
   min-width: 0;
-  flex-wrap: wrap;
+  grid-template-columns: repeat(auto-fit, minmax(8.75rem, 1fr));
   gap: 8px;
 }
 
 .seat-instrument {
   display: flex;
-  min-width: min(100%, 8.5rem);
-  flex: 1 1 9.5rem;
+  min-width: 0;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
@@ -2419,7 +2418,7 @@ select:focus-visible {
   .brand small { display: none; }
   .topbar { grid-template-columns: minmax(0, 1fr); }
   .topbar-actions { justify-content: flex-start; }
-  .seat-instrument { flex: 1 1 calc(50% - 8px); max-width: calc(50% - 8px); }
+  .seat-bank { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .content { padding-inline: 18px; }
   .hero { padding: 25px; }
   .hero-copy { display: block; }

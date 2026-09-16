@@ -123,6 +123,9 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.match(webview, /Return to desk/);
   assert.match(webview, /id="target-select"/);
   assert.match(webview, /meter-chip/);
+  assert.match(webview, /class="seat-bank"/);
+  assert.match(webview, /class="seat-instrument/);
+  assert.match(webview, /Fast assist/);
   assert.match(launcher, /workspace_file="\$runtime_root\/generalstaff-workbench\.code-workspace"/);
   assert.match(windowsLauncher, /%RUNTIME_ROOT%\\generalstaff-workbench\.code-workspace/);
   assert.match(css, /\.workbench \{\s*display: grid/u);

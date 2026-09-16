@@ -136,6 +136,23 @@
     return state.conversations.find((conversation) => conversation.id === state.activeConversationId);
   }
 
+  function currentRoomName(conversation) {
+    const active = conversation || currentConversation();
+    if (active?.target?.kind === 'project') {
+      return conversationProject(active)?.name || 'this project';
+    }
+    if (active?.target?.kind === 'general') return 'General Staff';
+    return currentProject()?.name || 'General Staff';
+  }
+
+  function consentGranted(conversation) {
+    return conversation?.permission === 'write';
+  }
+
+  function consentEnteredAt(conversation) {
+    return conversation?.writeConsent?.at || conversation?.updatedAt;
+  }
+
   function selectOrchestratorSession(clearDraft = false) {
     state.activeConversationId = state.orchestratorSessionId;
     state.selectedTargetKind = 'general';
@@ -330,16 +347,47 @@
       </label>`;
   }
 
-  function renderPermissionSelect() {
-    const disabled = currentConversation() && state.runStatus[currentConversation().id];
+  function renderRoomGate() {
+    const conversation = currentConversation();
+    const roomName = currentRoomName(conversation);
+    const disabled = Boolean(conversation && state.runStatus[conversation.id]);
+    const granted = consentGranted(conversation);
+    const pending = state.selectedPermission === 'write' && !granted;
+    if (granted || pending) {
+      return `
+        <div class="room-gate ${granted ? 'inside' : 'pending'}">
+          <span>${granted ? `Inside ${escapeHtml(roomName)}` : 'Look only'}</span>
+          <button type="button" data-action="leave-room" ${disabled ? 'disabled' : ''}>Look only</button>
+        </div>`;
+    }
     return `
-      <label class="select-field permission-field ${state.selectedPermission === 'write' ? 'write' : ''}">
-        <span>Access</span>
-        <select id="permission-select" ${disabled ? 'disabled' : ''}>
-          <option value="read" ${state.selectedPermission === 'read' ? 'selected' : ''}>Read only</option>
-          <option value="write" ${state.selectedPermission === 'write' ? 'selected' : ''}>Can edit repo</option>
-        </select>
-      </label>`;
+      <div class="room-gate">
+        <span>Look only</span>
+        <button type="button" class="room-enter" data-action="enter-room" ${disabled ? 'disabled' : ''}>Enter ${escapeHtml(roomName)}</button>
+      </div>`;
+  }
+
+  function renderConsentPlaque() {
+    const conversation = currentConversation();
+    const roomName = currentRoomName(conversation);
+    if (consentGranted(conversation)) {
+      return `
+        <div class="consent-receipt" role="status">
+          <div>
+            <strong>Inside ${escapeHtml(roomName)}</strong>
+            <span>This seat can change files in ${escapeHtml(roomName)}.</span>
+          </div>
+          <small>Entered ${formatWhen(consentEnteredAt(conversation))}</small>
+        </div>`;
+    }
+    if (state.selectedPermission === 'write') {
+      return `
+        <div class="consent-pending">
+          <strong>About to change files in ${escapeHtml(roomName)}.</strong>
+          <span>${conversation ? 'Confirm to enter this room.' : 'The key turns when you send.'}</span>
+        </div>`;
+    }
+    return '';
   }
 
   function renderEffortSelect() {
@@ -385,10 +433,10 @@
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>` : ''}
-        ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>The lane may modify only the ${general ? 'private GeneralStaff root' : 'discovered project repository'}. Consent is recorded with the run.</span></div>` : ''}
+        ${renderConsentPlaque()}
         <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
-          <div class="composer-selects">${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderPermissionSelect()}</div>
+          <div class="composer-selects">${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderRoomGate()}</div>
           <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
             <span>${orchestrator ? 'Send' : 'Issue order'}</span><span class="send-arrow">↑</span>
           </button>
@@ -449,7 +497,7 @@
             .map((lane) => {
               const permissionCompatible = (lane.permissions || ['read', 'write']).includes(state.selectedPermission);
               const unavailable = lane.state !== 'available' || !permissionCompatible;
-              const permissionIssue = state.selectedPermission === 'write' ? 'read only' : 'edit access only';
+              const permissionIssue = state.selectedPermission === 'write' ? 'look only' : 'change files only';
               return `
                 <button class="lane-card ${lane.id === state.selectedLaneId ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}" data-lane-id="${escapeHtml(lane.id)}" ${unavailable ? 'disabled' : ''}>
                   <div class="lane-card-top"><span class="lane-glyph">${escapeHtml(lane.name.slice(0, 1))}</span><span class="availability ${unavailable ? 'unavailable' : lane.state}">${!permissionCompatible ? permissionIssue : lane.state}</span></div>
@@ -556,10 +604,10 @@
         <span class="receipt-mark">${healthy ? '✓' : '!'}</span>
         <div class="receipt-copy">
           <strong>${healthy ? 'Lane completed' : receipt.stopped ? 'Run stopped' : 'Lane needs attention'}</strong>
-          <small>${escapeHtml(receipt.modelLabel)} · ${seconds}s · exit ${receipt.exitCode ?? '—'} · ${receipt.permission === 'write' ? 'edit access' : 'read only'} · ${continuity}${receipt.skillId ? ` · /${escapeHtml(receipt.skillId)}` : ''}${receipt.capabilities?.length ? ` · ${escapeHtml(receipt.capabilities.join(' + '))}` : ''}</small>
+          <small>${escapeHtml(receipt.modelLabel)} · ${seconds}s · exit ${receipt.exitCode ?? '—'} · ${receipt.permission === 'write' ? `inside ${escapeHtml(currentRoomName({ target: receipt.target }))}` : 'looking only'} · ${continuity}${receipt.skillId ? ` · /${escapeHtml(receipt.skillId)}` : ''}${receipt.capabilities?.length ? ` · ${escapeHtml(receipt.capabilities.join(' + '))}` : ''}</small>
           <details>
             <summary>Run evidence</summary>
-            <dl><dt>Working directory</dt><dd>${escapeHtml(receipt.workingDirectory || 'not recorded')}</dd><dt>Continuity</dt><dd>${escapeHtml(continuity)}</dd><dt>Consent</dt><dd>${receipt.permission === 'write' ? `Enabled ${formatWhen(receipt.consentedAt)}` : 'Read-only default'}</dd></dl>
+            <dl><dt>Working directory</dt><dd>${escapeHtml(receipt.workingDirectory || 'not recorded')}</dd><dt>Continuity</dt><dd>${escapeHtml(continuity)}</dd><dt>Room</dt><dd>${receipt.permission === 'write' ? `Entered ${formatWhen(receipt.consentedAt)}` : 'Looking only'}</dd></dl>
             <pre>${escapeHtml((receipt.evidence || []).join('\n') || 'No raw lane envelope was captured.')}</pre>
           </details>
         </div>
@@ -633,7 +681,7 @@
               <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
               <span class="evidence-chip">${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
-              <span class="permission-chip ${conversation.permission === 'write' ? 'write' : ''}">${conversation.permission === 'write' ? 'Can edit repo' : 'Read only'}</span>
+              <span class="permission-chip ${consentGranted(conversation) ? 'write' : ''}">${consentGranted(conversation) ? `Inside ${escapeHtml(currentRoomName(conversation))}` : 'Look only'}</span>
               ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
             </div>
           </div>
@@ -855,6 +903,16 @@
       vscode.postMessage({ type: 'choose-root' });
     } else if (action === 'toggle-workshop') {
       vscode.postMessage({ type: 'toggle-workshop' });
+    } else if (action === 'enter-room') {
+      if (state.selectedPermission === 'write') return;
+      state.selectedPermission = 'write';
+      render();
+      postRoutingUpdate();
+    } else if (action === 'leave-room') {
+      if (state.selectedPermission === 'read' && !consentGranted(currentConversation())) return;
+      state.selectedPermission = 'read';
+      render();
+      postRoutingUpdate();
     }
   });
 
@@ -873,11 +931,6 @@
     if (event.target.id === 'skill-select') {
       state.selectedSkillId = event.target.value;
       remember();
-      postRoutingUpdate();
-    }
-    if (event.target.id === 'permission-select') {
-      state.selectedPermission = event.target.value;
-      render();
       postRoutingUpdate();
     }
     if (event.target.id === 'target-select') {

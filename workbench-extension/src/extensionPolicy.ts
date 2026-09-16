@@ -61,20 +61,7 @@ export async function authorizeWriteAccess(
   return permission !== 'write' || alreadyEnabled || await confirm();
 }
 
-export function writeConsentPrompt(targetName: string, laneName: string): {
-  message: string;
-  options: { modal: true; detail: string };
-  action: 'Enable edit access';
-} {
-  return {
-    message: `Enable edit access for ${laneName} in ${targetName}?`,
-    options: {
-      modal: true,
-      detail: 'The lane may modify files inside the selected command target repository. The consent and working directory will be recorded in the run receipt.',
-    },
-    action: 'Enable edit access',
-  };
-}
+export { writeConsentPrompt } from './consentRoom.js';
 
 export function resolveOpenFilePath(
   candidate: string,

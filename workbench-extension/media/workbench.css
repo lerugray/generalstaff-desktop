@@ -2419,7 +2419,7 @@ select:focus-visible {
   .brand small { display: none; }
   .topbar { grid-template-columns: minmax(0, 1fr); }
   .topbar-actions { justify-content: flex-start; }
-  .seat-instrument { flex-basis: calc(50% - 8px); }
+  .seat-instrument { flex: 1 1 calc(50% - 8px); max-width: calc(50% - 8px); }
   .content { padding-inline: 18px; }
   .hero { padding: 25px; }
   .hero-copy { display: block; }

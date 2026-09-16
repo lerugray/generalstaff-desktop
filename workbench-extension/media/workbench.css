@@ -1133,21 +1133,87 @@ select:focus-visible {
   opacity: 0.72;
 }
 
-.permission-banner {
+.consent-receipt,
+.consent-pending {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   margin: 2px 0 7px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   border: 1px solid rgb(var(--warn-rgb) / 0.28);
   border-radius: 6px;
   background: rgb(var(--warn-rgb) / 0.07);
   color: var(--rust-readable);
   font-size: 8px;
+  animation: room-enter 220ms ease;
 }
 
-.permission-banner span {
+.consent-receipt span,
+.consent-pending span {
+  display: block;
+  margin-top: 2px;
   color: var(--paper-faint);
+}
+
+.consent-receipt small,
+.consent-pending small {
+  color: var(--paper-faint);
+  white-space: nowrap;
+}
+
+.consent-pending {
+  border-color: rgb(var(--accent-rgb) / 0.22);
+  background: rgb(var(--accent-rgb) / 0.05);
+  color: var(--paper-muted);
+}
+
+@keyframes room-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.room-gate {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.room-gate > span {
+  color: var(--paper-faint);
+  font-size: 8px;
+  font-weight: 620;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.room-gate.inside > span {
+  color: var(--rust-readable);
+}
+
+.room-gate button {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--paper-muted);
+  cursor: pointer;
+  font-size: 10px;
+  text-align: left;
+  transition: color 180ms ease;
+}
+
+.room-gate button.room-enter {
+  color: var(--rust-readable);
+  font-weight: 620;
+}
+
+.room-gate button:hover:not(:disabled) {
+  color: var(--brass-pale);
+}
+
+.room-gate button:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 .composer-footer {
@@ -1216,7 +1282,8 @@ select:focus-visible {
 }
 
 .permission-field.write > span,
-.permission-field.write select {
+.permission-field.write select,
+.room-gate.inside button {
   color: var(--rust-readable);
 }
 

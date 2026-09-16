@@ -16,6 +16,20 @@ class MemoryMemento {
   }
 }
 
+test('write consent survives restore as a grant for the same target', async () => {
+  const memory = new MemoryMemento();
+  const first = new ConversationStore(memory);
+  const conversation = await first.create({ kind: 'project', projectId: 'snesos' }, 'codex', 'build', 'default', 'write');
+  assert.equal(conversation.permission, 'write');
+  assert.deepEqual(conversation.writeConsent?.target, { kind: 'project', projectId: 'snesos' });
+  assert.equal(typeof conversation.writeConsent?.at, 'number');
+
+  const restored = new ConversationStore(memory).get(conversation.id);
+  assert.equal(restored?.permission, 'write');
+  assert.deepEqual(restored?.writeConsent?.target, { kind: 'project', projectId: 'snesos' });
+  assert.equal(restored?.writeConsent?.at, conversation.writeConsent?.at);
+});
+
 test('conversation state survives a new store instance', async () => {
   const memory = new MemoryMemento();
   const first = new ConversationStore(memory);

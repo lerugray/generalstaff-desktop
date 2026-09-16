@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7 — 2026-09-16
+
+- Treat edit consent as entering a room: one key-turn confirm that names the real project or General Staff.
+- Keep a visible receipt after you enter, so the desk shows what was granted and for which target.
+- Replace the Access dropdown with Enter / Look only.
+
 ## 0.4.6 — 2026-09-16
 
 - Show each seat on the desk by its full name, with ready / thin / down taken from the lanes that can take that job.

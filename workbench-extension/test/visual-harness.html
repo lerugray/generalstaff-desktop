@@ -113,6 +113,19 @@
         persisted.selectedProjectId = 'snesos';
         persisted.selectedLaneId = 'codex';
         persisted.selectedSeat = 'orchestrate';
+      } else if (mode === 'consent') {
+        conversations = [{
+          id: 'consent-conversation', title: 'Change files in the playable slice', target: { kind: 'project', projectId: 'snesos' }, laneId: 'codex', seat: 'build', effort: 'high', permission: 'write', writeConsent: { at: now - 180000, target: { kind: 'project', projectId: 'snesos' } }, context: [], decisions: [], createdAt: now - 240000, updatedAt: now,
+          messages: [
+            { id: 'consent-user', role: 'user', text: 'Prepare the next bounded playable slice and edit the project files that need it.', status: 'complete', createdAt: now - 240000 },
+            { id: 'consent-assistant', role: 'assistant', text: 'The seat is inside SnesOS. File changes stay in that project.', status: 'complete', createdAt: now - 180000 },
+          ],
+          receipt: { laneId: 'codex', laneName: 'Codex', seat: 'build', effort: 'high', target: { kind: 'project', projectId: 'snesos' }, modelLabel: 'GPT-5.6 Sol · high', startedAt: now - 240000, finishedAt: now - 180000, exitCode: 0, stopped: false, permission: 'write', consentedAt: now - 180000, workingDirectory: '/fleet/snesos', continuity: 'new', evidence: ['stdout: files changed inside SnesOS'] },
+        }];
+        persisted.activeConversationId = 'consent-conversation';
+        persisted.selectedProjectId = 'snesos';
+        persisted.selectedLaneId = 'codex';
+        persisted.selectedSeat = 'build';
       } else if (mode === 'active') {
         conversations = [{
           id: 'active-conversation', title: 'Reconcile the release evidence', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
@@ -149,7 +162,7 @@
             }
           }
           if (message.type === 'new-conversation') {
-            const conversation = { id: `c-${Date.now()}`, kind: 'command', title: 'New command', target: message.target, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
+            const conversation = { id: `c-${Date.now()}`, kind: 'command', title: 'New command', target: message.target, laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission, ...(message.permission === 'write' ? { writeConsent: { at: Date.now(), target: message.target } } : {}), context: (message.contextPaths || []).map((path) => ({ path, label: path.split('/').pop(), kind: 'document' })), messages: [], decisions: [], createdAt: Date.now(), updatedAt: Date.now() };
             conversations = [conversation, ...conversations];
             setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation }, '*'), 10);
           }
@@ -166,6 +179,8 @@
             const conversation = conversations.find((item) => item.id === message.conversationId);
             if (!conversation) return;
             Object.assign(conversation, { laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission });
+            if (message.permission === 'write') conversation.writeConsent = { at: Date.now(), target: conversation.target };
+            else delete conversation.writeConsent;
             setTimeout(() => window.postMessage({ type: 'routing-updated', conversation }, '*'), 10);
           }
           if (message.type === 'save-note') {

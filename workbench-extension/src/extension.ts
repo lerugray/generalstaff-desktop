@@ -6,13 +6,17 @@ import { runAdapter } from './adapters/runAdapter.js';
 import { parseWebviewMessage } from './bridge/messages.js';
 import type { CommandTarget, ConversationContextItem, ConversationMessage, FleetSnapshot, LaneSummary, RunContinuity } from './domain.js';
 import {
+  consentNotices,
+  consentRoomName,
+  writeConsentPrompt,
+} from './consentRoom.js';
+import {
   authorizeWriteAccess,
   contentSecurityPolicy,
   resolveCommandTarget,
   resolveOpenFilePath,
   supportsRouting,
   targetSupportsPermission,
-  writeConsentPrompt,
 } from './extensionPolicy.js';
 import { requireAllowedPath } from './security/paths.js';
 import { ConversationStore } from './services/conversations.js';
@@ -221,15 +225,15 @@ class CommandDeckPanel {
           return;
         }
         if (!targetSupportsPermission(message.permission, target)) {
-          await this.notice('Edit access requires a repository-backed command target. This project is state-only.', 'error');
+          await this.notice(consentNotices.stateOnly, 'error');
           return;
         }
         if (!(await authorizeWriteAccess(
           message.permission,
           false,
-          () => this.confirmWrite(target.name, lane.name),
+          () => this.confirmWrite(target, lane.name),
         ))) {
-          await this.notice('Edit access was not enabled.', 'error');
+          await this.notice(consentNotices.declined, 'error');
           return;
         }
         const contextItems = await this.contextItems(message.target, message.contextPaths);
@@ -268,16 +272,16 @@ class CommandDeckPanel {
           return;
         }
         if (!targetSupportsPermission(message.permission, target)) {
-          await this.notice('Edit access requires a repository-backed command target. This project is state-only.', 'error');
+          await this.notice(consentNotices.stateOnly, 'error');
           return;
         }
         if (!(await authorizeWriteAccess(
           message.permission,
           conversation.permission === 'write',
-          () => this.confirmWrite(target.name, lane.name),
+          () => this.confirmWrite(target, lane.name),
         ))) {
           await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
-          await this.notice('Edit access remains off.', 'error');
+          await this.notice(consentNotices.declined, 'error');
           return;
         }
         if (this.activeRuns.has(message.conversationId) || this.pendingRuns.has(message.conversationId)) {
@@ -380,7 +384,7 @@ class CommandDeckPanel {
     }
 
     if (!targetSupportsPermission(conversation.permission, target)) {
-      await this.notice('This conversation cannot edit because its command target is not repository-backed.', 'error', conversationId);
+      await this.notice(consentNotices.stateOnly, 'error', conversationId);
       return;
     }
     const cwd = target.workingDirectory;
@@ -654,8 +658,11 @@ class CommandDeckPanel {
     }
   }
 
-  private async confirmWrite(targetName: string, laneName: string): Promise<boolean> {
-    const prompt = writeConsentPrompt(targetName, laneName);
+  private async confirmWrite(
+    target: { name: string; target: { kind: 'general' | 'project' } },
+    laneName: string,
+  ): Promise<boolean> {
+    const prompt = writeConsentPrompt(consentRoomName({ kind: target.target.kind, name: target.name }), laneName);
     const choice = await vscode.window.showWarningMessage(
       prompt.message,
       prompt.options,

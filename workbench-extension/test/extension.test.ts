@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { LaneSummary } from '../src/domain.js';
+import { writeConsentPrompt } from '../src/consentRoom.js';
 import {
   authorizeWriteAccess,
   contentSecurityPolicy,
@@ -8,7 +9,6 @@ import {
   resolveOpenFilePath,
   supportsRouting,
   targetSupportsPermission,
-  writeConsentPrompt,
 } from '../src/extensionPolicy.js';
 
 const lane: Pick<LaneSummary, 'state' | 'roles' | 'permissions' | 'efforts'> = {
@@ -35,12 +35,12 @@ test('write access requires the host confirmation callback to approve it', async
   assert.equal(confirmations, 1);
 
   assert.deepEqual(writeConsentPrompt('Alpha', 'Claude'), {
-    message: 'Enable edit access for Claude in Alpha?',
+    message: 'About to change files in Alpha.',
     options: {
       modal: true,
-      detail: 'The lane may modify files inside the selected command target repository. The consent and working directory will be recorded in the run receipt.',
+      detail: 'Claude can change files in Alpha. After you enter, a receipt stays on the desk so you can see the grant.',
     },
-    action: 'Enable edit access',
+    action: 'Enter Alpha',
   });
 });
 

@@ -14,7 +14,9 @@ Lane Desk available by default wherever the provider exposes a safe transport.
 
 - Discovers only valid, non-symlinked `skills/<id>/SKILL.md` directories.
 - Explicitly excludes the `lean-ctx` tombstone.
-- Shows the catalog in the composer and accepts a leading `/skill-name`.
+- Shows the catalog in the composer Skill menu and accepts a leading `/skill-name`.
+  Typing `/` at the start of the composer (or after a space or newline) opens a
+  filterable skills list. Mid-token slashes such as `x/y` or `path/to` do not.
 - Bundles `SKILL.md` plus safe text companions, capped at 80 files and 260,000
   characters. Common credential shapes are redacted before dispatch.
 - Translates Claude tool vocabulary into equivalent lane-native behavior,

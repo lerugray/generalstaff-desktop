@@ -560,7 +560,9 @@
         </div>
         ${compact ? '' : '<p class="composer-hint">Attach a file or folder to reference paths outside this project (for example Desktop/handoff).</p>'}`}
         ${state.selectedPermission === 'write' ? `<div class="permission-banner"><strong>Edit access enabled</strong><span>${writePermissionBanner(general)}</span></div>` : ''}
-        <textarea id="prompt" rows="${compact ? '2' : '1'}" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
+        <div class="composer-input">
+          <textarea id="prompt" rows="${compact ? '2' : '1'}" placeholder="${orchestrator ? (running ? 'Steer the seat…' : 'Message the orchestrator…') : (running ? 'Steer this run…' : 'Describe the project outcome…')}">${escapeHtml(state.draft)}</textarea>
+        </div>
         <div class="composer-footer">
           <div class="composer-selects" data-collapsed="1">
             <button type="button" class="composer-gear" data-action="toggle-composer-settings" title="Seat settings" aria-label="Seat settings">⚙</button>
@@ -905,7 +907,10 @@
         if (prompt && selectionStart !== undefined && selectionEnd !== undefined) {
           prompt.setSelectionRange(selectionStart, selectionEnd);
         }
+        if (slashSkillMenu.open) syncSlashSkillMenu(true);
       });
+    } else if (slashSkillMenu.open) {
+      closeSlashSkillMenu();
     }
     remember();
   }
@@ -946,6 +951,164 @@
     const minLines = compact ? 2 : 1;
     const max = line * 6 + 8;
     prompt.style.height = `${Math.min(max, Math.max(line * minLines + 4, prompt.scrollHeight))}px`;
+  }
+
+  const slashSkillMenu = {
+    open: false,
+    start: 0,
+    end: 0,
+    query: '',
+    highlight: 0,
+  };
+
+  function closeSlashSkillMenu() {
+    slashSkillMenu.open = false;
+    slashSkillMenu.query = '';
+    slashSkillMenu.highlight = 0;
+    const menu = document.getElementById('slash-skill-menu');
+    if (menu) {
+      menu.hidden = true;
+      menu.innerHTML = '';
+    }
+  }
+
+  function slashSkillCatalog() {
+    return state.snapshot?.skills || [];
+  }
+
+  function renderSlashSkillMenu() {
+    const prompt = document.getElementById('prompt');
+    const wrap = prompt?.closest('.composer-input') || prompt?.parentElement;
+    if (!prompt || !wrap || !slashSkillMenu.open) {
+      closeSlashSkillMenu();
+      return;
+    }
+    let menu = document.getElementById('slash-skill-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'slash-skill-menu';
+      menu.className = 'slash-skill-menu';
+      menu.setAttribute('role', 'listbox');
+      menu.setAttribute('aria-label', 'Private skills');
+      wrap.insertBefore(menu, prompt);
+    }
+    const catalog = slashSkillCatalog();
+    const filtered = typeof GSComposerKeys !== 'undefined'
+      ? GSComposerKeys.filterSkills(catalog, slashSkillMenu.query)
+      : catalog;
+    if (slashSkillMenu.highlight >= filtered.length) {
+      slashSkillMenu.highlight = Math.max(0, filtered.length - 1);
+    }
+    if (!catalog.length) {
+      menu.innerHTML = '<div class="slash-skill-empty">No skills in this GeneralStaff root</div>';
+    } else if (!filtered.length) {
+      menu.innerHTML = '<div class="slash-skill-empty">No matching skills</div>';
+    } else {
+      menu.innerHTML = filtered
+        .map((skill, index) => {
+          const active = index === slashSkillMenu.highlight ? ' is-active' : '';
+          return `<button type="button" class="slash-skill-option${active}" role="option" id="slash-skill-option-${index}" data-action="pick-slash-skill" data-skill-id="${escapeHtml(skill.id)}" aria-selected="${index === slashSkillMenu.highlight ? 'true' : 'false'}"><strong>/${escapeHtml(skill.id)}</strong><small>${escapeHtml(skill.description || skill.name || '')}</small></button>`;
+        })
+        .join('');
+      scrollSlashSkillIntoView();
+    }
+    menu.hidden = false;
+  }
+
+  function scrollSlashSkillIntoView() {
+    const menu = document.getElementById('slash-skill-menu');
+    const active = menu?.querySelector('.slash-skill-option.is-active');
+    if (!menu || !active) return;
+    const top = active.offsetTop;
+    const bottom = top + active.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+  }
+
+  function paintSlashSkillHighlight() {
+    const menu = document.getElementById('slash-skill-menu');
+    if (!menu) return;
+    const options = menu.querySelectorAll('.slash-skill-option');
+    options.forEach((option, index) => {
+      const active = index === slashSkillMenu.highlight;
+      option.classList.toggle('is-active', active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    scrollSlashSkillIntoView();
+  }
+
+  function syncSlashSkillMenu(fromTyping) {
+    const prompt = document.getElementById('prompt');
+    if (!prompt || typeof GSComposerKeys === 'undefined' || prompt.selectionStart !== prompt.selectionEnd) {
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
+    const query = GSComposerKeys.slashSkillQuery(prompt.value, prompt.selectionStart ?? 0);
+    if (!query) {
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
+    if (!slashSkillMenu.open && !fromTyping) return;
+    const queryChanged = query.query !== slashSkillMenu.query;
+    slashSkillMenu.open = true;
+    slashSkillMenu.start = query.start;
+    slashSkillMenu.end = query.end;
+    slashSkillMenu.query = query.query;
+    if (queryChanged) slashSkillMenu.highlight = 0;
+    state.composerSettingsOpen = false;
+    const selects = document.querySelector('.composer-selects');
+    if (selects) selects.dataset.open = '0';
+    renderSlashSkillMenu();
+  }
+
+  function insertSlashSkill(skillId) {
+    const prompt = document.getElementById('prompt');
+    if (!prompt || !slashSkillMenu.open || !skillId || typeof GSComposerKeys === 'undefined') return;
+    const next = GSComposerKeys.insertSkillToken(
+      prompt.value,
+      { start: slashSkillMenu.start, end: slashSkillMenu.end },
+      skillId,
+    );
+    prompt.value = next.text;
+    prompt.setSelectionRange(next.cursor, next.cursor);
+    state.draft = prompt.value;
+    remember();
+    closeSlashSkillMenu();
+    fitComposer();
+    prompt.focus();
+  }
+
+  function handleSlashSkillKeys(event) {
+    if (!slashSkillMenu.open || event.target?.id !== 'prompt') return false;
+    const catalog = slashSkillCatalog();
+    const filtered = typeof GSComposerKeys !== 'undefined'
+      ? GSComposerKeys.filterSkills(catalog, slashSkillMenu.query)
+      : catalog;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSlashSkillMenu();
+      return true;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      slashSkillMenu.highlight = typeof GSComposerKeys !== 'undefined'
+        ? GSComposerKeys.moveSkillHighlight(slashSkillMenu.highlight, filtered.length, delta)
+        : slashSkillMenu.highlight;
+      paintSlashSkillHighlight();
+      return true;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const selected = filtered[slashSkillMenu.highlight];
+      if (selected) {
+        event.preventDefault();
+        insertSlashSkill(selected.id);
+        return true;
+      }
+      event.preventDefault();
+      return true;
+    }
+    return false;
   }
 
   function patchActivityStrip(conversationId) {
@@ -1030,6 +1193,7 @@
   }
 
   function issueCommand() {
+    closeSlashSkillMenu();
     const prompt = document.getElementById('prompt');
     const text = prompt?.value.trim();
     if (!text || !state.snapshot?.rootPath || !state.selectedLaneId) return;
@@ -1160,10 +1324,13 @@
       const id = currentConversation()?.id;
       if (id) vscode.postMessage({ type: 'stop-run', conversationId: id });
     } else if (action === 'toggle-composer-settings') {
+      closeSlashSkillMenu();
       state.composerSettingsOpen = !state.composerSettingsOpen;
       const selects = document.querySelector('.composer-selects');
       if (selects) selects.dataset.open = state.composerSettingsOpen ? '1' : '0';
       else render();
+    } else if (action === 'pick-slash-skill' && target.dataset.skillId) {
+      insertSlashSkill(target.dataset.skillId);
     } else if (action === 'jump-latest') {
       const stream = document.querySelector('.message-stream');
       if (stream) {
@@ -1248,6 +1415,7 @@
       state.draft = event.target.value;
       fitComposer();
       remember();
+      syncSlashSkillMenu(true);
     }
   });
 
@@ -1258,10 +1426,39 @@
   }, true);
 
   app.addEventListener('keydown', (event) => {
+    if (handleSlashSkillKeys(event)) return;
     if (typeof GSComposerKeys !== 'undefined' && GSComposerKeys.shouldSendOnEnter(event)) {
       event.preventDefault();
       issueCommand();
     }
+  });
+
+  app.addEventListener('mousedown', (event) => {
+    const option = event.target.closest('[data-action="pick-slash-skill"]');
+    if (option?.dataset.skillId) {
+      event.preventDefault();
+      insertSlashSkill(option.dataset.skillId);
+      return;
+    }
+    if (slashSkillMenu.open && !event.target.closest('#slash-skill-menu, #prompt')) {
+      closeSlashSkillMenu();
+    }
+  });
+
+  app.addEventListener('mouseover', (event) => {
+    const option = event.target.closest('.slash-skill-option');
+    if (!option || !slashSkillMenu.open) return;
+    const options = [...(option.parentElement?.querySelectorAll('.slash-skill-option') || [])];
+    const index = options.indexOf(option);
+    if (index >= 0 && index !== slashSkillMenu.highlight) {
+      slashSkillMenu.highlight = index;
+      paintSlashSkillHighlight();
+    }
+  });
+
+  document.addEventListener('selectionchange', () => {
+    if (document.activeElement?.id !== 'prompt') return;
+    syncSlashSkillMenu(false);
   });
 
   function patchConversationDelta(message) {

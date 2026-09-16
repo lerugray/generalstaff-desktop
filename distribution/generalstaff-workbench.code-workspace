@@ -4,6 +4,8 @@
     "generalstaff.openOnLaunch": true,
     "generalstaff.immersiveMode": true,
     "workbench.startupEditor": "none",
+    "workbench.editor.empty.hint": "hidden",
+    "workbench.tips.enabled": false,
     "workbench.activityBar.location": "hidden",
     "workbench.statusBar.visible": false,
     "workbench.editor.showTabs": "none",
@@ -14,6 +16,7 @@
     "window.commandCenter": false,
     "window.title": "GeneralStaff Workbench",
     "editor.minimap.enabled": false,
+    "extensions.ignoreRecommendations": true,
     "telemetry.telemetryLevel": "off"
   },
   "extensions": {

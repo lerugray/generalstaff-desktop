@@ -22,6 +22,9 @@ fi
 
 mkdir -p "$runtime_root/user" "$runtime_root/extensions"
 
+workspace_file="$runtime_root/generalstaff-workbench.code-workspace"
+cp "$repo_root/distribution/generalstaff-workbench.code-workspace" "$workspace_file"
+
 if [[ ! -f "$extension_package" ]]; then
   echo "The packaged Workbench extension is missing."
   echo "Run $repo_root/scripts/build-workbench.sh once, then launch again."
@@ -43,4 +46,4 @@ exec "$code_bin" \
   --disable-workspace-trust \
   --skip-welcome \
   --skip-release-notes \
-  "$repo_root/distribution/generalstaff-workbench.code-workspace"
+  "$workspace_file"

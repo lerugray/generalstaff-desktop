@@ -16,6 +16,9 @@ test('the orchestrator session is the default dominant surface and project order
   assert.match(webview, /Orchestrator session[\s\S]*Live seat · private root/u);
   assert.match(webview, /Every message continues this same session from the private GeneralStaff root/u);
   assert.match(webview, /orchestrator \? 'Send' : 'Issue order'/u);
+  assert.match(webview, /Open workshop/u);
+  assert.match(webview, /id="target-select"/u);
+  assert.match(webview, /meter-chip/u);
   assert.ok(
     webview.indexOf('class="general-command-target') < webview.indexOf('<nav class="rail-nav"'),
     'the orchestrator session must remain above the scrolling project-order rail',

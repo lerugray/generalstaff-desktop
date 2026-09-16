@@ -2,7 +2,7 @@
 
 A persistent orchestrator session for directing a GeneralStaff project fleet from VS Code without turning the operator into a programmer.
 
-Workbench 2.5 opens directly into one full-size **Orchestrator session** rooted at the selected GeneralStaff private repository. The visible transcript, selected model, permissions, and provider continuity belong to that durable session; a follow-up continues the same seat instead of creating a new General-scoped order. The project list is a secondary rail and preserves the existing per-project order flow.
+Workbench 2.5 opens at the desk: one full-size **Orchestrator session** rooted at the selected GeneralStaff private repository, with editor sidebars closed until you choose **Open workshop**. The visible transcript, selected model, permissions, and provider continuity belong to that durable session; a follow-up continues the same seat instead of creating a new General-scoped order. The project list is a secondary rail and preserves the existing per-project order flow.
 
 The extension reads canonical project state, presents operator decisions and recent receipts, and streams work from existing Codex, Claude Fable, Kimi, Cline/GLM, Cursor, Grok 4.6 trial, and direct Ollama Cloud GLM 5.3 lanes. The orchestrator seat keeps the model, effort, skill, and supported permission controls available; project orders retain their existing seat choices. Terminals and source files remain supporting instruments.
 

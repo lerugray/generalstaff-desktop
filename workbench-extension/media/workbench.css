@@ -267,6 +267,15 @@ select:focus-visible {
   background-size: 32px 32px;
 }
 
+.workbench.arriving {
+  animation: desk-arrive 280ms ease;
+}
+
+@keyframes desk-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .rail {
   position: sticky;
   top: 0;
@@ -760,6 +769,7 @@ select:focus-visible {
 }
 
 .date-chip,
+.meter-chip,
 .ghost-button {
   padding: 7px 10px;
   border: 1px solid var(--line);
@@ -775,6 +785,18 @@ select:focus-visible {
 
 .ghost-button:hover {
   border-color: var(--line-strong);
+  color: var(--paper);
+}
+
+.topbar .target-field {
+  padding: 4px 10px 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgb(var(--text-rgb) / 0.015);
+}
+
+.topbar .target-field select {
+  max-width: 168px;
   color: var(--paper);
 }
 
@@ -1582,11 +1604,11 @@ select:focus-visible {
 
 .conversation-shell {
   display: flex;
-  width: min(960px, 100%);
+  width: 100%;
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: 0 auto;
+  margin: 0;
   padding: 0 clamp(22px, 4vw, 48px);
 }
 
@@ -1696,8 +1718,10 @@ select:focus-visible {
 }
 
 .message-stream {
+  display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
   overflow: auto;
   padding: 25px 8px 35px;
   scrollbar-width: thin;
@@ -1817,7 +1841,8 @@ select:focus-visible {
 
 .conversation-welcome {
   display: flex;
-  min-height: 300px;
+  min-height: 0;
+  flex: 1;
   align-items: center;
   justify-content: center;
   flex-direction: column;
@@ -2301,7 +2326,7 @@ select:focus-visible {
 @media (max-width: 850px) {
   :root { --rail: 190px; }
   .brand { padding-inline: 13px; }
-  .brand small, .date-chip { display: none; }
+  .brand small { display: none; }
   .content { padding-inline: 18px; }
   .hero { padding: 25px; }
   .hero-copy { display: block; }

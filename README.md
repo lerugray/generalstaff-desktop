@@ -65,7 +65,7 @@ GENERALSTAFF_ROOT=/absolute/path/to/generalstaff-private ./scripts/launch-workbe
 
 On Windows, use `scripts\build-workbench.cmd` and `scripts\launch-workbench.cmd`. Set `GENERALSTAFF_ROOT` in the environment before launching and set `CODE_BIN` if Visual Studio Code is installed somewhere the launcher does not discover.
 
-The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher force-installs that package into the repo-local, gitignored `.workbench-data/` profile and opens the dedicated Workbench workspace. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, set `GENERALSTAFF_ROOT` or choose the GeneralStaff root that contains `state/`; a chosen root is stored as a machine-scoped setting in the isolated profile. The opening surface is the persistent Orchestrator session, with no project selection required.
+The build script runs the Workbench checks and writes `distribution/generalstaff-workbench.vsix`. The launcher force-installs that package into the repo-local, gitignored `.workbench-data/` profile and opens a dedicated Workbench workspace copy. It does not install into or modify the operator's normal Visual Studio Code profile. On first run, set `GENERALSTAFF_ROOT` or choose the GeneralStaff root that contains `state/`; a chosen root is stored as a machine-scoped setting in the isolated profile. The opening surface is the persistent Orchestrator session at the desk, with editor sidebars closed until you open the workshop. No project selection is required.
 
 For extension development, run the checks from the extension directory:
 

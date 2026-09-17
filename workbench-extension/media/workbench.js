@@ -30,6 +30,9 @@
     selectedTheme: initialTheme,
     selectedPermission: 'read',
     draft: saved.draft || '',
+    streamScroll: readStreamScroll(saved.streamScroll),
+    returningToConversation: false,
+    composerReady: false,
     pendingPrompt: '',
     pendingSend: null,
     pendingContext: [],
@@ -241,6 +244,45 @@
     return `${days}d ago`;
   }
 
+  function readStreamScroll(savedScroll) {
+    if (!savedScroll || typeof savedScroll !== 'object') return {};
+    const next = {};
+    for (const [id, value] of Object.entries(savedScroll)) {
+      if (!value || typeof value !== 'object') continue;
+      const top = Number(value.top);
+      if (!Number.isFinite(top)) continue;
+      next[id] = { top, pinned: Boolean(value.pinned) };
+    }
+    return next;
+  }
+
+  function hasVisibleConversation(conversation) {
+    return Boolean(conversation?.messages?.length);
+  }
+
+  function orchestratorSession() {
+    return state.conversations.find((item) => item.id === state.orchestratorSessionId);
+  }
+
+  let scrollSaveTimer = 0;
+  function persistStreamScroll() {
+    const stream = document.querySelector('.message-stream');
+    if (!stream || !state.activeConversationId) return;
+    const pinned = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
+    state.streamScroll[state.activeConversationId] = { top: stream.scrollTop, pinned };
+    window.clearTimeout(scrollSaveTimer);
+    scrollSaveTimer = window.setTimeout(remember, 80);
+  }
+
+  function restoreStreamScroll(stream, oldStream, oldScrollTop, wasNearBottom) {
+    const savedScroll = state.streamScroll[state.activeConversationId];
+    if (!oldStream && savedScroll) {
+      stream.scrollTop = savedScroll.pinned ? stream.scrollHeight : savedScroll.top;
+      return;
+    }
+    stream.scrollTop = !oldStream || wasNearBottom ? stream.scrollHeight : oldScrollTop;
+  }
+
   function remember() {
     vscode.setState({
       activeConversationId: state.activeConversationId,
@@ -252,6 +294,7 @@
       selectedSkillId: state.selectedSkillId,
       selectedTheme: state.selectedTheme,
       draft: state.draft,
+      streamScroll: state.streamScroll,
       headroomOpen: state.headroomOpen,
     });
   }
@@ -396,6 +439,9 @@
   function renderRail() {
     const projects = state.snapshot?.projects || [];
     const headroom = readHeadroom();
+    const sessionHint = hasVisibleConversation(orchestratorSession())
+      ? 'Same conversation · private root'
+      : 'Live seat · private root';
     return `
       <aside class="rail">
         <div class="brand">
@@ -404,7 +450,7 @@
         </div>
         <button class="general-command-target ${state.activeConversationId === state.orchestratorSessionId ? 'selected' : ''}" data-action="general-command">
           <span class="general-command-mark">GS</span>
-          <span><strong>Orchestrator session</strong><small><i class="session-live-dot"></i> Live seat · private root</small></span>
+          <span><strong>Orchestrator session</strong><small><i class="session-live-dot"></i> ${sessionHint}</small></span>
           <span class="pinned-label">Primary</span>
         </button>
         <nav class="rail-nav" aria-label="Workbench">
@@ -634,18 +680,25 @@
     const active = currentConversation();
     const orchestrator = active?.kind === 'orchestrator' || (general && state.activeConversationId === state.orchestratorSessionId);
     const running = Boolean(active && state.runStatus[active.id]);
+    const returning = orchestrator && hasVisibleConversation(active);
+    const composerHint = orchestrator
+      ? (returning ? 'Pick up the thread. The composer is ready.' : 'Say what you need. This seat stays with you.')
+      : escapeHtml(seat?.[1] || '');
+    const composerPlaceholder = orchestrator
+      ? (returning ? 'Continue the conversation…' : 'Message the orchestrator…')
+      : 'Describe the project outcome…';
     return `
       <section class="composer ${compact ? 'compact' : ''}">
         <div class="composer-heading">
           <div class="project-monogram">${escapeHtml((project?.name || 'GS').slice(0, 2).toUpperCase())}</div>
-          <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${orchestrator ? 'One continuous GeneralStaff seat rooted in the private repository.' : escapeHtml(seat?.[1] || '')}</small></div>
+          <div><strong>${orchestrator ? 'Orchestrator session' : `Command ${escapeHtml(project?.name || 'project')}`}</strong><small>${composerHint}</small></div>
         </div>
         ${!compact ? `<div class="context-row">
           <button class="context-button" data-action="pick-context"><span>＋</span> Reference local files</button>
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>` : ''}
         ${renderConsentPlaque()}
-        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${orchestrator ? 'Message the orchestrator…' : 'Describe the project outcome…'}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
+        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${composerPlaceholder}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
         <div class="composer-footer">
           <div class="composer-selects">${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderRoomGate()}</div>
           <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
@@ -862,16 +915,30 @@
       .join('');
   }
 
+  function renderSessionIdentity(conversation) {
+    const visible = hasVisibleConversation(conversation);
+    const title = visible ? 'Same conversation' : 'Ready when you are';
+    const detail = visible ? `Last note ${formatWhen(conversation.updatedAt)}` : 'This seat stays with you.';
+    return `<div class="session-identity"><span class="session-live-dot"></span><strong>${title}</strong><small>${escapeHtml(detail)}</small></div>`;
+  }
+
   function renderRecovery(conversation, running) {
     const lastAssistant = [...conversation.messages].reverse().find((message) => message.role === 'assistant');
     if (lastAssistant?.status !== 'error') return '';
+    const orchestrator = conversation.kind === 'orchestrator';
     return `
-      <section class="recovery-card">
-        <div><small>RECOVERY DESK</small><h3>The command can be recovered.</h3><p>Retry keeps safe native context when available. Transcript recovery starts a fresh provider session from the visible conversation.</p></div>
+      <section class="recovery-card${orchestrator ? ' continue-card' : ''}">
+        <div>
+          <small>${orchestrator ? 'THAT TURN STOPPED' : 'RECOVERY DESK'}</small>
+          <h3>${orchestrator ? 'The last answer did not finish.' : 'The command can be recovered.'}</h3>
+          <p>${orchestrator
+            ? 'You can try the same turn again, start from the conversation we have, or just keep talking below.'
+            : 'Retry keeps safe native context when available. Transcript recovery starts a fresh provider session from the visible conversation.'}</p>
+        </div>
         <div class="recovery-actions">
-          <button class="recovery-primary" data-action="retry-run" ${running ? 'disabled' : ''}>↻ Retry last command</button>
-          <button data-action="retry-transcript" ${running ? 'disabled' : ''}>Retry from transcript</button>
-          <button data-action="choose-lane" ${running ? 'disabled' : ''}>Change lane</button>
+          <button class="recovery-primary" data-action="retry-run" ${running ? 'disabled' : ''}>${orchestrator ? 'Try again' : '↻ Retry last command'}</button>
+          <button data-action="retry-transcript" ${running ? 'disabled' : ''}>${orchestrator ? 'Try from the conversation' : 'Retry from transcript'}</button>
+          <button data-action="choose-lane" ${running ? 'disabled' : ''}>${orchestrator ? 'Pick another model' : 'Change lane'}</button>
         </div>
       </section>`;
   }
@@ -891,10 +958,10 @@
     const contextItems = conversation.context || [];
     return `
       <main class="main conversation-main">
-        ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? 'GENERAL STAFF · LIVE COMMAND SEAT' : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
+        ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? (hasVisibleConversation(conversation) ? 'GENERAL STAFF · SAME CONVERSATION' : 'GENERAL STAFF · YOUR DESK') : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
         <div class="conversation-shell">
           <div class="conversation-meta">
-            ${orchestrator ? '<div class="session-identity"><span class="session-live-dot"></span><strong>Continuous session</strong><small>Transcript retained; compatible provider sessions resume after reopen</small></div>' : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
+            ${orchestrator ? renderSessionIdentity(conversation) : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
               <span class="seat-reading">${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)} · ${escapeHtml(seatReading(conversation.seat).health)}</span>
               <span>${escapeHtml(lane?.name || conversation.laneId)}</span>
@@ -910,7 +977,7 @@
               .map(
                 (message) => `
                   <article class="message ${message.role} ${message.status || ''}" data-message-id="${escapeHtml(message.id)}">
-                    <div class="message-author">${message.role === 'user' ? '<span class="avatar tiny">RW</span><strong>You</strong>' : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Recovery attempt</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
+                    <div class="message-author">${message.role === 'user' ? '<span class="avatar tiny">RW</span><strong>You</strong>' : '<span class="assistant-mark">GS</span><strong>GeneralStaff</strong>'}${message.attempt === 'retry' ? '<span class="attempt-badge">Trying again</span>' : ''}<time>${formatWhen(message.createdAt)}</time></div>
                     <div class="message-body">${message.text ? renderText(message.text) : '<div class="thinking"><i></i><i></i><i></i><span>Taking the seat…</span></div>'}</div>
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
@@ -945,12 +1012,13 @@
     const selectionEnd = oldPrompt?.selectionEnd;
     ensureSelections();
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
-    app.innerHTML = `<div class="workbench${deskArrived ? '' : ' arriving'}">${renderRail()}${content}${renderNotice()}</div>`;
+    const arriving = !deskArrived;
+    app.innerHTML = `<div class="workbench${arriving ? ' arriving' : ''}${arriving && state.returningToConversation ? ' returning' : ''}">${renderRail()}${content}${renderNotice()}</div>`;
     deskArrived = true;
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
         const stream = document.querySelector('.message-stream');
-        if (stream) stream.scrollTop = wasNearBottom ? stream.scrollHeight : oldScrollTop;
+        if (stream) restoreStreamScroll(stream, oldStream, oldScrollTop, wasNearBottom);
       });
     }
     if (restorePromptFocus) {
@@ -961,7 +1029,11 @@
           prompt.setSelectionRange(selectionStart, selectionEnd);
         }
       });
+    } else if (state.returningToConversation && !state.composerReady) {
+      state.composerReady = true;
+      requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     }
+    if (state.returningToConversation) state.composerReady = true;
     remember();
   }
 
@@ -1091,7 +1163,10 @@
       if (id && !state.runStatus[id]) {
         state.pendingActionConversationId = id;
         state.runCards[id] = [];
-        state.runStatus[id] = action === 'retry-run' ? 'Preparing a safe retry…' : 'Preparing transcript recovery…';
+        const orchestrator = currentConversation()?.kind === 'orchestrator';
+        state.runStatus[id] = action === 'retry-run'
+          ? (orchestrator ? 'Trying that turn again…' : 'Preparing a safe retry…')
+          : (orchestrator ? 'Starting from the conversation we have…' : 'Preparing transcript recovery…');
         vscode.postMessage({
           type: 'retry-run',
           conversationId: id,
@@ -1181,6 +1256,12 @@
     }
   });
 
+  app.addEventListener('scroll', (event) => {
+    if (event.target instanceof Element && event.target.classList.contains('message-stream')) {
+      persistStreamScroll();
+    }
+  }, true);
+
   app.addEventListener('keydown', (event) => {
     if (event.target.id === 'prompt' && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -1225,6 +1306,7 @@
           state.selectedEffort = session.effort || 'default';
           state.selectedSkillId = session.skillId || '';
           state.selectedPermission = session.permission || 'read';
+          state.returningToConversation = hasVisibleConversation(session);
         }
         state.hydrated = true;
       }

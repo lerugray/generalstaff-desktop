@@ -151,6 +151,11 @@
         persisted.selectedProjectId = 'generalstaff';
         persisted.selectedLaneId = 'codex';
         persisted.selectedSeat = 'verify';
+      } else if (mode === 'resume') {
+        persisted.draft = 'What is still waiting on my ruling?';
+        persisted.selectedLaneId = 'codex';
+        persisted.selectedSeat = 'orchestrate';
+        persisted.streamScroll = { 'orchestrator-session': { top: 0, pinned: true } };
       }
       const orchestratorSession = {
         id: 'orchestrator-session', kind: 'orchestrator', title: 'Orchestrator session', target: { kind: 'general' }, laneId: 'codex', seat: 'orchestrate', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 3600000, updatedAt: now - 60000,
@@ -159,6 +164,24 @@
           { id: 'orchestrator-assistant', role: 'assistant', text: 'The fleet is grounded. Two projects are active, one review needs your ruling, and no destructive action is pending.', status: 'complete', createdAt: now - 60000 },
         ],
       };
+      if (mode === 'resume') {
+        orchestratorSession.messages = [
+          { id: 'resume-user-1', role: 'user', text: 'Catch me up on the fleet before we dispatch today.', status: 'complete', createdAt: now - 3600000 },
+          { id: 'resume-gs-1', role: 'assistant', text: 'The fleet is grounded. Two projects are active, one review needs your ruling, and no destructive action is pending.', status: 'complete', createdAt: now - 3540000 },
+          { id: 'resume-user-2', role: 'user', text: 'Hold the SnesOS slice until I read the playable loop note.', status: 'complete', createdAt: now - 180000 },
+          { id: 'resume-gs-2', role: 'assistant', text: 'Held. The playable loop note is waiting, and nothing else was started.', status: 'complete', createdAt: now - 120000 },
+          { id: 'resume-user-3', role: 'user', text: 'Remind me what still needs a ruling before we leave the desk.', status: 'complete', createdAt: now - 70000 },
+          { id: 'resume-gs-3', role: 'assistant', text: 'The GeneralStaff contract review is still yours. Everything else can wait.', status: 'complete', createdAt: now - 60000 },
+        ];
+        orchestratorSession.updatedAt = now - 60000;
+      }
+      if (mode === 'interrupted') {
+        orchestratorSession.messages = [
+          { id: 'int-user', role: 'user', text: 'Draft the wrap-up for today\'s ruling before I step away.', status: 'complete', createdAt: now - 90000 },
+          { id: 'int-gs', role: 'assistant', text: 'I had the seat and started the wrap-up.\n\nThe desk closed before this answer finished.', status: 'error', createdAt: now - 30000 },
+        ];
+        orchestratorSession.updatedAt = now - 30000;
+      }
       if (mode === 'heavy') {
         orchestratorSession.context = [
           { label: 'product-contract.md', path: '/fleet/generalstaff/product-contract.md', kind: 'document' },

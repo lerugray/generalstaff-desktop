@@ -42,6 +42,7 @@ import {
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
 import { applyDeskLayout, applyWorkshopLayout, type LayoutHost } from './deskLayout.js';
+import { deskBootCopy, hasVisibleConversation } from './deskResume.js';
 
 const viewType = 'generalstaff.commandDeck';
 
@@ -811,6 +812,9 @@ class CommandDeckPanel {
     const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
     const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.js'));
     const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce);
+    const session = this.orchestrator.current()
+      ?? this.store.all().find((conversation) => conversation.kind === 'orchestrator');
+    const boot = deskBootCopy(hasVisibleConversation(session));
     return `<!doctype html>
 <html lang="en">
   <head>
@@ -824,7 +828,7 @@ class CommandDeckPanel {
     <div id="app" aria-live="polite">
       <div class="boot">
         <div class="boot-mark">GS</div>
-        <div><strong>Opening the desk</strong><span>Reading the fleet without interrupting active work…</span></div>
+        <div><strong>${boot.title}</strong><span>${boot.detail}</span></div>
       </div>
     </div>
     <script nonce="${nonce}" src="${script}"></script>

@@ -12,6 +12,7 @@ import type {
   PermissionMode,
   SeatId,
 } from '../domain.js';
+import { markInterruptedAnswer } from '../deskResume.js';
 
 const storageKey = 'generalstaff.conversations.v1';
 const providerStorageKey = 'generalstaff.providerSessions.v1';
@@ -66,9 +67,7 @@ export class ConversationStore {
           recoveredInterruptedRun = true;
           return {
             ...message,
-            text: message.text.trim()
-              ? `${message.text}\n\nThe Workbench closed before this run completed.`
-              : 'The Workbench closed before this run completed.',
+            text: markInterruptedAnswer(message.text),
             status: 'error' as const,
           };
         }),

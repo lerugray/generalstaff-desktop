@@ -153,7 +153,7 @@ test('interrupted streaming messages reopen as explicit recoverable errors', asy
   const restored = new ConversationStore(memory).get('conversation-one');
   assert.deepEqual(restored?.target, { kind: 'project', projectId: 'generalstaff' });
   assert.equal(restored?.messages[0]?.status, 'error');
-  assert.match(restored?.messages[0]?.text ?? '', /closed before this run completed/);
+  assert.match(restored?.messages[0]?.text ?? '', /The desk closed before this answer finished/);
 });
 
 test('decision answers are validated and persisted once', async () => {

@@ -2030,6 +2030,8 @@ select:focus-visible {
 
 .craft-receipt-stack {
   display: grid;
+  box-sizing: border-box;
+  width: 100%;
   max-width: 760px;
   gap: 7px;
   margin: 4px auto 10px;

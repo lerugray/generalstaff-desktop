@@ -41,27 +41,52 @@ import {
   type PrivateRuntimeOptions,
 } from './services/privateRuntime.js';
 import { compileSkillBundle, resolveSkillInvocation } from './services/skills.js';
-import { applyDeskLayout, applyWorkshopLayout, type LayoutHost } from './deskLayout.js';
+import {
+  applyDeskLayout,
+  applyWorkshopLayout,
+  atticToolsAllowed,
+  deskStayNotice,
+  returnToDeskStatusText,
+  type LayoutHost,
+} from './deskLayout.js';
 import { deskBootCopy, hasVisibleConversation } from './deskResume.js';
 
 const viewType = 'generalstaff.commandDeck';
 
+async function updateConfig(section: string, key: string, value: unknown): Promise<void> {
+  const config = vscode.workspace.getConfiguration(section);
+  const inspect = config.inspect(key);
+  const target = inspect?.workspaceValue !== undefined
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  await config.update(key, value, target);
+}
+
 function createLayoutHost(): LayoutHost {
   return {
     executeCommand: (command) => vscode.commands.executeCommand(command),
-    updateWorkbenchSetting: async (key, value) => {
-      const config = vscode.workspace.getConfiguration('workbench');
-      const inspect = config.inspect(key);
-      const target = inspect?.workspaceValue !== undefined
-        ? vscode.ConfigurationTarget.Workspace
-        : vscode.ConfigurationTarget.Global;
-      await config.update(key, value, target);
-    },
+    updateWorkbenchSetting: (key, value) => updateConfig('workbench', key, value),
+    updateSetting: (section, key, value) => updateConfig(section, key, value),
   };
 }
 
 const layoutHost = createLayoutHost();
 let workshopOpen = false;
+let returnToDeskStatus: vscode.StatusBarItem | undefined;
+
+function deskIsActive(): boolean {
+  return vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', true) && !workshopOpen;
+}
+
+function syncDeskChrome(): void {
+  void vscode.commands.executeCommand('setContext', 'generalstaff.deskActive', deskIsActive());
+  if (!returnToDeskStatus) return;
+  returnToDeskStatus.text = `$(arrow-left) ${returnToDeskStatusText}`;
+  returnToDeskStatus.tooltip = 'Put the quiet desk back';
+  returnToDeskStatus.command = 'generalstaff.returnToDesk';
+  if (workshopOpen) returnToDeskStatus.show();
+  else returnToDeskStatus.hide();
+}
 
 async function setWorkshopOpen(open: boolean): Promise<void> {
   workshopOpen = open;
@@ -71,6 +96,7 @@ async function setWorkshopOpen(open: boolean): Promise<void> {
     CommandDeckPanel.current?.reveal();
     await applyDeskLayout(layoutHost, { closeOtherEditors: true });
   }
+  syncDeskChrome();
   CommandDeckPanel.current?.notifyWorkshop(open);
 }
 
@@ -684,7 +710,19 @@ class CommandDeckPanel {
     });
   }
 
+  stayAtDesk(): void {
+    this.reveal();
+    void this.notice(deskStayNotice, 'quiet');
+  }
+
+  private async refuseAtticDump(): Promise<boolean> {
+    if (atticToolsAllowed(workshopOpen)) return false;
+    this.stayAtDesk();
+    return true;
+  }
+
   private async openProject(projectId: string): Promise<void> {
+    if (await this.refuseAtticDump()) return;
     const project = this.snapshot?.projects.find((item) => item.id === projectId);
     if (!project) return;
     const artifact = project.artifacts.find((item) => /readme/i.test(item.label)) ?? project.artifacts[0];
@@ -727,15 +765,17 @@ class CommandDeckPanel {
   }
 
   private openTerminal(commandTarget: CommandTarget = { kind: 'general' }): void {
-    void setWorkshopOpen(true).then(() => {
-      const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
-      const cwd = target?.workingDirectory ?? this.snapshot?.rootPath;
-      const terminal = vscode.window.createTerminal({
-        name: target ? `${target.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
-        ...(cwd ? { cwd } : {}),
-      });
-      terminal.show();
+    if (!atticToolsAllowed(workshopOpen)) {
+      this.stayAtDesk();
+      return;
+    }
+    const target = this.snapshot ? resolveCommandTarget(commandTarget, this.snapshot) : undefined;
+    const cwd = target?.workingDirectory ?? this.snapshot?.rootPath;
+    const terminal = vscode.window.createTerminal({
+      name: target ? `${target.name} · supporting terminal` : 'GeneralStaff · supporting terminal',
+      ...(cwd ? { cwd } : {}),
     });
+    terminal.show();
   }
 
   private async pickContext(commandTarget: CommandTarget): Promise<void> {
@@ -781,11 +821,11 @@ class CommandDeckPanel {
 
   private async openFile(candidate: string): Promise<void> {
     if (!this.snapshot) return;
+    if (await this.refuseAtticDump()) return;
     try {
       const resolved = resolveOpenFilePath(candidate, this.snapshot.rootPath, this.snapshot.projects);
       const uri = vscode.Uri.file(resolved);
       const extension = path.extname(resolved).toLowerCase();
-      await setWorkshopOpen(true);
       if (extension === '.md') {
         await vscode.commands.executeCommand('markdown.showPreview', uri);
       } else if (extension === '.html' || extension === '.htm') {
@@ -810,6 +850,7 @@ class CommandDeckPanel {
   private html(): string {
     const nonce = crypto.randomBytes(18).toString('base64');
     const css = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.css'));
+    const composerKeys = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'composerKeys.js'));
     const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'workbench.js'));
     const csp = contentSecurityPolicy(this.panel.webview.cspSource, nonce);
     const session = this.orchestrator.current()
@@ -831,6 +872,7 @@ class CommandDeckPanel {
         <div><strong>${boot.title}</strong><span>${boot.detail}</span></div>
       </div>
     </div>
+    <script nonce="${nonce}" src="${composerKeys}"></script>
     <script nonce="${nonce}" src="${script}"></script>
   </body>
 </html>`;
@@ -849,8 +891,11 @@ class CommandDeckPanel {
 export function activate(context: vscode.ExtensionContext): void {
   const immersive = vscode.workspace.getConfiguration('generalstaff').get<boolean>('immersiveMode', true);
   workshopOpen = !immersive;
+  returnToDeskStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
+  syncDeskChrome();
 
   context.subscriptions.push(
+    returnToDeskStatus,
     vscode.commands.registerCommand('generalstaff.openCommandDeck', () => CommandDeckPanel.show(context)),
     vscode.commands.registerCommand('generalstaff.newConversation', () => {
       const panel = CommandDeckPanel.show(context);
@@ -860,9 +905,12 @@ export function activate(context: vscode.ExtensionContext): void {
       await CommandDeckPanel.show(context).refresh();
     }),
     vscode.commands.registerCommand('generalstaff.openRawTerminal', () => {
-      void setWorkshopOpen(true).then(() => {
-        vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
-      });
+      const panel = CommandDeckPanel.current ?? CommandDeckPanel.show(context);
+      if (!atticToolsAllowed(workshopOpen)) {
+        panel.stayAtDesk();
+        return;
+      }
+      vscode.window.createTerminal({ name: 'GeneralStaff · supporting terminal' }).show();
     }),
     vscode.commands.registerCommand('generalstaff.openWorkshop', () => setWorkshopOpen(true)),
     vscode.commands.registerCommand('generalstaff.returnToDesk', () => setWorkshopOpen(false)),
@@ -879,6 +927,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (immersive) {
         void applyDeskLayout(layoutHost, { closeOtherEditors: true });
       }
+      syncDeskChrome();
       panel.notifyWorkshop(workshopOpen);
     }, 120);
     context.subscriptions.push({ dispose: () => clearTimeout(timer) });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.11 — 2026-09-17
+
+- Keep leftover editor chrome closed: menu bar, breadcrumbs, explorer reveal, and a startup terminal stay off unless you open the workshop.
+- File, project, and supporting-terminal shortcuts stay at the desk. They no longer dump you into empty IDE panels.
+- Typing `/` in the composer opens the private skills list. Typing `x/y` stays ordinary text.
+
 ## 0.4.10 — 2026-09-17
 
 - Reopen the same orchestrator conversation as if you just sat back down: title, seat, transcript place, and composer ready to continue.

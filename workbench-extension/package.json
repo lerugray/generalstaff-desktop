@@ -2,7 +2,7 @@
   "name": "generalstaff-workbench",
   "displayName": "GeneralStaff Workbench",
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "publisher": "lerugray",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -67,6 +67,30 @@
         "mac": "cmd+shift+g",
         "win": "ctrl+shift+g",
         "linux": "ctrl+shift+g"
+      },
+      {
+        "command": "generalstaff.returnToDesk",
+        "key": "ctrl+b",
+        "mac": "cmd+b",
+        "when": "generalstaff.deskActive"
+      },
+      {
+        "command": "generalstaff.returnToDesk",
+        "key": "ctrl+j",
+        "mac": "cmd+j",
+        "when": "generalstaff.deskActive"
+      },
+      {
+        "command": "generalstaff.returnToDesk",
+        "key": "ctrl+`",
+        "mac": "ctrl+`",
+        "when": "generalstaff.deskActive"
+      },
+      {
+        "command": "generalstaff.returnToDesk",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "generalstaff.deskActive"
       }
     ],
     "configuration": {

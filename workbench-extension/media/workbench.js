@@ -56,7 +56,7 @@
 
   function seatReading(seatId) {
     const lanes = state.snapshot?.lanes || [];
-    const supporting = lanes.filter((lane) => (lane.roles || []).includes(seatId));
+    const supporting = lanes.filter((lane) => (lane.roles || []).includes(seatId) && lane.state !== 'missing');
     const available = supporting.filter((lane) => lane.state === 'available');
     const checking = supporting.filter((lane) => lane.state === 'checking');
     let health = 'ready';
@@ -66,6 +66,25 @@
       health = 'thin';
     }
     return { health, available: available.length, supporting: supporting.length };
+  }
+
+  function orchestratorWelcome(health) {
+    if (health === 'down') {
+      return {
+        title: 'The orchestrator seat needs a model lane.',
+        detail: 'Catch up, make rulings, follow up, or dispatch work once a lane for this seat is ready. Every message continues this same session from the private GeneralStaff root.',
+      };
+    }
+    if (health === 'thin') {
+      return {
+        title: 'The orchestrator seat is ready.',
+        detail: 'Some backing lanes are thin. Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.',
+      };
+    }
+    return {
+      title: 'The orchestrator seat is ready.',
+      detail: 'Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.',
+    };
   }
 
   function clampUnit(value) {
@@ -112,6 +131,7 @@
       attachedFiles,
       skillCharacters: skill?.characterCount || 0,
       availableLanes: lanes.filter((lane) => lane.state === 'available').length,
+      installedLanes: lanes.filter((lane) => lane.state !== 'missing').length,
       totalLanes: lanes.length,
       availableHelpers: helpers.filter((capability) => capability.state === 'available').length,
       totalHelpers: helpers.length,
@@ -139,12 +159,13 @@
     const signals = headroomSignals();
     const promptChars = Math.max(0, signals.transcriptCharacters) + Math.max(0, signals.skillCharacters);
     const sessionPressure = Math.max(rise(promptChars, 24_000, 80_000), rise(signals.attachedFiles, 4, 9));
+    const installed = Math.max(0, signals.installedLanes);
     let poolPressure = 0;
-    if (signals.totalLanes <= 0 || signals.availableLanes <= 0) {
+    if (installed > 0 && signals.availableLanes <= 0) {
       poolPressure = 1;
-    } else if (signals.availableLanes < signals.totalLanes) {
-      poolPressure = rise(signals.totalLanes - signals.availableLanes, 1, Math.max(2, signals.totalLanes - 1));
-    } else if (signals.totalHelpers > 0 && signals.availableHelpers <= 0) {
+    } else if (installed > 0 && signals.availableLanes < installed) {
+      poolPressure = rise(installed - signals.availableLanes, 1, Math.max(2, installed - 1));
+    } else if (signals.availableLanes >= installed && signals.totalHelpers > 0 && signals.availableHelpers <= 0) {
       poolPressure = 0.45;
     }
     const projects = Math.max(0, signals.projectCount);
@@ -180,8 +201,9 @@
       : occupancyBand === 'tight'
         ? 'The fleet is busy.'
         : 'The fleet has room.';
-    const pressure = Math.max(sessionPressure, poolPressure, occupancyPressure);
-    const band = bandFromPressure(pressure);
+    const idle = signals.transcriptCharacters <= 0 && signals.attachedFiles <= 0 && signals.skillCharacters <= 0 && signals.deskRuns <= 0;
+    const pressure = idle ? 0 : Math.max(sessionPressure, poolPressure, occupancyPressure);
+    const band = idle ? 'comfortable' : bandFromPressure(pressure);
     const glance = band === 'stop soon'
       ? 'Stop soon'
       : band === 'tight'
@@ -190,7 +212,7 @@
     return {
       band,
       glance,
-      fill: clampUnit(0.16 + pressure * 0.78),
+      fill: idle ? 0.22 : clampUnit(0.16 + pressure * 0.78),
       signals: [
         { id: 'session', name: 'Session', band: sessionBand, reading: sessionReading, detail: fileLine },
         { id: 'pool', name: 'Lane pool', band: poolBand, reading: poolReading, detail: `${lanes}. ${helpers}.` },
@@ -395,7 +417,7 @@
 
   function compatibleLanes() {
     return (state.snapshot?.lanes || []).filter(
-      (lane) => lane.state === 'available' && lane.roles.includes(state.selectedSeat) &&
+      (lane) => lane.state === 'available' && (lane.roles || []).includes(state.selectedSeat) &&
         (lane.permissions || ['read', 'write']).includes(state.selectedPermission),
     );
   }
@@ -406,12 +428,13 @@
       state.selectedTargetKind = 'general';
     }
     const lanes = compatibleLanes();
+    const conversation = currentConversation();
     if (!lanes.some((lane) => lane.id === state.selectedLaneId)) {
-      state.selectedLaneId = lanes[0]?.id || null;
+      state.selectedLaneId = lanes[0]?.id || conversation?.laneId || null;
     }
-    const selectedLane = lanes.find((lane) => lane.id === state.selectedLaneId);
+    const selectedLane = (state.snapshot?.lanes || []).find((lane) => lane.id === state.selectedLaneId) || lanes.find((lane) => lane.id === state.selectedLaneId);
     if (!selectedLane?.efforts?.some((effort) => effort.id === state.selectedEffort)) {
-      state.selectedEffort = selectedLane?.defaultEffort || 'default';
+      state.selectedEffort = selectedLane?.defaultEffort || conversation?.effort || 'default';
     }
     if (state.selectedSkillId && !(state.snapshot?.skills || []).some((skill) => skill.id === state.selectedSkillId)) {
       state.selectedSkillId = '';
@@ -438,7 +461,6 @@
 
   function renderRail() {
     const projects = state.snapshot?.projects || [];
-    const headroom = readHeadroom();
     const sessionHint = hasVisibleConversation(orchestratorSession())
       ? 'Same conversation · private root'
       : 'Live seat · private root';
@@ -488,8 +510,8 @@
           </div>
         </div>
         <div class="rail-footer">
-          <span class="pulse-dot ${headroom.band === 'stop soon' ? 'stop' : headroom.band === 'tight' ? 'tight' : ''}"></span>
-          <div><strong>Headroom · ${escapeHtml(headroom.band)}</strong><small>one desk</small></div>
+          <span class="pulse-dot"></span>
+          <div><strong>Workbench</strong><small>one desk</small></div>
           <button class="icon-button" data-action="refresh" title="Refresh fleet">↻</button>
         </div>
       </aside>`;
@@ -958,6 +980,7 @@
     const lane = state.snapshot?.lanes.find((item) => item.id === conversation.laneId);
     const run = state.runStatus[conversation.id];
     const contextItems = conversation.context || [];
+    const welcome = orchestratorWelcome(seatReading('orchestrate').health);
     return `
       <main class="main conversation-main">
         ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? (hasVisibleConversation(conversation) ? 'GENERAL STAFF · SAME CONVERSATION' : 'GENERAL STAFF · YOUR DESK') : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
@@ -984,7 +1007,7 @@
                   </article>
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
               )
-              .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>${orchestrator ? 'The orchestrator seat is ready.' : 'What project outcome are we ordering?'}</h2><p>${orchestrator ? 'Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.' : 'This project order runs from the selected repository with its own bounded conversation.'}</p></div>`}
+              .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>${orchestrator ? escapeHtml(welcome.title) : 'What project outcome are we ordering?'}</h2><p>${orchestrator ? escapeHtml(welcome.detail) : 'This project order runs from the selected repository with its own bounded conversation.'}</p></div>`}
             ${renderToolCards(conversation)}
             ${renderReceipt(conversation)}
             ${renderRecovery(conversation, Boolean(run))}
@@ -1234,14 +1257,27 @@
   function postRoutingUpdate() {
     const conversation = currentConversation();
     if (!conversation || state.runStatus[conversation.id]) return;
+    const laneId = state.selectedLaneId || conversation.laneId;
+    const seat = state.selectedSeat || conversation.seat;
+    const effort = state.selectedEffort || conversation.effort || 'default';
+    if (typeof laneId !== 'string' || typeof seat !== 'string') return;
     vscode.postMessage({
       type: 'update-routing',
       conversationId: conversation.id,
-      laneId: state.selectedLaneId,
-      seat: state.selectedSeat,
-      effort: state.selectedEffort,
+      laneId,
+      seat,
+      effort,
       permission: state.selectedPermission,
-      skillId: state.selectedSkillId || undefined,
+      ...(state.selectedSkillId ? { skillId: state.selectedSkillId } : {}),
+    });
+  }
+
+  function postRoomEntry(enter) {
+    const conversation = currentConversation();
+    if (!conversation || state.runStatus[conversation.id]) return;
+    vscode.postMessage({
+      type: enter ? 'enter-room' : 'leave-room',
+      conversationId: conversation.id,
     });
   }
 
@@ -1370,15 +1406,15 @@
       closeSlashSkillMenu();
       vscode.postMessage({ type: 'toggle-workshop' });
     } else if (action === 'enter-room') {
-      if (state.selectedPermission === 'write') return;
+      if (state.selectedPermission === 'write' && consentGranted(currentConversation())) return;
       state.selectedPermission = 'write';
       render();
-      postRoutingUpdate();
+      postRoomEntry(true);
     } else if (action === 'leave-room') {
       if (state.selectedPermission === 'read' && !consentGranted(currentConversation())) return;
       state.selectedPermission = 'read';
       render();
-      postRoutingUpdate();
+      postRoomEntry(false);
     }
   });
 
@@ -1428,12 +1464,24 @@
   }, true);
 
   app.addEventListener('keydown', (event) => {
+    if (typeof GSComposerKeys !== 'undefined' && GSComposerKeys.shouldSelectAll(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        event.target.focus();
+        event.target.select();
+      } catch {
+        // Host select-all can crash the window. Stay in the composer.
+      }
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
     if (handleSlashSkillKeys(event)) return;
     if (event.target.id === 'prompt' && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       issueCommand();
     }
-  });
+  }, true);
 
   app.addEventListener('mousedown', (event) => {
     const option = event.target.closest('[data-action="pick-slash-skill"]');
@@ -1598,13 +1646,27 @@
   });
 
   document.addEventListener('keydown', (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+    const key = typeof event.key === 'string' ? event.key : '';
+    if (!key) return;
+    if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === 'a' && event.target?.id === 'prompt') {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        event.target.focus();
+        event.target.select();
+      } catch {
+        // Host select-all can crash the window. Stay in the composer.
+      }
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === 'n') {
       event.preventDefault();
       selectOrchestratorSession(true);
       render();
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
     }
-  });
+  }, true);
 
   vscode.postMessage({ type: 'ready' });
 })();

@@ -15,7 +15,9 @@ export type WebviewMessage =
   | { type: 'pick-context'; target: CommandTarget }
   | { type: 'choose-root' }
   | { type: 'save-note'; projectId: string; text: string }
-  | { type: 'toggle-workshop' };
+  | { type: 'toggle-workshop' }
+  | { type: 'enter-room'; conversationId: string }
+  | { type: 'leave-room'; conversationId: string };
 
 const laneIds = new Set<LaneId>([
   'codex',
@@ -173,6 +175,12 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     case 'choose-root':
     case 'toggle-workshop':
       return { type: value.type };
+    case 'enter-room':
+    case 'leave-room':
+      if (isShortString(value.conversationId, 160)) {
+        return { type: value.type, conversationId: value.conversationId };
+      }
+      return undefined;
     case 'save-note':
       if (isShortString(value.projectId, 160) && typeof value.text === 'string' && value.text.length <= 10_000) {
         return { type: value.type, projectId: value.projectId, text: value.text };

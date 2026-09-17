@@ -29,16 +29,18 @@
   const slashPrefixPattern = /^[a-z0-9-]{0,64}$/i;
 
   function slashSkillQuery(text, cursor) {
-    if (typeof text !== 'string' || !Number.isInteger(cursor) || cursor < 1 || cursor > text.length) {
-      return null;
-    }
-    const before = text.slice(0, cursor);
+    if (typeof text !== 'string') return null;
+    const at = Number(cursor);
+    if (!Number.isFinite(at)) return null;
+    const index = Math.max(0, Math.min(text.length, Math.trunc(at)));
+    if (index < 1 || index > text.length) return null;
+    const before = text.slice(0, index);
     const slash = before.lastIndexOf('/');
     if (slash < 0) return null;
     if (slash > 0 && !/[\s\n\r]/.test(before.charAt(slash - 1))) return null;
     const query = before.slice(slash + 1);
     if (!slashPrefixPattern.test(query)) return null;
-    return { start: slash, end: cursor, query };
+    return { start: slash, end: index, query };
   }
 
   function filterSkills(skills, query) {
@@ -71,11 +73,24 @@
     return Math.max(0, Math.min(count - 1, current + delta));
   }
 
+  /**
+   * Keep Ctrl/Cmd+A inside the composer. Letting it bubble into the host
+   * select-all command has crashed the Workbench window (exit code 5).
+   */
+  function shouldSelectAll(event) {
+    if (!event || !event.target || event.target.id !== 'prompt') return false;
+    const key = typeof event.key === 'string' ? event.key : '';
+    if (!key) return false;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return false;
+    return key.toLowerCase() === 'a';
+  }
+
   return {
     shouldSendOnEnter,
     slashSkillQuery,
     filterSkills,
     insertSkillToken,
     moveSkillHighlight,
+    shouldSelectAll,
   };
 });

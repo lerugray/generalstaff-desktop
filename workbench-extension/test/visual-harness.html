@@ -72,6 +72,8 @@
           { id: 'kimi', runner: 'kimi', name: 'Kimi K3', detail: 'Long-context subscription lane for orchestration, specs, and implementation', evidenceLabel: 'Measured in the 2026-08-24 seat benchmark', state: 'available', executable: '/bin/kimi', roles: ['orchestrate', 'build'], permissions: ['write'], efforts: effortOptions.provider, defaultEffort: 'default' },
           { id: 'cline', runner: 'cline', name: 'Cline / GLM', detail: 'Cline Pass and free GLM-5.3 Flash capacity', evidenceLabel: 'GLM measured in the 2026-08-24 seat benchmark', state: 'available', executable: '/bin/cline', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read', 'write'], efforts: effortOptions.cline, defaultEffort: 'default' },
           { id: 'cursor', runner: 'cursor', name: 'Cursor Agent', detail: 'Subscription-backed engineering lane with shell and repository tools', evidenceLabel: 'Engineering subscription lane · unbenchmarked', state: 'missing', executable: '/bin/cursor', roles: ['build', 'review', 'verify'], permissions: ['read', 'write'], efforts: effortOptions.provider, defaultEffort: 'default' },
+          { id: 'grok', runner: 'grok', name: 'Grok 4.6 (trial)', detail: 'Trial seat', evidenceLabel: 'Trial seat', state: 'missing', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read', 'write'], efforts: effortOptions.provider, defaultEffort: 'default' },
+          { id: 'glm-ollama', runner: 'glm-ollama', name: 'GLM 5.3 (Ollama)', detail: 'Ollama Cloud', evidenceLabel: 'Ollama Cloud', state: 'missing', roles: ['orchestrate', 'build', 'review', 'verify', 'assist'], permissions: ['read'], efforts: effortOptions.provider, defaultEffort: 'default' },
         ],
       };
       const params = new URLSearchParams(location.search);
@@ -182,6 +184,10 @@
         ];
         orchestratorSession.updatedAt = now - 30000;
       }
+      if (mode === 'cold') {
+        orchestratorSession.messages = [];
+        orchestratorSession.updatedAt = now;
+      }
       if (mode === 'heavy') {
         orchestratorSession.context = [
           { label: 'product-contract.md', path: '/fleet/generalstaff/product-contract.md', kind: 'document' },
@@ -240,12 +246,20 @@
             conversation.receipt = { laneId: conversation.laneId, laneName: 'Codex', seat: conversation.seat, effort: conversation.effort, target: conversation.target, modelLabel: 'GPT-5.6 Sol · high', startedAt: Date.now() - 6200, finishedAt: Date.now(), exitCode: 0, stopped: false, permission: conversation.permission, workingDirectory: conversation.target.kind === 'general' ? '/fleet' : `/fleet/${conversation.target.projectId}`, continuity: 'new', skillId: conversation.skillId, capabilities: ['Headroom', 'Lane Desk'], evidence: ['stdout: {"type":"item.completed","item":{"type":"agent_message","text":"[redacted]"}}'], cards: [{ title: 'Read a file', what: 'Read a file.', where: `MISSION.md in ${room}`, status: 'Recorded', tone: 'done' }], summary: { title: 'Work finished', what: conversation.permission === 'write' ? `Changed files in ${room}.` : `Looked through ${room}.`, where: `in ${room}`, status: 'Finished', tone: 'done' } };
             setTimeout(() => window.postMessage({ type: 'conversations', conversations }, '*'), 80);
           }
-          if (message.type === 'update-routing') {
+          if (message.type === 'update-routing' || message.type === 'enter-room' || message.type === 'leave-room') {
             const conversation = conversations.find((item) => item.id === message.conversationId);
             if (!conversation) return;
-            Object.assign(conversation, { laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission });
-            if (message.permission === 'write') conversation.writeConsent = { at: Date.now(), target: conversation.target };
-            else delete conversation.writeConsent;
+            if (message.type === 'enter-room') {
+              conversation.permission = 'write';
+              conversation.writeConsent = { at: Date.now(), target: conversation.target };
+            } else if (message.type === 'leave-room') {
+              conversation.permission = 'read';
+              delete conversation.writeConsent;
+            } else {
+              Object.assign(conversation, { laneId: message.laneId, seat: message.seat, effort: message.effort, skillId: message.skillId, permission: message.permission });
+              if (message.permission === 'write') conversation.writeConsent = { at: Date.now(), target: conversation.target };
+              else delete conversation.writeConsent;
+            }
             setTimeout(() => window.postMessage({ type: 'routing-updated', conversation }, '*'), 10);
           }
           if (message.type === 'save-note') {

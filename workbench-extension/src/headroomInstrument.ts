@@ -9,6 +9,7 @@ export interface HeadroomSignals {
   attachedFiles: number;
   skillCharacters: number;
   availableLanes: number;
+  installedLanes: number;
   totalLanes: number;
   availableHelpers: number;
   totalHelpers: number;
@@ -77,13 +78,15 @@ export function sessionPressure(signals: HeadroomSignals): number {
 }
 
 export function poolPressure(signals: HeadroomSignals): number {
-  if (signals.totalLanes <= 0 || signals.availableLanes <= 0) return 1;
-  if (signals.availableLanes >= signals.totalLanes) {
+  const installed = Math.max(0, signals.installedLanes);
+  if (installed <= 0) return 0;
+  if (signals.availableLanes <= 0) return 1;
+  if (signals.availableLanes >= installed) {
     if (signals.totalHelpers > 0 && signals.availableHelpers <= 0) return 0.45;
     return 0;
   }
-  const missing = signals.totalLanes - signals.availableLanes;
-  return rise(missing, 1, Math.max(2, signals.totalLanes - 1));
+  const down = installed - signals.availableLanes;
+  return rise(down, 1, Math.max(2, installed - 1));
 }
 
 export function occupancyPressure(signals: HeadroomSignals): number {
@@ -159,17 +162,25 @@ function signalReading(
   };
 }
 
+export function isIdleDesk(signals: HeadroomSignals): boolean {
+  return Math.max(0, signals.transcriptCharacters) <= 0
+    && Math.max(0, signals.attachedFiles) <= 0
+    && Math.max(0, signals.skillCharacters) <= 0
+    && Math.max(0, signals.deskRuns) <= 0;
+}
+
 export function readHeadroom(signals: HeadroomSignals): HeadroomReading {
   const session = signalReading('session', sessionPressure(signals), (band) => sessionCopy(signals, band));
   const pool = signalReading('pool', poolPressure(signals), (band) => poolCopy(signals, band));
   const occupancy = signalReading('occupancy', occupancyPressure(signals), (band) => occupancyCopy(signals, band));
   const signalsRead = [session, pool, occupancy];
-  const pressure = Math.max(session.pressure, pool.pressure, occupancy.pressure);
-  const band = bandFromPressure(pressure);
+  const idle = isIdleDesk(signals);
+  const pressure = idle ? 0 : Math.max(session.pressure, pool.pressure, occupancy.pressure);
+  const band = idle ? 'comfortable' : bandFromPressure(pressure);
   return {
     band,
     glance: bandGlance[band],
-    fill: clampUnit(0.16 + pressure * 0.78),
+    fill: idle ? 0.22 : clampUnit(0.16 + pressure * 0.78),
     signals: signalsRead,
   };
 }
@@ -180,6 +191,7 @@ export function emptyHeadroomSignals(): HeadroomSignals {
     attachedFiles: 0,
     skillCharacters: 0,
     availableLanes: 0,
+    installedLanes: 0,
     totalLanes: 0,
     availableHelpers: 0,
     totalHelpers: 0,

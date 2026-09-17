@@ -61,6 +61,19 @@ export async function authorizeWriteAccess(
   return permission !== 'write' || alreadyEnabled || await confirm();
 }
 
+export function writeLaneForSeat(
+  lanes: readonly LaneSummary[],
+  seat: SeatId,
+  preferredLaneId?: LaneSummary['id'],
+): LaneSummary | undefined {
+  const writable = lanes.filter((lane) =>
+    lane.state === 'available' &&
+    lane.roles.includes(seat) &&
+    lane.permissions.includes('write'),
+  );
+  return writable.find((lane) => lane.id === preferredLaneId) ?? writable[0];
+}
+
 export { writeConsentPrompt } from './consentRoom.js';
 
 export function resolveOpenFilePath(

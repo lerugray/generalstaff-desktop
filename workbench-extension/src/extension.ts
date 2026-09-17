@@ -26,6 +26,7 @@ import {
   resolveOpenFilePath,
   supportsRouting,
   targetSupportsPermission,
+  writeLaneForSeat,
 } from './extensionPolicy.js';
 import { requireAllowedPath } from './security/paths.js';
 import { ConversationStore } from './services/conversations.js';
@@ -366,6 +367,12 @@ class CommandDeckPanel {
         return;
       case 'toggle-workshop':
         await setWorkshopOpen(!workshopOpen);
+        return;
+      case 'enter-room':
+        await this.enterRoom(message.conversationId);
+        return;
+      case 'leave-room':
+        await this.leaveRoom(message.conversationId);
         return;
       case 'save-note':
         if (!this.snapshot.projects.some((project) => project.id === message.projectId)) return;
@@ -749,6 +756,79 @@ class CommandDeckPanel {
     } catch {
       await this.notice('Choose the GeneralStaff root folder that contains state/.', 'error');
     }
+  }
+
+  private async enterRoom(conversationId: string): Promise<void> {
+    if (!this.snapshot) return;
+    if (this.activeRuns.has(conversationId) || this.pendingRuns.has(conversationId)) {
+      await this.notice('Stop the active run before entering this room.', 'error');
+      return;
+    }
+    const conversation = this.store.get(conversationId);
+    const target = conversation ? resolveCommandTarget(conversation.target, this.snapshot) : undefined;
+    if (!conversation || !target) {
+      await this.notice('That conversation is no longer available.', 'error');
+      return;
+    }
+    if (conversation.permission === 'write') {
+      await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
+      return;
+    }
+    if (!targetSupportsPermission('write', target)) {
+      await this.notice(consentNotices.stateOnly, 'error');
+      await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
+      return;
+    }
+    const lane = writeLaneForSeat(this.snapshot.lanes, conversation.seat, conversation.laneId);
+    if (!lane) {
+      await this.notice('No model lane on this seat can change files right now.', 'error');
+      await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
+      return;
+    }
+    if (!(await this.confirmWrite(target, lane.name))) {
+      await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
+      await this.notice(consentNotices.declined, 'error');
+      return;
+    }
+    const effort = lane.efforts.some((item) => item.id === conversation.effort)
+      ? conversation.effort
+      : lane.defaultEffort;
+    const updated = await this.store.setRouting(
+      conversationId,
+      lane.id,
+      conversation.seat,
+      effort,
+      'write',
+      conversation.skillId,
+    );
+    await this.panel.webview.postMessage({ type: 'routing-updated', conversation: updated });
+    await this.postState();
+  }
+
+  private async leaveRoom(conversationId: string): Promise<void> {
+    if (this.activeRuns.has(conversationId) || this.pendingRuns.has(conversationId)) {
+      await this.notice('Stop the active run before leaving this room.', 'error');
+      return;
+    }
+    const conversation = this.store.get(conversationId);
+    if (!conversation) {
+      await this.notice('That conversation is no longer available.', 'error');
+      return;
+    }
+    if (conversation.permission !== 'write') {
+      await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
+      return;
+    }
+    const updated = await this.store.setRouting(
+      conversationId,
+      conversation.laneId,
+      conversation.seat,
+      conversation.effort,
+      'read',
+      conversation.skillId,
+    );
+    await this.panel.webview.postMessage({ type: 'routing-updated', conversation: updated });
+    await this.postState();
   }
 
   private async confirmWrite(

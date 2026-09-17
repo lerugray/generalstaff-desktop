@@ -50,9 +50,13 @@ export function healthForSeat(seat: SeatId, lanes: readonly LaneCapacity[]): Sea
   return readingForSeat(seat, lanes).health;
 }
 
+function isInstalled(state: LaneCapacity['state']): boolean {
+  return state !== 'missing';
+}
+
 export function readingForSeat(seat: SeatId, lanes: readonly LaneCapacity[]): SeatReading {
   const copy = seatCopy[seat];
-  const supporting = lanes.filter((lane) => lane.roles.includes(seat));
+  const supporting = lanes.filter((lane) => lane.roles.includes(seat) && isInstalled(lane.state));
   const availableLanes = supporting.filter((lane) => lane.state === 'available').length;
   const checkingLanes = supporting.filter((lane) => lane.state === 'checking').length;
   let health: SeatHealth = 'ready';
@@ -68,6 +72,25 @@ export function readingForSeat(seat: SeatId, lanes: readonly LaneCapacity[]): Se
     health,
     availableLanes,
     supportingLanes: supporting.length,
+  };
+}
+
+export function orchestratorWelcome(health: SeatHealth): { title: string; detail: string } {
+  if (health === 'down') {
+    return {
+      title: 'The orchestrator seat needs a model lane.',
+      detail: 'Catch up, make rulings, follow up, or dispatch work once a lane for this seat is ready. Every message continues this same session from the private GeneralStaff root.',
+    };
+  }
+  if (health === 'thin') {
+    return {
+      title: 'The orchestrator seat is ready.',
+      detail: 'Some backing lanes are thin. Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.',
+    };
+  }
+  return {
+    title: 'The orchestrator seat is ready.',
+    detail: 'Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.',
   };
 }
 

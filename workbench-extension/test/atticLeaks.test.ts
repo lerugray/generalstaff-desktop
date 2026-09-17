@@ -101,6 +101,8 @@ test('product surfaces no longer dump into attic from the desk or a lone slash',
   assert.match(webview, /syncSlashSkillMenu\(true\)/u);
   assert.match(webview, /GSComposerKeys\.slashSkillQuery/u);
   assert.match(webview, /handleSlashSkillKeys\(event\)/u);
+  assert.match(webview, /shouldSelectAll\(event\)/u);
+  assert.match(webview, /postRoomEntry\(true\)/u);
   assert.match(webview, /state\.workshopOpen \? '<button class="context-action" data-action="open-project">Open primary/u);
   assert.match(webview, /project && state\.workshopOpen \? '<button data-action="open-project">Open project/u);
   assert.match(webview, /if \(!state\.workshopOpen\) return;/u);

@@ -271,9 +271,18 @@ select:focus-visible {
   animation: desk-arrive 280ms ease;
 }
 
+.workbench.arriving.returning {
+  animation: desk-return 340ms ease;
+}
+
 @keyframes desk-arrive {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes desk-return {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .rail {
@@ -2397,6 +2406,16 @@ select:focus-visible {
   font-size: 7px;
   font-weight: 650;
   letter-spacing: 0.12em;
+}
+
+.recovery-card.continue-card {
+  border-color: rgb(var(--accent-rgb) / 0.22);
+  background: linear-gradient(110deg, rgb(var(--accent-rgb) / 0.07), rgb(var(--surface-2-rgb) / 0.88));
+}
+
+.recovery-card.continue-card > div > small {
+  color: var(--brass);
+  letter-spacing: 0.1em;
 }
 
 .recovery-card h3 {

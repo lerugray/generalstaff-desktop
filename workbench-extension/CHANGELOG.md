@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.10 — 2026-09-17
+
+- Reopen the same orchestrator conversation as if you just sat back down: title, seat, transcript place, and composer ready to continue.
+- If the last turn stopped when the desk closed, say so in plain words and offer a way to keep going.
+
 ## 0.4.9 — 2026-09-17
 
 - Replace the scattered lane meter, rail counts, and hero tallies with one headroom instrument.

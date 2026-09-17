@@ -13,7 +13,9 @@ test('the orchestrator session is the default dominant surface and project order
 
   assert.match(webview, /state\.activeConversationId = state\.orchestratorSessionId;\s+state\.selectedTargetKind = 'general';\s+const session/u);
   assert.match(webview, /state\.snapshot\.rootPath \? renderConversation\(\) : renderSetup\(\)/u);
-  assert.match(webview, /Orchestrator session[\s\S]*Live seat · private root/u);
+  assert.match(webview, /Orchestrator session[\s\S]*\$\{sessionHint\}/u);
+  assert.match(webview, /Live seat · private root/u);
+  assert.match(webview, /Same conversation · private root/u);
   assert.match(webview, /Every message continues this same session from the private GeneralStaff root/u);
   assert.match(webview, /orchestrator \? 'Send' : 'Issue order'/u);
   assert.match(webview, /Open workshop/u);

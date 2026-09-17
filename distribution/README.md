@@ -12,4 +12,4 @@ The distribution does three things:
 
 Run `scripts/build-workbench.sh` (or `.cmd`) once to verify and package the extension. Then run `scripts/launch-workbench.sh` on macOS/Linux or `scripts/launch-workbench.cmd` on Windows. The launcher installs the stable `distribution/generalstaff-workbench.vsix` artifact into `.workbench-data/`, isolated from the operator's normal VS Code profile, without rebuilding on every start.
 
-The future Code OSS package may replace product name, icons, and installer metadata. It should continue consuming this extension rather than duplicating GeneralStaff behavior in a long-lived core fork.
+The future Code OSS package may replace product name, icons, and installer metadata. Until then the Workbench extension and the local launcher shortcut use the existing GS folio mark. The running Visual Studio Code host still owns the macOS Dock glyph and the Windows taskbar of `code.exe`. That branded shell should continue consuming this extension rather than duplicating GeneralStaff behavior in a long-lived core fork.

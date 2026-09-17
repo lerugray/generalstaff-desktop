@@ -6,9 +6,10 @@ import test from 'node:test';
 const extensionRoot = path.resolve(process.cwd());
 
 test('ports every legacy GSD palette and persists an accessible rail switcher', async () => {
-  const [css, webview] = await Promise.all([
+  const [css, webview, host] = await Promise.all([
     readFile(path.join(extensionRoot, 'media', 'workbench.css'), 'utf8'),
     readFile(path.join(extensionRoot, 'media', 'workbench.js'), 'utf8'),
+    readFile(path.join(extensionRoot, 'src', 'extension.ts'), 'utf8'),
   ]);
   const palettes = [
     ['paper', 'Kriegspiel Paper', '#f1e7d3'],
@@ -25,6 +26,11 @@ test('ports every legacy GSD palette and persists an accessible rail switcher', 
     assert.match(webview, new RegExp(`id: '${id}', name: '${name}'`));
   }
   assert.match(webview, /selectedTheme: state\.selectedTheme/);
+  assert.match(webview, /type: 'set-theme', themeId: id/);
+  assert.match(webview, /themeIds\.has\(hostTheme\)/);
   assert.match(webview, /aria-pressed=/);
+  assert.match(host, /data-theme="\$\{themeId\}"/);
+  assert.match(host, /writeDeskPreferences\(this\.context\.globalState, \{ selectedTheme: message\.themeId \}\)/);
+  assert.doesNotMatch(host, /setTimeout\(\(\) => \{/);
   assert.doesNotMatch(css, /rgba\(210, 165, 87|rgba\(239, 230, 212/);
 });

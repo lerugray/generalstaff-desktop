@@ -11,7 +11,7 @@ export const deskWorkbenchSettings: Readonly<Record<string, string | boolean>> =
 };
 
 export const workshopWorkbenchSettings: Readonly<Record<string, string | boolean>> = {
-  'activityBar.location': 'default',
+  'activityBar.location': 'hidden',
   'statusBar.visible': true,
   'editor.showTabs': 'multiple',
 };
@@ -28,8 +28,7 @@ export const deskEditorCommands: readonly string[] = [
 ];
 
 export const workshopChromeCommands: readonly string[] = [
-  'workbench.action.activityBarLocation.side',
-  'workbench.action.activityBarLocation.default',
+  'workbench.view.explorer',
 ];
 
 export function workshopButtonLabel(workshopOpen: boolean): 'Return to desk' | 'Open workshop' {
@@ -51,17 +50,30 @@ export const leftoverDeskSettings: ReadonlyArray<{
 }> = [
   { section: 'breadcrumbs', key: 'enabled', value: false },
   { section: 'window', key: 'menuBarVisibility', value: 'hidden' },
+  { section: 'window', key: 'commandCenter', value: false },
   { section: 'terminal.integrated', key: 'hideOnStartup', value: 'always' },
   { section: 'explorer', key: 'autoReveal', value: false },
   { section: 'explorer', key: 'openEditors.visible', value: 0 },
+  { section: 'workbench.editor', key: 'empty.hint', value: 'hidden' },
+  { section: 'workbench.layoutControl', key: 'enabled', value: false },
+  { section: 'workbench.navigationControl', key: 'enabled', value: false },
 ];
 
 export const leftoverDeskWorkspaceSettings: Readonly<Record<string, string | number | boolean>> = {
   'breadcrumbs.enabled': false,
   'window.menuBarVisibility': 'hidden',
+  'window.commandCenter': false,
   'terminal.integrated.hideOnStartup': 'always',
   'explorer.autoReveal': false,
   'explorer.openEditors.visible': 0,
+  'workbench.editor.empty.hint': 'hidden',
+  'workbench.layoutControl.enabled': false,
+  'workbench.navigationControl.enabled': false,
+};
+
+export const workshopPlaqueCopy = {
+  title: 'Workshop',
+  detail: 'Files and the supporting terminal live in this room. Return to desk when you want the quiet conversation back.',
 };
 
 export const deskGuardKeybindings: ReadonlyArray<{

@@ -57,10 +57,14 @@ test('the desk restores a living conversation on reopen, not a recovery form', a
   assert.match(webview, /Trying again/u);
   assert.match(webview, /arriving && state\.returningToConversation \? ' returning'/u);
   assert.match(webview, /document\.getElementById\('prompt'\)\?\.focus\(\)/u);
+  assert.match(webview, /persistDraft\(/u);
+  assert.match(webview, /type: 'save-draft', text: state\.draft/u);
+  assert.match(webview, /composerDraft/u);
   assert.doesNotMatch(webview, /session recovered/i);
   assert.doesNotMatch(webview, /Continuous session/u);
   assert.doesNotMatch(webview, /Transcript retained; compatible provider sessions resume after reopen/u);
   assert.match(host, /deskBootCopy\(hasVisibleConversation\(session\)\)/u);
+  assert.match(host, /composerDraft: readDeskPreferences\(this\.context\.globalState\)\.composerDraft/u);
   assert.match(css, /\.workbench\.arriving\.returning/u);
   assert.match(css, /\.recovery-card\.continue-card/u);
 });

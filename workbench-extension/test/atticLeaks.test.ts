@@ -10,6 +10,7 @@ import {
   leftoverDeskSettings,
   leftoverDeskWorkspaceSettings,
   returnToDeskStatusText,
+  workshopPlaqueCopy,
 } from '../src/deskLayout.js';
 
 function assertPlainCopy(value: string): void {
@@ -25,6 +26,8 @@ test('file, terminal, and project tools stay closed unless workshop is already o
   assertPlainCopy(deskStayNotice);
   assert.equal(returnToDeskStatusText, 'Return to desk');
   assertPlainCopy(returnToDeskStatusText);
+  assertPlainCopy(workshopPlaqueCopy.title);
+  assertPlainCopy(workshopPlaqueCopy.detail);
 });
 
 test('desk layout also hides leftover explorer, menu, breadcrumb, and terminal chrome', async () => {
@@ -44,6 +47,10 @@ test('desk layout also hides leftover explorer, menu, breadcrumb, and terminal c
   assert.equal(leftoverDeskWorkspaceSettings['terminal.integrated.hideOnStartup'], 'always');
   assert.equal(leftoverDeskWorkspaceSettings['explorer.autoReveal'], false);
   assert.equal(leftoverDeskWorkspaceSettings['explorer.openEditors.visible'], 0);
+  assert.equal(leftoverDeskWorkspaceSettings['window.commandCenter'], false);
+  assert.equal(leftoverDeskWorkspaceSettings['workbench.editor.empty.hint'], 'hidden');
+  assert.equal(leftoverDeskWorkspaceSettings['workbench.layoutControl.enabled'], false);
+  assert.equal(leftoverDeskWorkspaceSettings['workbench.navigationControl.enabled'], false);
 });
 
 test('leftover attic key chords return to the desk instead of opening IDE chrome', () => {
@@ -76,9 +83,12 @@ test('product surfaces no longer dump into attic from the desk or a lone slash',
 
   assert.equal(workspace.settings['breadcrumbs.enabled'], false);
   assert.equal(workspace.settings['window.menuBarVisibility'], 'hidden');
+  assert.equal(workspace.settings['window.commandCenter'], false);
   assert.equal(workspace.settings['terminal.integrated.hideOnStartup'], 'always');
   assert.equal(workspace.settings['explorer.autoReveal'], false);
   assert.equal(workspace.settings['explorer.openEditors.visible'], 0);
+  assert.equal(workspace.settings['workbench.editor.empty.hint'], 'hidden');
+  assert.equal(leftoverDeskWorkspaceSettings['window.commandCenter'], false);
 
   assert.ok(manifest.contributes.keybindings.some((item) => (
     item.command === 'generalstaff.returnToDesk' && item.key === 'ctrl+`' && item.when === 'generalstaff.deskActive'
@@ -107,6 +117,10 @@ test('product surfaces no longer dump into attic from the desk or a lone slash',
   assert.match(webview, /project && state\.workshopOpen \? '<button data-action="open-project">Open project/u);
   assert.match(webview, /if \(!state\.workshopOpen\) return;/u);
   assert.match(webview, /event\.metaKey \|\| event\.ctrlKey/u);
+  assert.match(webview, /class="workshop-plaque"/u);
+  assert.match(webview, /Private root/u);
+  assert.match(webview, /Files and the supporting terminal live in this room/u);
+  assert.doesNotMatch(webview, /GENERALSTAFF_ROOT/u);
   assert.doesNotMatch(webview, /GSComposerKeys\.shouldSendOnEnter/u);
   assert.doesNotMatch(webview, /\u2014/u);
 

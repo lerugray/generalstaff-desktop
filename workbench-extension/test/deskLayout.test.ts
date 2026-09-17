@@ -116,6 +116,10 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.equal(workspace.settings['workbench.editor.showTabs'], 'none');
   assert.equal(workspace.settings['workbench.startupEditor'], 'none');
   assert.equal(workspace.settings['workbench.editor.empty.hint'], 'hidden');
+  assert.equal(workspace.settings['breadcrumbs.enabled'], false);
+  assert.equal(workspace.settings['window.menuBarVisibility'], 'hidden');
+  assert.equal(workspace.settings['terminal.integrated.hideOnStartup'], 'always');
+  assert.equal(workspace.settings['explorer.autoReveal'], false);
   assert.ok(manifest.contributes.commands.some((item) => item.command === 'generalstaff.openWorkshop'));
   assert.ok(manifest.contributes.commands.some((item) => item.command === 'generalstaff.returnToDesk'));
   assert.match(webview, /data-action="toggle-workshop"/);

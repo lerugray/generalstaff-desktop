@@ -1309,6 +1309,77 @@ select:focus-visible {
   opacity: 0.72;
 }
 
+.composer-input {
+  position: relative;
+}
+
+.slash-skill-menu {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: min(240px, 42vh);
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(var(--surface-2-rgb) / 0.97);
+  box-shadow: 0 8px 20px rgb(var(--shadow-rgb) / 0.22);
+}
+
+.slash-skill-menu[hidden] {
+  display: none;
+}
+
+.slash-skill-option {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  margin: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.slash-skill-option.is-active,
+.slash-skill-option:hover {
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.slash-skill-option strong {
+  color: var(--brass-pale);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.slash-skill-option small {
+  display: block;
+  overflow: hidden;
+  color: var(--paper-faint);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-skill-empty {
+  padding: 10px 8px;
+  color: var(--paper-faint);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.hero:has(.slash-skill-menu:not([hidden])),
+.conversation-compose-wrap:has(.slash-skill-menu:not([hidden])) {
+  overflow: visible;
+}
+
 .consent-receipt,
 .consent-pending {
   display: flex;

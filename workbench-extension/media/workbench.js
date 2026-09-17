@@ -698,7 +698,9 @@
           ${state.pendingContext.map((item) => `<span class="context-chip"><i>${item.kind === 'image' ? '◇' : item.kind === 'data' ? '▦' : '¶'}</i>${escapeHtml(item.label)}</span>`).join('')}
         </div>` : ''}
         ${renderConsentPlaque()}
-        <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${composerPlaceholder}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
+        <div class="composer-input">
+          <textarea id="prompt" rows="${compact ? 3 : 4}" placeholder="${composerPlaceholder}" ${running ? 'disabled' : ''}>${escapeHtml(state.draft)}</textarea>
+        </div>
         <div class="composer-footer">
           <div class="composer-selects">${renderLaneSelect()}${renderEffortSelect()}${renderSkillSelect()}${renderRoomGate()}</div>
           <button class="send-button" data-action="send" ${!state.snapshot?.rootPath || !state.selectedLaneId || running || state.creatingConversation || state.pendingSend ? 'disabled' : ''}>
@@ -784,7 +786,7 @@
         <div class="panel artifact-panel">
           <div class="panel-heading">
             <div><small>PROJECT TABLE</small><h2>${escapeHtml(project.name)} artifacts</h2></div>
-            <button class="context-action" data-action="open-project">Open primary ↗</button>
+            ${state.workshopOpen ? '<button class="context-action" data-action="open-project">Open primary ↗</button>' : ''}
           </div>
           <div class="artifact-grid">
             ${(project.artifacts || [])
@@ -968,7 +970,7 @@
               <span class="evidence-chip">${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${consentGranted(conversation) ? 'write' : ''}">${consentGranted(conversation) ? `Inside ${escapeHtml(currentRoomName(conversation))}` : 'Look only'}</span>
-              ${project ? '<button data-action="open-project">Open project ↗</button>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
+              ${project && state.workshopOpen ? '<button data-action="open-project">Open project ↗</button>' : project ? '<span class="root-chip">PROJECT</span>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
             </div>
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
@@ -1028,7 +1030,10 @@
         if (prompt && selectionStart !== undefined && selectionEnd !== undefined) {
           prompt.setSelectionRange(selectionStart, selectionEnd);
         }
+        if (slashSkillMenu.open) syncSlashSkillMenu(true);
       });
+    } else if (slashSkillMenu.open) {
+      closeSlashSkillMenu();
     } else if (state.returningToConversation && !state.composerReady) {
       state.composerReady = true;
       requestAnimationFrame(() => document.getElementById('prompt')?.focus());
@@ -1037,7 +1042,162 @@
     remember();
   }
 
+  const slashSkillMenu = {
+    open: false,
+    start: 0,
+    end: 0,
+    query: '',
+    highlight: 0,
+  };
+
+  function closeSlashSkillMenu() {
+    slashSkillMenu.open = false;
+    slashSkillMenu.query = '';
+    slashSkillMenu.highlight = 0;
+    const menu = document.getElementById('slash-skill-menu');
+    if (menu) {
+      menu.hidden = true;
+      menu.innerHTML = '';
+    }
+  }
+
+  function slashSkillCatalog() {
+    return state.snapshot?.skills || [];
+  }
+
+  function renderSlashSkillMenu() {
+    const prompt = document.getElementById('prompt');
+    const wrap = prompt?.closest('.composer-input') || prompt?.parentElement;
+    if (!prompt || !wrap || !slashSkillMenu.open) {
+      closeSlashSkillMenu();
+      return;
+    }
+    let menu = document.getElementById('slash-skill-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'slash-skill-menu';
+      menu.className = 'slash-skill-menu';
+      menu.setAttribute('role', 'listbox');
+      menu.setAttribute('aria-label', 'Private skills');
+      wrap.insertBefore(menu, prompt);
+    }
+    const catalog = slashSkillCatalog();
+    const filtered = typeof GSComposerKeys !== 'undefined'
+      ? GSComposerKeys.filterSkills(catalog, slashSkillMenu.query)
+      : catalog;
+    if (slashSkillMenu.highlight >= filtered.length) {
+      slashSkillMenu.highlight = Math.max(0, filtered.length - 1);
+    }
+    if (!catalog.length) {
+      menu.innerHTML = '<div class="slash-skill-empty">No skills in this GeneralStaff root</div>';
+    } else if (!filtered.length) {
+      menu.innerHTML = '<div class="slash-skill-empty">No matching skills</div>';
+    } else {
+      menu.innerHTML = filtered
+        .map((skill, index) => {
+          const active = index === slashSkillMenu.highlight ? ' is-active' : '';
+          return `<button type="button" class="slash-skill-option${active}" role="option" id="slash-skill-option-${index}" data-action="pick-slash-skill" data-skill-id="${escapeHtml(skill.id)}" aria-selected="${index === slashSkillMenu.highlight ? 'true' : 'false'}"><strong>/${escapeHtml(skill.id)}</strong><small>${escapeHtml(skill.description || skill.name || '')}</small></button>`;
+        })
+        .join('');
+      scrollSlashSkillIntoView();
+    }
+    menu.hidden = false;
+  }
+
+  function scrollSlashSkillIntoView() {
+    const menu = document.getElementById('slash-skill-menu');
+    const active = menu?.querySelector('.slash-skill-option.is-active');
+    if (!menu || !active) return;
+    const top = active.offsetTop;
+    const bottom = top + active.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+  }
+
+  function paintSlashSkillHighlight() {
+    const menu = document.getElementById('slash-skill-menu');
+    if (!menu) return;
+    const options = menu.querySelectorAll('.slash-skill-option');
+    options.forEach((option, index) => {
+      const active = index === slashSkillMenu.highlight;
+      option.classList.toggle('is-active', active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    scrollSlashSkillIntoView();
+  }
+
+  function syncSlashSkillMenu(fromTyping) {
+    const prompt = document.getElementById('prompt');
+    if (!prompt || typeof GSComposerKeys === 'undefined' || prompt.selectionStart !== prompt.selectionEnd) {
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
+    const query = GSComposerKeys.slashSkillQuery(prompt.value, prompt.selectionStart ?? 0);
+    if (!query) {
+      if (slashSkillMenu.open) closeSlashSkillMenu();
+      return;
+    }
+    if (!slashSkillMenu.open && !fromTyping) return;
+    const queryChanged = query.query !== slashSkillMenu.query;
+    slashSkillMenu.open = true;
+    slashSkillMenu.start = query.start;
+    slashSkillMenu.end = query.end;
+    slashSkillMenu.query = query.query;
+    if (queryChanged) slashSkillMenu.highlight = 0;
+    renderSlashSkillMenu();
+  }
+
+  function insertSlashSkill(skillId) {
+    const prompt = document.getElementById('prompt');
+    if (!prompt || !slashSkillMenu.open || !skillId || typeof GSComposerKeys === 'undefined') return;
+    const next = GSComposerKeys.insertSkillToken(
+      prompt.value,
+      { start: slashSkillMenu.start, end: slashSkillMenu.end },
+      skillId,
+    );
+    prompt.value = next.text;
+    prompt.setSelectionRange(next.cursor, next.cursor);
+    state.draft = prompt.value;
+    remember();
+    closeSlashSkillMenu();
+    prompt.focus();
+  }
+
+  function handleSlashSkillKeys(event) {
+    if (!slashSkillMenu.open || event.target?.id !== 'prompt') return false;
+    const catalog = slashSkillCatalog();
+    const filtered = typeof GSComposerKeys !== 'undefined'
+      ? GSComposerKeys.filterSkills(catalog, slashSkillMenu.query)
+      : catalog;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSlashSkillMenu();
+      return true;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      slashSkillMenu.highlight = typeof GSComposerKeys !== 'undefined'
+        ? GSComposerKeys.moveSkillHighlight(slashSkillMenu.highlight, filtered.length, delta)
+        : slashSkillMenu.highlight;
+      paintSlashSkillHighlight();
+      return true;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const selected = filtered[slashSkillMenu.highlight];
+      if (selected) {
+        event.preventDefault();
+        insertSlashSkill(selected.id);
+        return true;
+      }
+      event.preventDefault();
+      return true;
+    }
+    return false;
+  }
+
   function issueCommand() {
+    closeSlashSkillMenu();
     const prompt = document.getElementById('prompt');
     const text = prompt?.value.trim();
     if (!text || !state.snapshot?.rootPath || !state.selectedLaneId) return;
@@ -1101,6 +1261,7 @@
     if (themeId) {
       applyTheme(themeId);
     } else if (filePath) {
+      if (!state.workshopOpen) return;
       vscode.postMessage({ type: 'open-file', path: filePath });
     } else if (projectId) {
       state.selectedTargetKind = 'project';
@@ -1203,7 +1364,10 @@
       state.headroomOpen = !state.headroomOpen;
       remember();
       render();
+    } else if (action === 'pick-slash-skill' && target.dataset.skillId) {
+      insertSlashSkill(target.dataset.skillId);
     } else if (action === 'toggle-workshop') {
+      closeSlashSkillMenu();
       vscode.postMessage({ type: 'toggle-workshop' });
     } else if (action === 'enter-room') {
       if (state.selectedPermission === 'write') return;
@@ -1253,6 +1417,7 @@
     if (event.target.id === 'prompt') {
       state.draft = event.target.value;
       remember();
+      syncSlashSkillMenu(true);
     }
   });
 
@@ -1263,9 +1428,18 @@
   }, true);
 
   app.addEventListener('keydown', (event) => {
+    if (handleSlashSkillKeys(event)) return;
     if (event.target.id === 'prompt' && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       issueCommand();
+    }
+  });
+
+  app.addEventListener('mousedown', (event) => {
+    const option = event.target.closest('[data-action="pick-slash-skill"]');
+    if (option?.dataset.skillId) {
+      event.preventDefault();
+      insertSlashSkill(option.dataset.skillId);
     }
   });
 

@@ -8,7 +8,7 @@ The distribution does three things:
 
 1. connects one durable orchestrator session to the operator-selected GeneralStaff private repository without exposing it as the editor workspace;
 2. gives that live conversation the full command-deck surface while demoting project orders to the rail; and
-3. preserves the editor, diff viewer, browser, source control, and terminal as supporting instruments behind Open workshop.
+3. preserves the editor, diff viewer, browser, source control, and terminal as supporting instruments behind Open workshop, and keeps those tools from opening by accident from the desk.
 
 Run `scripts/build-workbench.sh` (or `.cmd`) once to verify and package the extension. Then run `scripts/launch-workbench.sh` on macOS/Linux or `scripts/launch-workbench.cmd` on Windows. The launcher installs the stable `distribution/generalstaff-workbench.vsix` artifact into `.workbench-data/`, isolated from the operator's normal VS Code profile, without rebuilding on every start.
 

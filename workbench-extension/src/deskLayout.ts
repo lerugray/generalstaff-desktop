@@ -1,6 +1,7 @@
 export interface LayoutHost {
   executeCommand(command: string): PromiseLike<unknown>;
   updateWorkbenchSetting(key: string, value: unknown): PromiseLike<void>;
+  updateSetting?(section: string, key: string, value: unknown): PromiseLike<void>;
 }
 
 export const deskWorkbenchSettings: Readonly<Record<string, string | boolean>> = {
@@ -33,6 +34,57 @@ export const workshopChromeCommands: readonly string[] = [
 
 export function workshopButtonLabel(workshopOpen: boolean): 'Return to desk' | 'Open workshop' {
   return workshopOpen ? 'Return to desk' : 'Open workshop';
+}
+
+export function atticToolsAllowed(workshopOpen: boolean): boolean {
+  return workshopOpen;
+}
+
+export const deskStayNotice = 'Stay at the desk. Open workshop when you want the file and terminal tools.';
+
+export const returnToDeskStatusText = 'Return to desk';
+
+export const leftoverDeskSettings: ReadonlyArray<{
+  section: string;
+  key: string;
+  value: string | number | boolean;
+}> = [
+  { section: 'breadcrumbs', key: 'enabled', value: false },
+  { section: 'window', key: 'menuBarVisibility', value: 'hidden' },
+  { section: 'terminal.integrated', key: 'hideOnStartup', value: 'always' },
+  { section: 'explorer', key: 'autoReveal', value: false },
+  { section: 'explorer', key: 'openEditors.visible', value: 0 },
+];
+
+export const leftoverDeskWorkspaceSettings: Readonly<Record<string, string | number | boolean>> = {
+  'breadcrumbs.enabled': false,
+  'window.menuBarVisibility': 'hidden',
+  'terminal.integrated.hideOnStartup': 'always',
+  'explorer.autoReveal': false,
+  'explorer.openEditors.visible': 0,
+};
+
+export const deskGuardKeybindings: ReadonlyArray<{
+  key: string;
+  mac: string;
+  command: string;
+  when: string;
+}> = [
+  { key: 'ctrl+b', mac: 'cmd+b', command: 'generalstaff.returnToDesk', when: 'generalstaff.deskActive' },
+  { key: 'ctrl+j', mac: 'cmd+j', command: 'generalstaff.returnToDesk', when: 'generalstaff.deskActive' },
+  { key: 'ctrl+`', mac: 'ctrl+`', command: 'generalstaff.returnToDesk', when: 'generalstaff.deskActive' },
+  { key: 'ctrl+shift+e', mac: 'cmd+shift+e', command: 'generalstaff.returnToDesk', when: 'generalstaff.deskActive' },
+];
+
+async function applyLeftoverDeskSettings(host: LayoutHost): Promise<void> {
+  if (!host.updateSetting) return;
+  for (const setting of leftoverDeskSettings) {
+    try {
+      await host.updateSetting(setting.section, setting.key, setting.value);
+    } catch {
+      // Isolated hosts can reject a setting write; chrome commands still hide the attic.
+    }
+  }
 }
 
 async function applySettings(
@@ -74,6 +126,7 @@ export async function applyDeskLayout(
   options: { closeOtherEditors?: boolean } = {},
 ): Promise<void> {
   await applySettings(host, deskWorkbenchSettings);
+  await applyLeftoverDeskSettings(host);
   await executeAll(host, deskChromeCommands);
   if (options.closeOtherEditors) {
     await executeAll(host, deskEditorCommands);

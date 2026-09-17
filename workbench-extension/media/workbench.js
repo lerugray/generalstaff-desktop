@@ -358,6 +358,22 @@
     return conversation?.writeConsent?.at || conversation?.updatedAt;
   }
 
+  function writeLaneForSeat(lanes, seat, preferredLaneId) {
+    const writable = (lanes || []).filter((lane) =>
+      lane.state === 'available' &&
+      (lane.roles || []).includes(seat) &&
+      (lane.permissions || []).includes('write'),
+    );
+    return writable.find((lane) => lane.id === preferredLaneId) || writable[0];
+  }
+
+  function seatCanChangeFiles() {
+    const conversation = currentConversation();
+    const seat = conversation?.seat || state.selectedSeat;
+    const preferred = conversation?.laneId || state.selectedLaneId;
+    return Boolean(writeLaneForSeat(state.snapshot?.lanes || [], seat, preferred));
+  }
+
   function fallbackRunReceipt(receipt, roomName) {
     const place = roomName || 'this room';
     const where = roomName ? `in ${roomName}` : 'place not recorded';
@@ -631,12 +647,20 @@
     const roomName = currentRoomName(conversation);
     const disabled = Boolean(conversation && state.runStatus[conversation.id]);
     const granted = consentGranted(conversation);
-    const pending = state.selectedPermission === 'write' && !granted;
+    const canChange = seatCanChangeFiles();
+    const pending = canChange && state.selectedPermission === 'write' && !granted;
     if (granted || pending) {
       return `
         <div class="room-gate ${granted ? 'inside' : 'pending'}">
           <span>${granted ? `Inside ${escapeHtml(roomName)}` : 'Look only'}</span>
           <button type="button" data-action="leave-room" ${disabled ? 'disabled' : ''}>Look only</button>
+        </div>`;
+    }
+    if (!canChange) {
+      return `
+        <div class="room-gate blocked">
+          <span>Look only</span>
+          <button type="button" class="room-enter" data-action="enter-room" disabled title="No model lane on this seat can change files right now.">Enter ${escapeHtml(roomName)}</button>
         </div>`;
     }
     return `
@@ -657,6 +681,16 @@
             <span>This seat can change files in ${escapeHtml(roomName)}.</span>
           </div>
           <small>Entered ${formatWhen(consentEnteredAt(conversation))}</small>
+        </div>`;
+    }
+    if (!seatCanChangeFiles()) {
+      return `
+        <div class="consent-receipt blocked" role="status">
+          <div>
+            <strong>Outside ${escapeHtml(roomName)}</strong>
+            <span>No model lane on this seat can change files in ${escapeHtml(roomName)} right now.</span>
+          </div>
+          <small>Look only</small>
         </div>`;
     }
     if (state.selectedPermission === 'write') {
@@ -1406,6 +1440,7 @@
       closeSlashSkillMenu();
       vscode.postMessage({ type: 'toggle-workshop' });
     } else if (action === 'enter-room') {
+      if (!seatCanChangeFiles()) return;
       if (state.selectedPermission === 'write' && consentGranted(currentConversation())) return;
       state.selectedPermission = 'write';
       render();

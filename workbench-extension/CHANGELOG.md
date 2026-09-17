@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.13 — 2026-09-17
+
+- Room enter does not dead-end when no model lane can change files. Enter stays disabled, and the same receipt surface names the lane gap in plain words.
+- When a write lane is present, Confirm still finishes Enter and keeps the Inside grant receipt.
+- That path never toasts "Command Deck ignored an invalid request".
+
 ## 0.4.12 — 2026-09-17
 
 - Seat health ignores catalog lanes that were never installed, so a working desk is ready or thin instead of a stuck-down bank.

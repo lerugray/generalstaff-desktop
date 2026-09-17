@@ -74,6 +74,14 @@ export function writeLaneForSeat(
   return writable.find((lane) => lane.id === preferredLaneId) ?? writable[0];
 }
 
+export function seatCanChangeFiles(
+  lanes: readonly LaneSummary[],
+  seat: SeatId,
+  preferredLaneId?: LaneSummary['id'],
+): boolean {
+  return writeLaneForSeat(lanes, seat, preferredLaneId) !== undefined;
+}
+
 export { writeConsentPrompt } from './consentRoom.js';
 
 export function resolveOpenFilePath(

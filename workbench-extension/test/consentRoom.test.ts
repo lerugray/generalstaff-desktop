@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import test from 'node:test';
 import {
+  consentBlockedCopy,
   consentNotices,
   consentPromptHasSingleAction,
   consentReceiptCopy,
@@ -45,6 +46,16 @@ test('the visible receipt names the grant and the room', () => {
   assert.doesNotMatch(JSON.stringify(consentNotices), slop);
 });
 
+test('a missing write lane uses the same receipt surface with a blocked outcome', () => {
+  const receipt = consentBlockedCopy('General Staff');
+  assert.equal(receipt.title, 'Outside General Staff');
+  assert.equal(receipt.body, 'No model lane on this seat can change files in General Staff right now.');
+  assert.equal(receipt.enterAction, 'Enter General Staff');
+  assert.equal(receipt.lookingLabel, 'Look only');
+  assert.equal(consentNotices.noWriteLane, 'No model lane on this seat can change files right now.');
+  assert.doesNotMatch(JSON.stringify(receipt), slop);
+});
+
 test('desk chrome treats consent as a room, not a developer checkbox', async () => {
   const extensionRoot = path.resolve(process.cwd());
   const [webview, css] = await Promise.all([
@@ -53,20 +64,42 @@ test('desk chrome treats consent as a room, not a developer checkbox', async () 
   ]);
 
   assert.match(webview, /class="consent-receipt"/u);
+  assert.match(webview, /class="consent-receipt blocked"/u);
   assert.match(webview, /data-action="enter-room"/u);
   assert.match(webview, /data-action="leave-room"/u);
   assert.match(webview, /postRoomEntry\(true\)/u);
   assert.match(webview, /type: enter \? 'enter-room' : 'leave-room'/u);
   assert.match(webview, /Inside \$\{/u);
+  assert.match(webview, /Outside \$\{/u);
   assert.match(webview, /This seat can change files in/u);
+  assert.match(webview, /No model lane on this seat can change files in/u);
   assert.match(webview, /About to change files in/u);
   assert.match(webview, /Look only/u);
   assert.match(webview, /writeConsent/u);
+  assert.match(webview, /seatCanChangeFiles\(\)/u);
+  assert.match(webview, /if \(!seatCanChangeFiles\(\)\) return;/u);
   assert.doesNotMatch(webview, /id="permission-select"/u);
   assert.doesNotMatch(webview, /Can edit repo/u);
   assert.doesNotMatch(webview, /Enable edit access/u);
   assert.doesNotMatch(webview, /Edit access enabled/u);
   assert.match(css, /\.consent-receipt,/u);
+  assert.match(css, /\.consent-receipt\.blocked \{/u);
   assert.match(css, /\.room-gate \{/u);
+  assert.match(css, /\.room-gate\.blocked button:disabled \{/u);
   assert.match(css, /@keyframes room-enter/u);
+});
+
+test('the visual harness has both a grant path and a no-lane blocked path', async () => {
+  const harness = await readFile(path.resolve(process.cwd(), 'test', 'visual-harness.html'), 'utf8');
+  assert.match(harness, /mode === 'consent'/u);
+  assert.match(harness, /mode === 'no-lane'/u);
+  assert.match(harness, /state: 'missing', permissions: \['read'\]/u);
+  assert.match(harness, /writable\.length/u);
+});
+
+test('the host does not toast a missing write lane as a broken confirm', async () => {
+  const host = await readFile(path.resolve(process.cwd(), 'src', 'extension.ts'), 'utf8');
+  assert.match(host, /writeLaneForSeat\(/u);
+  assert.match(host, /if \(!lane\) \{\s*await this\.panel\.webview\.postMessage\(\{ type: 'routing-updated', conversation \}\);\s*return;/u);
+  assert.doesNotMatch(host, /No model lane on this seat can change files right now\.', 'error'/u);
 });

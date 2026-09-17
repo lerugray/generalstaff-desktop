@@ -24,6 +24,7 @@ export interface ConsentReceiptCopy {
 export const consentNotices = {
   declined: 'You stayed outside the room.',
   stateOnly: 'This project has no files to change. It is notes only.',
+  noWriteLane: 'No model lane on this seat can change files right now.',
 } as const;
 
 export function consentRoomName(target: ConsentRoomTarget): string {
@@ -47,6 +48,18 @@ export function consentReceiptCopy(roomName: string): ConsentReceiptCopy {
   return {
     title: `Inside ${roomName}`,
     body: `This seat can change files in ${roomName}.`,
+    enteredLabel: 'Entered',
+    lookingLabel: 'Look only',
+    enterAction: `Enter ${roomName}`,
+    leaveAction: 'Look only',
+    pendingBody: `About to change files in ${roomName}.`,
+  };
+}
+
+export function consentBlockedCopy(roomName: string): ConsentReceiptCopy {
+  return {
+    title: `Outside ${roomName}`,
+    body: `No model lane on this seat can change files in ${roomName} right now.`,
     enteredLabel: 'Entered',
     lookingLabel: 'Look only',
     enterAction: `Enter ${roomName}`,

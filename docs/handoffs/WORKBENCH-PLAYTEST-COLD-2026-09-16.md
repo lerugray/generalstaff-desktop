@@ -1,8 +1,8 @@
 # Workbench playtest, cold pass (2026-09-16)
 
-Playbot cold-played the finished desk after deluxe bites 1-7 landed on `master`. This note is for Ray / Claude. It is the eight-check report plus the four hard tickets that followed.
+Playbot cold-played the finished desk after deluxe bites 1-7 landed on `master`. This note is for Ray / Claude. It is the eight-check report plus the four hard tickets that followed, the PR #9 re-seat on tip `0948431`, and the no-lane enter follow-up.
 
-No em dashes. Smallest real fixes only. Workshop "center still looks like desk" is a soft feel note and was left alone. Unsent composer text on reopen is optional QoL and was left alone.
+No em dashes. Smallest real fixes only. Workshop "center still looks like desk" is a soft feel note and was left alone. Unsent composer text on reopen is optional QoL and was left alone. Seats, Headroom, and slash stay out of this follow-up.
 
 ## Eight-check report
 
@@ -45,12 +45,38 @@ The top-right instrument was the real one. The sidebar footer repeated "Headroom
 
 **Fix:** one instrument, top-right. Sidebar footer is just "Workbench / one desk". An idle empty desk (no transcript, no pinned files, no skill, no desk run) glances `comfortable`. Hover details can still tell the truth about lanes and fleet.
 
+## Re-seat on tip 0948431 (PR #9)
+
+Playbot re-sat the four hard tickets after PR #9 merged.
+
+| Ticket | Result | Note |
+| --- | --- | --- |
+| 1. Seats | PASS | Honest copy when the seat is down. |
+| 2. Consent / grant receipt | FAIL | Cold box, no model lane. Clicked Enter General Staff expecting the grant receipt. Got "No model lane on this seat can change files right now." No grant receipt. Shots were on Playbot's machine under `/workspace/wb-reseat-shots/`. |
+| 3. Ctrl+A slash | PASS | No crash. |
+| 4. Headroom | PASS | One instrument. Idle desk reads comfortable. |
+
+Three of four hard bugs passed. Consent still dead-ended when no model lane could change files.
+
+## Follow-up: room enter must not dead-end
+
+PR #9 fixed the invalid-request toast when a write lane exists. It left Enter live on a seat with no write lane. Clicking it looked like a confirm, then failed as an error toast. No receipt.
+
+**Fix:**
+
+- When a model lane can change files: Confirm still finishes Enter and shows the Inside grant receipt.
+- When no model lane can change files: Enter is disabled up front. The same receipt surface shows a blocked outcome in human words ("Outside General Staff" / "No model lane on this seat can change files in General Staff right now."). No pending "Confirm to enter this room." plaque.
+- The host does not toast "No model lane..." as a broken confirm, and this path never toasts "Command Deck ignored an invalid request".
+
+Seats, Headroom, and slash stay out of this follow-up.
+
 ## Out of scope
 
 - Do not redesign the desk.
 - Workshop center feel: skip.
 - Unsent composer text on reopen: skip.
+- Seats / Headroom / slash: already green on the re-seat.
 
 ## Verification
 
-`npm run check` in `workbench-extension` must stay green. Visual proof is the cold harness plus the four ticket surfaces.
+`npm run check` in `workbench-extension` must stay green. Visual proof is both enter paths: write lane present (grant receipt) and no write lane (blocked receipt, Enter disabled).

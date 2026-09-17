@@ -4,6 +4,7 @@
   "description": "A persistent orchestrator session for directing a GeneralStaff fleet.",
   "version": "0.4.14",
   "publisher": "lerugray",
+  "icon": "media/workbench-icon.png",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",

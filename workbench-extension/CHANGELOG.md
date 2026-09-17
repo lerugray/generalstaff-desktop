@@ -3,6 +3,7 @@
 ## 0.4.14 — 2026-09-17
 
 - Keep the last palette you chose. Reopen or relaunch restores it instead of snapping back to dark.
+- Use the existing GS folio mark for the Workbench extension and the local launcher shortcut. The running Code host still owns the macOS Dock glyph and the Windows taskbar of `code.exe`.
 - The chosen palette is on the desk before first paint, so a light folio does not flash Carbon first.
 - Unsent composer text comes back with the same conversation.
 - Cold open hides more leftover editor chrome. The `GENERALSTAFF_ROOT` chip now reads Private root.

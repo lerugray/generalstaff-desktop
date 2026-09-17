@@ -149,10 +149,7 @@ class CommandDeckPanel {
         localResourceRoots: [mediaRoot],
       },
     );
-    panel.iconPath = {
-      light: vscode.Uri.joinPath(mediaRoot, 'mark-light.svg'),
-      dark: vscode.Uri.joinPath(mediaRoot, 'mark-dark.svg'),
-    };
+    panel.iconPath = vscode.Uri.joinPath(mediaRoot, 'workbench-icon.png');
     CommandDeckPanel.current = new CommandDeckPanel(panel, context);
     return CommandDeckPanel.current;
   }

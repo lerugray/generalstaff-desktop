@@ -81,15 +81,17 @@ test('workshop layout opens the file room without bringing back the Code activit
 
 test('product defaults arrive at the desk instead of a programmer attic', async () => {
   const repoRoot = path.resolve(process.cwd(), '..');
-  const [manifestRaw, workspaceRaw, webview, css, launcher, windowsLauncher] = await Promise.all([
+  const [manifestRaw, workspaceRaw, webview, css, launcher, windowsLauncher, host] = await Promise.all([
     readFile(path.join(process.cwd(), 'package.json'), 'utf8'),
     readFile(path.join(repoRoot, 'distribution/generalstaff-workbench.code-workspace'), 'utf8'),
     readFile(path.join(process.cwd(), 'media/workbench.js'), 'utf8'),
     readFile(path.join(process.cwd(), 'media/workbench.css'), 'utf8'),
     readFile(path.join(repoRoot, 'scripts/launch-workbench.sh'), 'utf8'),
     readFile(path.join(repoRoot, 'scripts/launch-workbench.cmd'), 'utf8'),
+    readFile(path.join(process.cwd(), 'src/extension.ts'), 'utf8'),
   ]);
   const manifest = JSON.parse(manifestRaw) as {
+    icon?: string;
     contributes: {
       configuration: { properties: Record<string, { default?: unknown }> };
       commands: Array<{ command: string; title: string }>;
@@ -124,8 +126,15 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.match(webview, /class="seat-bank"/);
   assert.match(webview, /class="seat-instrument/);
   assert.match(webview, /Fast assist/);
+  assert.equal(manifest.icon, 'media/workbench-icon.png');
+  assert.match(host, /workbench-icon\.png/);
+  assert.ok((await readFile(path.join(process.cwd(), 'media/workbench-icon.png'))).length > 0);
   assert.match(launcher, /workspace_file="\$runtime_root\/generalstaff-workbench\.code-workspace"/);
+  assert.match(launcher, /generalstaff-workbench\.desktop/);
+  assert.match(launcher, /src-tauri\/icons\/icon\.png/);
   assert.match(windowsLauncher, /%RUNTIME_ROOT%\\generalstaff-workbench\.code-workspace/);
+  assert.match(windowsLauncher, /workbench-icon\.ico/);
+  assert.match(windowsLauncher, /src-tauri\\icons\\icon\.ico/);
   assert.match(css, /\.workbench \{\s*display: grid/u);
   assert.match(css, /\.workbench\.arriving/u);
   assert.match(css, /\.conversation-shell \{[\s\S]*?width: 100%/u);

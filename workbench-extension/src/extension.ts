@@ -781,7 +781,6 @@ class CommandDeckPanel {
     }
     const lane = writeLaneForSeat(this.snapshot.lanes, conversation.seat, conversation.laneId);
     if (!lane) {
-      await this.notice('No model lane on this seat can change files right now.', 'error');
       await this.panel.webview.postMessage({ type: 'routing-updated', conversation });
       return;
     }

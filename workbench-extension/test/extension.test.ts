@@ -7,6 +7,7 @@ import {
   contentSecurityPolicy,
   resolveCommandTarget,
   resolveOpenFilePath,
+  seatCanChangeFiles,
   supportsRouting,
   targetSupportsPermission,
   writeLaneForSeat,
@@ -93,6 +94,9 @@ test('write lane pick prefers the current lane and ignores read-only or missing 
   assert.equal(writeLaneForSeat([readOnly, missing, claude], 'orchestrate', 'glm-ollama')?.id, 'claude');
   assert.equal(writeLaneForSeat([readOnly, missing, claude], 'orchestrate', 'claude')?.id, 'claude');
   assert.equal(writeLaneForSeat([readOnly, missing], 'orchestrate'), undefined);
+  assert.equal(seatCanChangeFiles([readOnly, missing, claude], 'orchestrate', 'glm-ollama'), true);
+  assert.equal(seatCanChangeFiles([readOnly, missing], 'orchestrate'), false);
+  assert.equal(seatCanChangeFiles([], 'orchestrate'), false);
 });
 
 test('open-file resolution refuses paths outside the registered allowlist', () => {

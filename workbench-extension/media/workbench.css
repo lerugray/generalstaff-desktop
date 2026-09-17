@@ -1415,6 +1415,12 @@ select:focus-visible {
   color: var(--paper-muted);
 }
 
+.consent-receipt.blocked {
+  border-color: var(--line-strong);
+  background: rgb(var(--surface-2-rgb) / 0.55);
+  color: var(--paper-muted);
+}
+
 @keyframes room-enter {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
@@ -1461,6 +1467,10 @@ select:focus-visible {
 .room-gate button:disabled {
   cursor: wait;
   opacity: 0.5;
+}
+
+.room-gate.blocked button:disabled {
+  cursor: default;
 }
 
 .composer-footer {

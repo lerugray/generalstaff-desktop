@@ -188,6 +188,12 @@
         orchestratorSession.messages = [];
         orchestratorSession.updatedAt = now;
       }
+      if (mode === 'no-lane') {
+        snapshot.lanes = snapshot.lanes.map((lane) => ({ ...lane, state: 'missing', permissions: ['read'] }));
+        orchestratorSession.messages = [];
+        orchestratorSession.updatedAt = now;
+        orchestratorSession.laneId = 'claude';
+      }
       if (mode === 'heavy') {
         orchestratorSession.context = [
           { label: 'product-contract.md', path: '/fleet/generalstaff/product-contract.md', kind: 'document' },
@@ -250,8 +256,15 @@
             const conversation = conversations.find((item) => item.id === message.conversationId);
             if (!conversation) return;
             if (message.type === 'enter-room') {
-              conversation.permission = 'write';
-              conversation.writeConsent = { at: Date.now(), target: conversation.target };
+              const writable = snapshot.lanes.filter((lane) =>
+                lane.state === 'available' &&
+                (lane.roles || []).includes(conversation.seat) &&
+                (lane.permissions || []).includes('write'),
+              );
+              if (writable.length) {
+                conversation.permission = 'write';
+                conversation.writeConsent = { at: Date.now(), target: conversation.target };
+              }
             } else if (message.type === 'leave-room') {
               conversation.permission = 'read';
               delete conversation.writeConsent;

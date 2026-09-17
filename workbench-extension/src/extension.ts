@@ -50,6 +50,7 @@ import {
   returnToDeskStatusText,
   type LayoutHost,
 } from './deskLayout.js';
+import { readDeskPreferences, writeDeskPreferences } from './deskPreferences.js';
 import { deskBootCopy, hasVisibleConversation } from './deskResume.js';
 
 const viewType = 'generalstaff.commandDeck';
@@ -218,6 +219,7 @@ class CommandDeckPanel {
       conversations: this.store.all(),
       orchestratorSessionId: this.orchestrator.current()?.id,
       notes: this.notes.all(),
+      composerDraft: readDeskPreferences(this.context.globalState).composerDraft,
     });
   }
 
@@ -367,6 +369,12 @@ class CommandDeckPanel {
         return;
       case 'toggle-workshop':
         await setWorkshopOpen(!workshopOpen);
+        return;
+      case 'set-theme':
+        await writeDeskPreferences(this.context.globalState, { selectedTheme: message.themeId });
+        return;
+      case 'save-draft':
+        await writeDeskPreferences(this.context.globalState, { composerDraft: message.text });
         return;
       case 'enter-room':
         await this.enterRoom(message.conversationId);
@@ -935,6 +943,7 @@ class CommandDeckPanel {
     const session = this.orchestrator.current()
       ?? this.store.all().find((conversation) => conversation.kind === 'orchestrator');
     const boot = deskBootCopy(hasVisibleConversation(session));
+    const themeId = readDeskPreferences(this.context.globalState).selectedTheme;
     return `<!doctype html>
 <html lang="en">
   <head>
@@ -944,7 +953,7 @@ class CommandDeckPanel {
     <link rel="stylesheet" href="${css}">
     <title>GeneralStaff Command Deck</title>
   </head>
-  <body>
+  <body data-theme="${themeId}">
     <div id="app" aria-live="polite">
       <div class="boot">
         <div class="boot-mark">GS</div>
@@ -1000,16 +1009,13 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   if (vscode.workspace.getConfiguration('generalstaff').get<boolean>('openOnLaunch', true)) {
-    const timer = setTimeout(() => {
-      const panel = CommandDeckPanel.show(context);
-      panel.reveal();
-      if (immersive) {
-        void applyDeskLayout(layoutHost, { closeOtherEditors: true });
-      }
-      syncDeskChrome();
-      panel.notifyWorkshop(workshopOpen);
-    }, 120);
-    context.subscriptions.push({ dispose: () => clearTimeout(timer) });
+    const panel = CommandDeckPanel.show(context);
+    panel.reveal();
+    if (immersive) {
+      void applyDeskLayout(layoutHost, { closeOtherEditors: true });
+    }
+    syncDeskChrome();
+    panel.notifyWorkshop(workshopOpen);
   }
 }
 

@@ -16,7 +16,7 @@ The orchestrator transcript, selected model, effort, permission, skill, decision
 
 Closing the Workbench while idle simply reattaches to the same orchestrator session on reopen. Closing during a turn stops the owned provider process and records a recoverable interruption; the transcript and session identity survive, but the extension does not claim that an in-flight process remains alive in the background.
 
-The rail includes the six palettes carried forward from the legacy desktop: Kriegspiel Paper, Kriegspiel Night, Linen Folio, Map Vellum, Iron Press, and Carbon Folio. Carbon Folio is the default, and the selected palette is kept in local webview state.
+The rail includes the six palettes carried forward from the legacy desktop: Kriegspiel Paper, Kriegspiel Night, Linen Folio, Map Vellum, Iron Press, and Carbon Folio. Carbon Folio is the default. After you pick a palette, Workbench keeps that choice in this profile and restores it on the next open, before the desk paints.
 
 The five seats describe the job rather than the vendor:
 

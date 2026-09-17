@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.14 — 2026-09-17
+
+- Keep the last palette you chose. Reopen or relaunch restores it instead of snapping back to dark.
+- The chosen palette is on the desk before first paint, so a light folio does not flash Carbon first.
+- Unsent composer text comes back with the same conversation.
+- Cold open hides more leftover editor chrome. The `GENERALSTAFF_ROOT` chip now reads Private root.
+- Open workshop is a tool room: files in the side, no Code activity-bar logo, and a Workshop plaque. Return to desk still puts the quiet conversation back.
+- Craft receipts are unchanged. A live paid run is still required to prove a real receipt.
+
 ## 0.4.13 — 2026-09-17
 
 - Room enter does not dead-end when no model lane can change files. Enter stays disabled, and the same receipt surface names the lane gap in plain words.

@@ -31,10 +31,10 @@ test('desk arrival hides IDE chrome with explicit commands, never toggles', () =
 test('workshop reveal is a deliberate labeled open, and return copy stays plain', () => {
   assert.equal(workshopButtonLabel(false), 'Open workshop');
   assert.equal(workshopButtonLabel(true), 'Return to desk');
-  assert.equal(workshopWorkbenchSettings['activityBar.location'], 'default');
+  assert.equal(workshopWorkbenchSettings['activityBar.location'], 'hidden');
   assert.equal(workshopWorkbenchSettings['statusBar.visible'], true);
   assert.equal(workshopWorkbenchSettings['editor.showTabs'], 'multiple');
-  assert.ok(workshopChromeCommands[0]?.startsWith('workbench.action.activityBarLocation.'));
+  assert.equal(workshopChromeCommands[0], 'workbench.view.explorer');
 });
 
 test('desk layout writes settings then hides chrome, and can close leftover editors', async () => {
@@ -60,35 +60,23 @@ test('desk layout writes settings then hides chrome, and can close leftover edit
   assert.deepEqual(commands, [...deskChromeCommands, ...deskEditorCommands]);
 });
 
-test('workshop layout restores chrome and stops after the first working activity-bar command', async () => {
+test('workshop layout opens the file room without bringing back the Code activity bar', async () => {
   const commands: string[] = [];
+  const settings: Array<[string, unknown]> = [];
   const host = {
     executeCommand: async (command: string) => {
       commands.push(command);
-      if (command === 'workbench.action.activityBarLocation.side') {
-        throw new Error('missing on this host');
-      }
       return undefined;
     },
-    updateWorkbenchSetting: async () => undefined,
+    updateWorkbenchSetting: async (key: string, value: unknown) => {
+      settings.push([key, value]);
+    },
   };
 
   await applyWorkshopLayout(host);
-  assert.deepEqual(commands, [
-    'workbench.action.activityBarLocation.side',
-    'workbench.action.activityBarLocation.default',
-  ]);
-
-  commands.length = 0;
-  const successful = {
-    executeCommand: async (command: string) => {
-      commands.push(command);
-      return undefined;
-    },
-    updateWorkbenchSetting: async () => undefined,
-  };
-  await applyWorkshopLayout(successful);
-  assert.deepEqual(commands, ['workbench.action.activityBarLocation.side']);
+  assert.deepEqual(Object.fromEntries(settings), workshopWorkbenchSettings);
+  assert.deepEqual(commands, ['workbench.view.explorer']);
+  assert.equal(workshopWorkbenchSettings['activityBar.location'], 'hidden');
 });
 
 test('product defaults arrive at the desk instead of a programmer attic', async () => {
@@ -116,6 +104,8 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.equal(workspace.settings['workbench.editor.showTabs'], 'none');
   assert.equal(workspace.settings['workbench.startupEditor'], 'none');
   assert.equal(workspace.settings['workbench.editor.empty.hint'], 'hidden');
+  assert.equal(workspace.settings['workbench.layoutControl.enabled'], false);
+  assert.equal(workspace.settings['workbench.navigationControl.enabled'], false);
   assert.equal(workspace.settings['breadcrumbs.enabled'], false);
   assert.equal(workspace.settings['window.menuBarVisibility'], 'hidden');
   assert.equal(workspace.settings['terminal.integrated.hideOnStartup'], 'always');
@@ -125,6 +115,10 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.match(webview, /data-action="toggle-workshop"/);
   assert.match(webview, /Open workshop/);
   assert.match(webview, /Return to desk/);
+  assert.match(webview, /class="workshop-plaque"/);
+  assert.match(webview, /workbench\$\{arriving \? ' arriving' : ''\}\$\{arriving && state\.returningToConversation \? ' returning' : ''\}\$\{state\.workshopOpen \? ' workshop' : ''\}/);
+  assert.match(css, /\.workbench\.workshop \{/u);
+  assert.match(css, /\.workshop-plaque \{/u);
   assert.match(webview, /id="target-select"/);
   assert.match(webview, /headroom-instrument/);
   assert.match(webview, /class="seat-bank"/);

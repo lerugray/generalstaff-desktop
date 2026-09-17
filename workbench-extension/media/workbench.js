@@ -11,7 +11,10 @@
     { id: 'carbon', name: 'Carbon Folio' },
   ];
   const themeIds = new Set(themes.map((theme) => theme.id));
-  const initialTheme = themeIds.has(saved.selectedTheme) ? saved.selectedTheme : 'carbon';
+  const hostTheme = document.body.dataset.theme;
+  const initialTheme = themeIds.has(saved.selectedTheme)
+    ? saved.selectedTheme
+    : (themeIds.has(hostTheme) ? hostTheme : 'carbon');
   document.body.dataset.theme = initialTheme;
 
   const state = {
@@ -45,6 +48,19 @@
     headroomOpen: Boolean(saved.headroomOpen),
   };
   let deskArrived = false;
+  let draftSaveTimer = 0;
+
+  function persistDraft(text, immediate) {
+    state.draft = text;
+    remember();
+    window.clearTimeout(draftSaveTimer);
+    const send = () => vscode.postMessage({ type: 'save-draft', text: state.draft });
+    if (immediate) {
+      send();
+      return;
+    }
+    draftSaveTimer = window.setTimeout(send, 160);
+  }
 
   const seatCopy = {
     orchestrate: ['Orchestrate', 'Direct work, preserve decisions, and judge completion.'],
@@ -428,7 +444,7 @@
       state.selectedSkillId = session.skillId || '';
       state.selectedPermission = session.permission || 'read';
     }
-    if (clearDraft) state.draft = '';
+    if (clearDraft) persistDraft('', true);
   }
 
   function compatibleLanes() {
@@ -472,6 +488,7 @@
     state.selectedTheme = id;
     document.body.dataset.theme = id;
     remember();
+    vscode.postMessage({ type: 'set-theme', themeId: id });
     render();
   }
 
@@ -484,7 +501,7 @@
       <aside class="rail">
         <div class="brand">
           <div class="brand-mark"><span>G</span><span>S</span></div>
-          <div><strong>GeneralStaff</strong><small>Workbench 2.5</small></div>
+          <div><strong>GeneralStaff</strong><small>${state.workshopOpen ? 'Workshop' : 'Workbench 2.5'}</small></div>
         </div>
         <button class="general-command-target ${state.activeConversationId === state.orchestratorSessionId ? 'selected' : ''}" data-action="general-command">
           <span class="general-command-mark">GS</span>
@@ -620,7 +637,7 @@
   function renderTopbar(title, eyebrow) {
     return `
       <header class="topbar">
-        <div class="topbar-identity"><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
+        <div class="topbar-identity"><small>${escapeHtml(state.workshopOpen ? 'WORKSHOP · TOOL ROOM' : eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
         <div class="topbar-actions">
           ${state.snapshot?.rootPath ? `${renderTargetSelect()}${renderHeadroom()}` : ''}
           <button class="ghost-button" data-action="toggle-workshop">${state.workshopOpen ? 'Return to desk' : 'Open workshop'}</button>
@@ -873,6 +890,7 @@
       <main class="main">
         ${renderTopbar(general ? 'General Command' : project?.name || 'Project Command', general ? 'GENERAL STAFF · ORCHESTRATOR SEAT' : 'GENERAL STAFF · PROJECT SEAT')}
         <div class="content">
+          ${renderWorkshopPlaque()}
           <section class="hero">
             <div class="hero-copy">
               <span class="hero-kicker"><span></span> ${general ? 'The orchestrator is listening' : 'The project seat is listening'}</span>
@@ -1001,6 +1019,15 @@
       </section>`;
   }
 
+  function renderWorkshopPlaque() {
+    if (!state.workshopOpen) return '';
+    return `
+      <aside class="workshop-plaque" role="status">
+        <strong>Workshop</strong>
+        <span>Files and the supporting terminal live in this room. Return to desk when you want the quiet conversation back.</span>
+      </aside>`;
+  }
+
   function renderConversation() {
     let conversation = currentConversation();
     if (!conversation && state.selectedTargetKind === 'general' && state.orchestratorSessionId) {
@@ -1019,6 +1046,7 @@
       <main class="main conversation-main">
         ${renderTopbar(orchestrator ? 'Orchestrator session' : conversation.title, orchestrator ? (hasVisibleConversation(conversation) ? 'GENERAL STAFF · SAME CONVERSATION' : 'GENERAL STAFF · YOUR DESK') : `${escapeHtml(project?.name || conversation.target?.projectId || 'Project')} · ${escapeHtml(seatCopy[conversation.seat]?.[0] || conversation.seat)}`)}
         <div class="conversation-shell">
+          ${renderWorkshopPlaque()}
           <div class="conversation-meta">
             ${orchestrator ? renderSessionIdentity(conversation) : '<button class="back-button" data-action="dashboard">← Project Command</button>'}
             <div class="meta-chips">
@@ -1027,7 +1055,7 @@
               <span class="evidence-chip">${escapeHtml(lane?.evidenceLabel || 'Evidence class not recorded')}</span>
               ${conversation.skillId ? `<span class="skill-chip">/${escapeHtml(conversation.skillId)}</span>` : ''}
               <span class="permission-chip ${consentGranted(conversation) ? 'write' : ''}">${consentGranted(conversation) ? `Inside ${escapeHtml(currentRoomName(conversation))}` : 'Look only'}</span>
-              ${project && state.workshopOpen ? '<button data-action="open-project">Open project ↗</button>' : project ? '<span class="root-chip">PROJECT</span>' : '<span class="root-chip">GENERALSTAFF_ROOT</span>'}
+              ${project && state.workshopOpen ? '<button data-action="open-project">Open project ↗</button>' : project ? '<span class="root-chip">Project</span>' : '<span class="root-chip">Private root</span>'}
             </div>
           </div>
           ${contextItems.length ? `<div class="conversation-context"><span>Context</span>${contextItems.map((item) => `<button data-file-path="${escapeHtml(item.path)}">${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}
@@ -1072,7 +1100,7 @@
     ensureSelections();
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
     const arriving = !deskArrived;
-    app.innerHTML = `<div class="workbench${arriving ? ' arriving' : ''}${arriving && state.returningToConversation ? ' returning' : ''}">${renderRail()}${content}${renderNotice()}</div>`;
+    app.innerHTML = `<div class="workbench${arriving ? ' arriving' : ''}${arriving && state.returningToConversation ? ' returning' : ''}${state.workshopOpen ? ' workshop' : ''}">${renderRail()}${content}${renderNotice()}</div>`;
     deskArrived = true;
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
@@ -1214,8 +1242,7 @@
     );
     prompt.value = next.text;
     prompt.setSelectionRange(next.cursor, next.cursor);
-    state.draft = prompt.value;
-    remember();
+    persistDraft(prompt.value);
     closeSlashSkillMenu();
     prompt.focus();
   }
@@ -1486,8 +1513,7 @@
 
   app.addEventListener('input', (event) => {
     if (event.target.id === 'prompt') {
-      state.draft = event.target.value;
-      remember();
+      persistDraft(event.target.value);
       syncSlashSkillMenu(true);
     }
   });
@@ -1554,6 +1580,9 @@
       state.conversations = message.conversations || [];
       state.orchestratorSessionId = message.orchestratorSessionId || null;
       if (!state.hydrated) {
+        if (!state.draft && typeof message.composerDraft === 'string') {
+          state.draft = message.composerDraft;
+        }
         state.activeConversationId = state.orchestratorSessionId;
         state.selectedTargetKind = 'general';
         const session = state.conversations.find((item) => item.id === state.orchestratorSessionId);
@@ -1581,7 +1610,7 @@
         if (accepted) {
           const prompt = document.getElementById('prompt');
           if (prompt) prompt.value = '';
-          state.draft = '';
+          persistDraft('', true);
           state.pendingSend = null;
         }
       }

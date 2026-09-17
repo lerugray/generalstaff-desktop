@@ -95,6 +95,14 @@ test('accepts the workshop toggle', () => {
   assert.deepEqual(parseWebviewMessage({ type: 'toggle-workshop' }), { type: 'toggle-workshop' });
 });
 
+test('accepts an explicit palette choice and unsent composer text', () => {
+  assert.deepEqual(parseWebviewMessage({ type: 'set-theme', themeId: 'paper' }), { type: 'set-theme', themeId: 'paper' });
+  assert.equal(parseWebviewMessage({ type: 'set-theme', themeId: 'neon' }), undefined);
+  assert.deepEqual(parseWebviewMessage({ type: 'save-draft', text: 'Hold that thought.' }), { type: 'save-draft', text: 'Hold that thought.' });
+  assert.deepEqual(parseWebviewMessage({ type: 'save-draft', text: '' }), { type: 'save-draft', text: '' });
+  assert.equal(parseWebviewMessage({ type: 'save-draft', text: 'x'.repeat(80_001) }), undefined);
+});
+
 test('accepts a room enter or leave with only the conversation id', () => {
   assert.deepEqual(
     parseWebviewMessage({ type: 'enter-room', conversationId: 'orchestrator-session' }),

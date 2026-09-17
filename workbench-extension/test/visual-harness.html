@@ -7,6 +7,13 @@
     <link rel="stylesheet" href="../media/workbench.css">
   </head>
   <body>
+    <script>
+      (function () {
+        const allowed = ['paper', 'night', 'linen', 'vellum', 'iron', 'carbon'];
+        const theme = new URLSearchParams(location.search).get('theme');
+        document.body.dataset.theme = allowed.includes(theme) ? theme : 'carbon';
+      })();
+    </script>
     <div id="app"><div class="boot"><div class="boot-mark">GS</div></div></div>
     <script>
       const now = Date.now();
@@ -217,7 +224,10 @@
         setState: (value) => { persisted = value; },
         postMessage: (message) => {
           if (message.type === 'ready' || message.type === 'refresh') {
-            setTimeout(() => window.postMessage({ type: 'state', snapshot, conversations, orchestratorSessionId: orchestratorSession.id, notes }, '*'), 10);
+            setTimeout(() => window.postMessage({ type: 'state', snapshot, conversations, orchestratorSessionId: orchestratorSession.id, notes, composerDraft: persisted.draft || '' }, '*'), 10);
+            if (mode === 'workshop') {
+              setTimeout(() => window.postMessage({ type: 'workshop-state', open: true }, '*'), 20);
+            }
             if (mode) {
               const selected = conversations.find((conversation) => conversation.id === `${mode}-conversation`);
               if (selected) setTimeout(() => window.postMessage({ type: 'conversation-selected', conversation: selected }, '*'), 25);

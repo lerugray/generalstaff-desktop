@@ -1,4 +1,5 @@
 import type { CommandTarget, EffortId, LaneId, PermissionMode, SeatId } from '../domain.js';
+import { isThemeId, type WorkbenchThemeId } from '../deskPreferences.js';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -16,6 +17,8 @@ export type WebviewMessage =
   | { type: 'choose-root' }
   | { type: 'save-note'; projectId: string; text: string }
   | { type: 'toggle-workshop' }
+  | { type: 'set-theme'; themeId: WorkbenchThemeId }
+  | { type: 'save-draft'; text: string }
   | { type: 'enter-room'; conversationId: string }
   | { type: 'leave-room'; conversationId: string };
 
@@ -175,6 +178,16 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     case 'choose-root':
     case 'toggle-workshop':
       return { type: value.type };
+    case 'set-theme':
+      if (isThemeId(value.themeId)) {
+        return { type: value.type, themeId: value.themeId };
+      }
+      return undefined;
+    case 'save-draft':
+      if (typeof value.text === 'string' && value.text.length <= 80_000) {
+        return { type: value.type, text: value.text };
+      }
+      return undefined;
     case 'enter-room':
     case 'leave-room':
       if (isShortString(value.conversationId, 160)) {

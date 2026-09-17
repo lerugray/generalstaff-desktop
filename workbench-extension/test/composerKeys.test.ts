@@ -24,6 +24,14 @@ const composerKeys = require(path.join(process.cwd(), 'media/composerKeys.js')) 
     skillId: string,
   ) => { text: string; cursor: number };
   moveSkillHighlight: (index: number, count: number, delta: number) => number;
+  shouldSelectAll: (event: {
+    target?: { id?: string };
+    key?: string;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+  }) => boolean;
 };
 
 function promptEvent(overrides: Record<string, unknown> = {}) {
@@ -113,4 +121,20 @@ test('arrow highlight stays inside the filtered list', () => {
   assert.equal(composerKeys.moveSkillHighlight(2, 3, 1), 2);
   assert.equal(composerKeys.moveSkillHighlight(0, 3, -1), 0);
   assert.equal(composerKeys.moveSkillHighlight(0, 0, 1), 0);
+});
+
+test('Ctrl/Cmd+A in the prompt is a composer select-all, not a host chord', () => {
+  assert.equal(composerKeys.shouldSelectAll(promptEvent({ key: 'a', ctrlKey: true })), true);
+  assert.equal(composerKeys.shouldSelectAll(promptEvent({ key: 'A', metaKey: true })), true);
+  assert.equal(composerKeys.shouldSelectAll(promptEvent({ key: 'a', ctrlKey: true, shiftKey: true })), false);
+  assert.equal(composerKeys.shouldSelectAll(promptEvent({ key: 'a', ctrlKey: true, target: { id: 'skill-select' } })), false);
+  assert.equal(composerKeys.shouldSelectAll(promptEvent({ key: undefined, ctrlKey: true })), false);
+});
+
+test('slash skill query survives non-integer cursors and never throws', () => {
+  assert.deepEqual(composerKeys.slashSkillQuery('/', 1), { start: 0, end: 1, query: '' });
+  assert.deepEqual(composerKeys.slashSkillQuery('/', 1.0), { start: 0, end: 1, query: '' });
+  assert.equal(composerKeys.slashSkillQuery('/', 0), null);
+  assert.equal(composerKeys.slashSkillQuery('/', Number.NaN), null);
+  assert.equal(composerKeys.slashSkillQuery('/', Number.POSITIVE_INFINITY), null);
 });

@@ -95,6 +95,19 @@ test('accepts the workshop toggle', () => {
   assert.deepEqual(parseWebviewMessage({ type: 'toggle-workshop' }), { type: 'toggle-workshop' });
 });
 
+test('accepts a room enter or leave with only the conversation id', () => {
+  assert.deepEqual(
+    parseWebviewMessage({ type: 'enter-room', conversationId: 'orchestrator-session' }),
+    { type: 'enter-room', conversationId: 'orchestrator-session' },
+  );
+  assert.deepEqual(
+    parseWebviewMessage({ type: 'leave-room', conversationId: 'orchestrator-session' }),
+    { type: 'leave-room', conversationId: 'orchestrator-session' },
+  );
+  assert.equal(parseWebviewMessage({ type: 'enter-room' }), undefined);
+  assert.equal(parseWebviewMessage({ type: 'enter-room', conversationId: '' }), undefined);
+});
+
 test('accepts bounded recovery and decision commands and rejects invented strategies', () => {
   assert.deepEqual(
     parseWebviewMessage({ type: 'retry-run', conversationId: 'one', strategy: 'transcript' }),

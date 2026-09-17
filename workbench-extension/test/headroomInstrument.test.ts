@@ -6,6 +6,7 @@ import {
   bandFromPressure,
   emptyHeadroomSignals,
   headroomBands,
+  isIdleDesk,
   occupancyPressure,
   poolPressure,
   readHeadroom,
@@ -18,6 +19,7 @@ function signals(overrides: Partial<HeadroomSignals> = {}): HeadroomSignals {
   return {
     ...emptyHeadroomSignals(),
     availableLanes: 5,
+    installedLanes: 5,
     totalLanes: 5,
     availableHelpers: 2,
     totalHelpers: 2,
@@ -53,9 +55,10 @@ test('lane pool is the real capacity signal, not an invented monthly quota', () 
   assert.equal(bandFromPressure(poolPressure(signals({ availableLanes: 4 }))), 'tight');
   assert.equal(bandFromPressure(poolPressure(signals({ availableHelpers: 0 }))), 'tight');
   assert.equal(bandFromPressure(poolPressure(signals({ availableLanes: 0 }))), 'stop soon');
-  assert.equal(bandFromPressure(poolPressure(signals({ totalLanes: 0, availableLanes: 0 }))), 'stop soon');
-  assert.equal(readHeadroom(signals({ availableLanes: 0 })).signals.find((item) => item.id === 'pool')?.reading, 'No model lane is ready.');
-  assert.equal(readHeadroom(signals({ availableLanes: 1, totalLanes: 5 })).signals.find((item) => item.id === 'pool')?.reading, 'Almost no lanes are ready.');
+  assert.equal(bandFromPressure(poolPressure(signals({ installedLanes: 0, totalLanes: 8, availableLanes: 0 }))), 'comfortable');
+  assert.equal(bandFromPressure(poolPressure(signals({ availableLanes: 1, installedLanes: 1, totalLanes: 8 }))), 'comfortable');
+  assert.equal(readHeadroom(signals({ availableLanes: 0, transcriptCharacters: 12 })).signals.find((item) => item.id === 'pool')?.reading, 'No model lane is ready.');
+  assert.equal(readHeadroom(signals({ availableLanes: 1, installedLanes: 5, totalLanes: 5, transcriptCharacters: 12 })).signals.find((item) => item.id === 'pool')?.reading, 'Almost no lanes are ready.');
 });
 
 test('fleet occupancy uses live work, review, attention, and desk runs', () => {
@@ -73,7 +76,7 @@ test('the instrument takes the tightest of the three needles', () => {
   assert.equal(quiet.glance, 'Room to keep going');
   assert.deepEqual(quiet.signals.map((item) => item.name), ['Session', 'Lane pool', 'Fleet']);
 
-  const busy = readHeadroom(signals({ availableLanes: 4, activeTasks: 31, reviewTasks: 6, attentionCount: 3 }));
+  const busy = readHeadroom(signals({ transcriptCharacters: 400, availableLanes: 4, activeTasks: 31, reviewTasks: 6, attentionCount: 3 }));
   assert.equal(busy.band, 'tight');
   assert.equal(busy.glance, 'Headroom is getting short');
   assert.equal(busy.signals.find((item) => item.id === 'pool')?.reading, 'Some lanes are down.');
@@ -93,6 +96,23 @@ test('the instrument takes the tightest of the three needles', () => {
       userFacingText(signal.detail);
     }
   }
+});
+
+test('an idle empty desk stays comfortable even when the fleet catalog is incomplete', () => {
+  const coldSignals = signals({
+    availableLanes: 1,
+    installedLanes: 1,
+    totalLanes: 8,
+    activeTasks: 31,
+    reviewTasks: 9,
+    attentionCount: 6,
+  });
+  const cold = readHeadroom(coldSignals);
+  assert.equal(isIdleDesk(signals()), true);
+  assert.equal(isIdleDesk(coldSignals), true);
+  assert.equal(cold.band, 'comfortable');
+  assert.equal(cold.glance, 'Room to keep going');
+  assert.equal(readHeadroom(emptyHeadroomSignals()).band, 'comfortable');
 });
 
 test('rise keeps a living needle that still lands on the named bands', () => {
@@ -125,6 +145,9 @@ test('desk chrome has one headroom instrument and keeps numbers off the default 
   assert.doesNotMatch(webview, /function renderLaneMeter/u);
   assert.doesNotMatch(webview, /class="hero-stats"/u);
   assert.doesNotMatch(webview, /\$\{available\} of \$\{lanes\.length\} lanes ready/u);
+  assert.doesNotMatch(webview, /Headroom · \$\{/u);
+  assert.match(webview, /const idle = /u);
+  assert.match(webview, /installedLanes/u);
   assert.doesNotMatch(webview, /\u2014/u);
   assert.match(css, /\.headroom-instrument \{/u);
   assert.match(css, /\.headroom-dial \{/u);

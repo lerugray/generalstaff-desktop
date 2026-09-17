@@ -6,6 +6,7 @@ import type { LaneState, SeatId } from '../src/domain.js';
 import {
   healthForSeat,
   instrumentsForLanes,
+  orchestratorWelcome,
   readingForSeat,
   seatCopy,
   seatOrder,
@@ -31,11 +32,11 @@ test('seat health is ready when every supporting lane is available', () => {
   });
 });
 
-test('seat health is thin when some supporting lanes are missing or still checking', () => {
+test('seat health is thin when some installed lanes are unavailable or still checking', () => {
   assert.equal(
     healthForSeat('build', [
       lane(['build'], 'available'),
-      lane(['build'], 'missing'),
+      lane(['build'], 'unavailable'),
     ]),
     'thin',
   );
@@ -46,6 +47,40 @@ test('seat health is thin when some supporting lanes are missing or still checki
     ]),
     'thin',
   );
+});
+
+test('missing catalog lanes do not mark a working seat down or thin', () => {
+  assert.equal(
+    healthForSeat('orchestrate', [
+      lane(['orchestrate', 'build', 'review', 'verify', 'assist'], 'available'),
+      lane(['orchestrate', 'build', 'review', 'verify', 'assist'], 'missing'),
+      lane(['build', 'review', 'verify'], 'missing'),
+    ]),
+    'ready',
+  );
+  assert.deepEqual(
+    instrumentsForLanes([
+      lane(['orchestrate', 'build', 'review', 'verify', 'assist'], 'available'),
+      lane(['build', 'review', 'verify'], 'missing'),
+    ]).map((seat) => [seat.name, seat.health]),
+    [
+      ['Orchestrate', 'ready'],
+      ['Build', 'ready'],
+      ['Review', 'ready'],
+      ['Verify', 'ready'],
+      ['Fast assist', 'ready'],
+    ],
+  );
+});
+
+test('orchestrator welcome copy follows seat health and never claims ready when the seat is down', () => {
+  assert.equal(orchestratorWelcome('ready').title, 'The orchestrator seat is ready.');
+  assert.equal(orchestratorWelcome('thin').title, 'The orchestrator seat is ready.');
+  assert.equal(orchestratorWelcome('down').title, 'The orchestrator seat needs a model lane.');
+  assert.doesNotMatch(orchestratorWelcome('down').title, /ready/u);
+  for (const health of ['ready', 'thin', 'down'] as const) {
+    assert.doesNotMatch(JSON.stringify(orchestratorWelcome(health)), /—/);
+  }
 });
 
 test('seat health is down only when no supporting lane is available or still checking', () => {
@@ -84,6 +119,9 @@ test('desk chrome renders full seat names and health, never two-letter chips', a
   assert.match(webview, /data-seat-id="/u);
   assert.match(webview, /class="seat-health"/u);
   assert.match(webview, /class="seat-reading"/u);
+  assert.match(webview, /lane\.state !== 'missing'/u);
+  assert.match(webview, /orchestratorWelcome\(/u);
+  assert.match(webview, /The orchestrator seat needs a model lane/u);
   for (const name of ['Orchestrate', 'Build', 'Review', 'Verify', 'Fast assist']) {
     assert.match(webview, new RegExp(name.replace(' ', '\\s'), 'u'));
   }

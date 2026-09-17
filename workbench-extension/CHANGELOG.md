@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.12 — 2026-09-17
+
+- Seat health ignores catalog lanes that were never installed, so a working desk is ready or thin instead of a stuck-down bank.
+- Entering a room is a first-class confirm. A valid enter completes, shows the grant receipt, and no longer toasts "Command Deck ignored an invalid request".
+- Ctrl+A in the composer stays in the composer, including while the slash-skill list is open or being cleared.
+- Headroom is one instrument. An idle empty desk reads comfortable, not stop soon.
+
 ## 0.4.11 — 2026-09-17
 
 - Keep leftover editor chrome closed: menu bar, breadcrumbs, explorer reveal, and a startup terminal stay off unless you open the workshop.

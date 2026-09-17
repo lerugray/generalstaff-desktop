@@ -55,6 +55,8 @@ test('desk chrome treats consent as a room, not a developer checkbox', async () 
   assert.match(webview, /class="consent-receipt"/u);
   assert.match(webview, /data-action="enter-room"/u);
   assert.match(webview, /data-action="leave-room"/u);
+  assert.match(webview, /postRoomEntry\(true\)/u);
+  assert.match(webview, /type: enter \? 'enter-room' : 'leave-room'/u);
   assert.match(webview, /Inside \$\{/u);
   assert.match(webview, /This seat can change files in/u);
   assert.match(webview, /About to change files in/u);

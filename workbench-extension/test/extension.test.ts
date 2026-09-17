@@ -9,6 +9,7 @@ import {
   resolveOpenFilePath,
   supportsRouting,
   targetSupportsPermission,
+  writeLaneForSeat,
 } from '../src/extensionPolicy.js';
 
 const lane: Pick<LaneSummary, 'state' | 'roles' | 'permissions' | 'efforts'> = {
@@ -72,6 +73,26 @@ test('routing gates lane state, seat, effort, permission, and target-backed writ
   assert.equal(targetSupportsPermission('read', stateOnly as NonNullable<typeof stateOnly>), true);
   assert.equal(targetSupportsPermission('write', stateOnly as NonNullable<typeof stateOnly>), false);
   assert.equal(resolveCommandTarget({ kind: 'project', projectId: 'missing' }, snapshot), undefined);
+});
+
+test('write lane pick prefers the current lane and ignores read-only or missing seats', () => {
+  const readOnly: LaneSummary = {
+    id: 'glm-ollama',
+    runner: 'glm-ollama',
+    name: 'GLM',
+    detail: '',
+    evidenceLabel: '',
+    state: 'available',
+    roles: ['orchestrate'],
+    permissions: ['read'],
+    efforts: [{ id: 'default', label: 'Default' }],
+    defaultEffort: 'default',
+  };
+  const missing: LaneSummary = { ...readOnly, id: 'codex', runner: 'codex', name: 'Codex', state: 'missing', permissions: ['read', 'write'] };
+  const claude: LaneSummary = { ...readOnly, id: 'claude', runner: 'claude', name: 'Claude Fable', permissions: ['read', 'write'] };
+  assert.equal(writeLaneForSeat([readOnly, missing, claude], 'orchestrate', 'glm-ollama')?.id, 'claude');
+  assert.equal(writeLaneForSeat([readOnly, missing, claude], 'orchestrate', 'claude')?.id, 'claude');
+  assert.equal(writeLaneForSeat([readOnly, missing], 'orchestrate'), undefined);
 });
 
 test('open-file resolution refuses paths outside the registered allowlist', () => {

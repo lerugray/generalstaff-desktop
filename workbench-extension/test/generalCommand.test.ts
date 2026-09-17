@@ -18,7 +18,7 @@ test('the orchestrator session is the default dominant surface and project order
   assert.match(webview, /orchestrator \? 'Send' : 'Issue order'/u);
   assert.match(webview, /Open workshop/u);
   assert.match(webview, /id="target-select"/u);
-  assert.match(webview, /meter-chip/u);
+  assert.match(webview, /headroom-instrument/u);
   assert.match(webview, /class="seat-bank"/u);
   assert.match(webview, /class="seat-reading"/u);
   assert.ok(

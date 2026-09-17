@@ -39,6 +39,7 @@
     pendingActionConversationId: null,
     notice: null,
     workshopOpen: false,
+    headroomOpen: Boolean(saved.headroomOpen),
   };
   let deskArrived = false;
 
@@ -62,6 +63,143 @@
       health = 'thin';
     }
     return { health, available: available.length, supporting: supporting.length };
+  }
+
+  function clampUnit(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(1, Math.max(0, value));
+  }
+
+  function rise(value, tightAt, stopAt) {
+    const amount = Math.max(0, Number.isFinite(value) ? value : 0);
+    if (tightAt <= 0 || stopAt <= 0) return amount > 0 ? 1 : 0;
+    if (stopAt <= tightAt) return amount >= stopAt ? 1 : amount > 0 ? 0.4 : 0;
+    if (amount >= stopAt) {
+      return clampUnit(0.75 + 0.25 * ((amount - stopAt) / Math.max(stopAt * 0.5, 1)));
+    }
+    if (amount >= tightAt) {
+      return 0.4 + 0.35 * ((amount - tightAt) / (stopAt - tightAt));
+    }
+    return 0.4 * (amount / tightAt);
+  }
+
+  function bandFromPressure(pressure) {
+    if (pressure >= 0.75) return 'stop soon';
+    if (pressure >= 0.4) return 'tight';
+    return 'comfortable';
+  }
+
+  function countLabel(count, singular, plural) {
+    return `${count} ${count === 1 ? singular : plural}`;
+  }
+
+  function headroomSignals() {
+    const snapshot = state.snapshot;
+    const conversation = currentConversation();
+    const messages = conversation?.messages || [];
+    const transcriptCharacters = messages.reduce((sum, message) => sum + String(message.text || '').length, 0);
+    const attachedFiles = (conversation?.context || []).length + state.pendingContext.length;
+    const skillId = conversation?.skillId || state.selectedSkillId;
+    const skill = (snapshot?.skills || []).find((item) => item.id === skillId);
+    const lanes = snapshot?.lanes || [];
+    const helpers = snapshot?.capabilities || [];
+    const projects = snapshot?.projects || [];
+    return {
+      transcriptCharacters,
+      attachedFiles,
+      skillCharacters: skill?.characterCount || 0,
+      availableLanes: lanes.filter((lane) => lane.state === 'available').length,
+      totalLanes: lanes.length,
+      availableHelpers: helpers.filter((capability) => capability.state === 'available').length,
+      totalHelpers: helpers.length,
+      activeTasks: projects.reduce((sum, project) => sum + (project.inProgress || 0), 0),
+      reviewTasks: projects.reduce((sum, project) => sum + (project.needsReview || 0), 0),
+      attentionCount: (snapshot?.attention || []).length,
+      deskRuns: Object.keys(state.runStatus).length,
+      projectCount: projects.length,
+    };
+  }
+
+  function readHeadroom() {
+    if (!state.snapshot?.rootPath) {
+      return {
+        band: 'comfortable',
+        glance: 'Room to keep going',
+        fill: 0.22,
+        signals: [
+          { id: 'session', name: 'Session', band: 'comfortable', reading: 'This session is still light.', detail: 'no files pinned' },
+          { id: 'pool', name: 'Lane pool', band: 'comfortable', reading: 'The installed lanes are ready.', detail: '0 of 0 lanes ready. 0 of 0 private tools.' },
+          { id: 'occupancy', name: 'Fleet', band: 'comfortable', reading: 'The fleet has room.', detail: '0 active. 0 for review.' },
+        ],
+      };
+    }
+    const signals = headroomSignals();
+    const promptChars = Math.max(0, signals.transcriptCharacters) + Math.max(0, signals.skillCharacters);
+    const sessionPressure = Math.max(rise(promptChars, 24_000, 80_000), rise(signals.attachedFiles, 4, 9));
+    let poolPressure = 0;
+    if (signals.totalLanes <= 0 || signals.availableLanes <= 0) {
+      poolPressure = 1;
+    } else if (signals.availableLanes < signals.totalLanes) {
+      poolPressure = rise(signals.totalLanes - signals.availableLanes, 1, Math.max(2, signals.totalLanes - 1));
+    } else if (signals.totalHelpers > 0 && signals.availableHelpers <= 0) {
+      poolPressure = 0.45;
+    }
+    const projects = Math.max(0, signals.projectCount);
+    const fleetTight = Math.max(2, projects * 2);
+    const fleetStop = Math.max(fleetTight + 1, projects * 5);
+    const occupancyPressure = Math.max(
+      rise(signals.reviewTasks, 3, 9),
+      rise(signals.attentionCount, 2, 6),
+      signals.deskRuns > 0 ? 0.55 : 0,
+      rise(signals.activeTasks, fleetTight, fleetStop),
+    );
+    const files = Math.max(0, signals.attachedFiles);
+    const fileLine = files === 0 ? 'no files pinned' : countLabel(files, 'file pinned', 'files pinned');
+    const sessionBand = bandFromPressure(sessionPressure);
+    const sessionReading = sessionBand === 'stop soon'
+      ? 'This session is heavy. Wrap up soon.'
+      : sessionBand === 'tight'
+        ? 'This session is getting long.'
+        : 'This session is still light.';
+    const poolBand = bandFromPressure(poolPressure);
+    const lanes = `${Math.max(0, signals.availableLanes)} of ${Math.max(0, signals.totalLanes)} lanes ready`;
+    const helpers = `${Math.max(0, signals.availableHelpers)} of ${Math.max(0, signals.totalHelpers)} private tools`;
+    const poolReading = signals.availableLanes <= 0
+      ? 'No model lane is ready.'
+      : poolBand === 'stop soon'
+        ? 'Almost no lanes are ready.'
+        : poolBand === 'tight'
+          ? 'Some lanes are down.'
+          : 'The installed lanes are ready.';
+    const occupancyBand = bandFromPressure(occupancyPressure);
+    const occupancyReading = occupancyBand === 'stop soon'
+      ? 'The fleet is crowded. Finish what is open.'
+      : occupancyBand === 'tight'
+        ? 'The fleet is busy.'
+        : 'The fleet has room.';
+    const pressure = Math.max(sessionPressure, poolPressure, occupancyPressure);
+    const band = bandFromPressure(pressure);
+    const glance = band === 'stop soon'
+      ? 'Stop soon'
+      : band === 'tight'
+        ? 'Headroom is getting short'
+        : 'Room to keep going';
+    return {
+      band,
+      glance,
+      fill: clampUnit(0.16 + pressure * 0.78),
+      signals: [
+        { id: 'session', name: 'Session', band: sessionBand, reading: sessionReading, detail: fileLine },
+        { id: 'pool', name: 'Lane pool', band: poolBand, reading: poolReading, detail: `${lanes}. ${helpers}.` },
+        {
+          id: 'occupancy',
+          name: 'Fleet',
+          band: occupancyBand,
+          reading: occupancyReading,
+          detail: `${countLabel(Math.max(0, signals.activeTasks), 'active', 'active')}. ${countLabel(Math.max(0, signals.reviewTasks), 'for review', 'for review')}.`,
+        },
+      ],
+    };
   }
 
   function escapeHtml(value) {
@@ -114,6 +252,7 @@
       selectedSkillId: state.selectedSkillId,
       selectedTheme: state.selectedTheme,
       draft: state.draft,
+      headroomOpen: state.headroomOpen,
     });
   }
 
@@ -256,9 +395,7 @@
 
   function renderRail() {
     const projects = state.snapshot?.projects || [];
-    const lanes = state.snapshot?.lanes || [];
-    const available = lanes.filter((lane) => lane.state === 'available').length;
-    const privateTools = (state.snapshot?.capabilities || []).filter((capability) => capability.state === 'available').length;
+    const headroom = readHeadroom();
     return `
       <aside class="rail">
         <div class="brand">
@@ -305,8 +442,8 @@
           </div>
         </div>
         <div class="rail-footer">
-          <span class="pulse-dot"></span>
-          <div><strong>${available} of ${lanes.length} lanes ready</strong><small>${privateTools} private tools · one desk</small></div>
+          <span class="pulse-dot ${headroom.band === 'stop soon' ? 'stop' : headroom.band === 'tight' ? 'tight' : ''}"></span>
+          <div><strong>Headroom · ${escapeHtml(headroom.band)}</strong><small>one desk</small></div>
           <button class="icon-button" data-action="refresh" title="Refresh fleet">↻</button>
         </div>
       </aside>`;
@@ -330,10 +467,42 @@
       </label>`;
   }
 
-  function renderLaneMeter() {
-    const lanes = state.snapshot?.lanes || [];
-    const available = lanes.filter((lane) => lane.state === 'available').length;
-    return `<span class="meter-chip">${available} of ${lanes.length} lanes ready</span>`;
+  function renderHeadroom() {
+    const reading = readHeadroom();
+    const needle = Math.round(reading.fill * 180);
+    const bandClass = reading.band === 'stop soon' ? 'stop' : reading.band;
+    return `
+      <div class="headroom-instrument ${bandClass}${state.headroomOpen ? ' open' : ''}">
+        <button
+          type="button"
+          class="headroom-face"
+          data-action="toggle-headroom"
+          aria-expanded="${state.headroomOpen}"
+          aria-label="Headroom, ${escapeHtml(reading.band)}. ${escapeHtml(reading.glance)}"
+        >
+          <span class="headroom-dial" aria-hidden="true">
+            <span class="headroom-arc"></span>
+            <span class="headroom-needle" style="--needle:${needle}"></span>
+          </span>
+          <span class="headroom-copy">
+            <strong>Headroom</strong>
+            <small>${escapeHtml(reading.band)}</small>
+          </span>
+        </button>
+        <div class="headroom-details">
+          <p>${escapeHtml(reading.glance)}</p>
+          ${reading.signals
+            .map(
+              (signal) => `
+                <div class="headroom-signal ${signal.band === 'stop soon' ? 'stop' : signal.band}">
+                  <strong>${escapeHtml(signal.name)}</strong>
+                  <span>${escapeHtml(signal.reading)}</span>
+                  <small>${escapeHtml(signal.detail)}</small>
+                </div>`,
+            )
+            .join('')}
+        </div>
+      </div>`;
   }
 
   function renderSeatBank() {
@@ -369,7 +538,7 @@
       <header class="topbar">
         <div class="topbar-identity"><small>${escapeHtml(eyebrow)}</small><h1>${escapeHtml(title)}</h1></div>
         <div class="topbar-actions">
-          ${state.snapshot?.rootPath ? `${renderTargetSelect()}${renderLaneMeter()}` : ''}
+          ${state.snapshot?.rootPath ? `${renderTargetSelect()}${renderHeadroom()}` : ''}
           <button class="ghost-button" data-action="toggle-workshop">${state.workshopOpen ? 'Return to desk' : 'Open workshop'}</button>
         </div>
         ${renderSeatBank()}
@@ -589,10 +758,6 @@
   function renderDashboard() {
     const project = currentProject();
     const general = state.selectedTargetKind === 'general';
-    const projects = state.snapshot?.projects || [];
-    const totalActive = projects.reduce((sum, item) => sum + item.inProgress, 0);
-    const totalQueued = projects.reduce((sum, item) => sum + item.pending, 0);
-    const totalReview = projects.reduce((sum, item) => sum + item.needsReview, 0);
     return `
       <main class="main">
         ${renderTopbar(general ? 'General Command' : project?.name || 'Project Command', general ? 'GENERAL STAFF · ORCHESTRATOR SEAT' : 'GENERAL STAFF · PROJECT SEAT')}
@@ -602,11 +767,6 @@
               <span class="hero-kicker"><span></span> ${general ? 'The orchestrator is listening' : 'The project seat is listening'}</span>
               <h2>${general ? 'Command the fleet.' : 'State the outcome.'}<br><em>Keep command.</em></h2>
               <p>${escapeHtml(general ? 'Catch up, route, dispatch, and ask fleet-wide questions from the private GeneralStaff root. Choose a project only when the work belongs in one repository.' : project?.mission || 'Direct the next useful project outcome in plain English.')}</p>
-              <div class="hero-stats">
-                <div><strong>${totalActive}</strong><span>active</span></div>
-                <div><strong>${totalQueued}</strong><span>queued</span></div>
-                <div><strong>${totalReview}</strong><span>for review</span></div>
-              </div>
             </div>
             ${renderComposer(false)}
           </section>
@@ -964,6 +1124,10 @@
       vscode.postMessage({ type: 'pick-context', target: currentConversation()?.target || currentTarget() });
     } else if (action === 'choose-root') {
       vscode.postMessage({ type: 'choose-root' });
+    } else if (action === 'toggle-headroom') {
+      state.headroomOpen = !state.headroomOpen;
+      remember();
+      render();
     } else if (action === 'toggle-workshop') {
       vscode.postMessage({ type: 'toggle-workshop' });
     } else if (action === 'enter-room') {

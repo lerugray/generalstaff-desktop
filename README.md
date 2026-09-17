@@ -2,7 +2,7 @@
 
 GeneralStaff Workbench is the current GeneralStaff Desktop product. Its default and dominant surface is one persistent orchestrator session rooted in the private GeneralStaff repository: an operator can catch up, make rulings, follow up, dispatch, or ask a fleet-wide question in a continuous transcript. Choosing an individual project remains available as the secondary per-project order flow.
 
-This realizes the original GeneralStaff Desktop goal more directly. The conversation is the main instrument. Fleet state, progress, artifacts, source files, diffs, previews, terminals, and project order boxes support the orchestrator session instead of competing with it.
+This realizes the original GeneralStaff Desktop goal more directly. The conversation is the main instrument. One headroom gauge on the desk reads session load, the ready lane pool, and fleet occupancy as comfortable, tight, or stop soon. Fleet state, progress, artifacts, source files, diffs, previews, terminals, and project order boxes support the orchestrator session instead of competing with it.
 
 Workbench 2.5 is a first-party Visual Studio Code extension launched in a dedicated profile. It is the product code in this repository. The earlier Tauri and xterm application is retained as historical product work, not as a second current desktop surface.
 

@@ -126,6 +126,19 @@
         persisted.selectedProjectId = 'snesos';
         persisted.selectedLaneId = 'codex';
         persisted.selectedSeat = 'build';
+      } else if (mode === 'quiet') {
+        snapshot.projects = snapshot.projects.map((item) => ({ ...item, pending: 0, inProgress: 0, needsReview: 0 }));
+        snapshot.attention = [];
+        snapshot.lanes = snapshot.lanes.map((lane) => ({ ...lane, state: 'available' }));
+      } else if (mode === 'heavy') {
+        snapshot.projects = snapshot.projects.map((item) => ({ ...item, inProgress: 8, needsReview: 3, pending: 4 }));
+        snapshot.attention = snapshot.attention.concat([
+          { id: 'h1', projectId: 'snesos', kind: 'review', title: 'The playable slice is waiting', detail: 'The fleet already has more open work than it can finish cleanly.' },
+          { id: 'h2', projectId: 'appendix-n', kind: 'blocked', title: 'Editorial queue is backed up', detail: 'Another review is waiting behind the current pass.' },
+          { id: 'h3', projectId: 'retrogaze', kind: 'task', title: 'Archive work is stacked', detail: 'Several jobs are already in motion.' },
+        ]);
+        snapshot.lanes = snapshot.lanes.map((lane) => ({ ...lane, state: lane.id === 'codex' ? 'available' : 'missing' }));
+        persisted.activeConversationId = 'orchestrator-session';
       } else if (mode === 'active') {
         conversations = [{
           id: 'active-conversation', title: 'Reconcile the release evidence', target: { kind: 'project', projectId: 'generalstaff' }, laneId: 'codex', seat: 'verify', effort: 'high', permission: 'read', context: [], decisions: [], createdAt: now - 45000, updatedAt: now,
@@ -146,6 +159,23 @@
           { id: 'orchestrator-assistant', role: 'assistant', text: 'The fleet is grounded. Two projects are active, one review needs your ruling, and no destructive action is pending.', status: 'complete', createdAt: now - 60000 },
         ],
       };
+      if (mode === 'heavy') {
+        orchestratorSession.context = [
+          { label: 'product-contract.md', path: '/fleet/generalstaff/product-contract.md', kind: 'document' },
+          { label: 'mission.md', path: '/fleet/generalstaff/mission.md', kind: 'document' },
+          { label: 'handoff.md', path: '/fleet/generalstaff/handoff.md', kind: 'document' },
+          { label: 'review.md', path: '/fleet/generalstaff/review.md', kind: 'document' },
+          { label: 'notes.md', path: '/fleet/generalstaff/notes.md', kind: 'document' },
+          { label: 'brief.md', path: '/fleet/generalstaff/brief.md', kind: 'document' },
+          { label: 'map.md', path: '/fleet/generalstaff/map.md', kind: 'document' },
+          { label: 'queue.md', path: '/fleet/generalstaff/queue.md', kind: 'document' },
+          { label: 'wrap.md', path: '/fleet/generalstaff/wrap.md', kind: 'document' },
+        ];
+        orchestratorSession.messages = [
+          { id: 'heavy-user', role: 'user', text: 'The desk is already carrying too much. Wrap the open work before we add another pass.', status: 'complete', createdAt: now - 120000 },
+          { id: 'heavy-assistant', role: 'assistant', text: 'The session is heavy, most lanes are down, and the fleet is crowded. Finish what is open.', status: 'complete', createdAt: now - 60000 },
+        ];
+      }
       conversations = [orchestratorSession, ...conversations.map((conversation) => ({ kind: 'command', ...conversation }))];
       window.acquireVsCodeApi = () => ({
         getState: () => persisted,

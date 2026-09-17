@@ -54,6 +54,8 @@ test('lane pool is the real capacity signal, not an invented monthly quota', () 
   assert.equal(bandFromPressure(poolPressure(signals({ availableHelpers: 0 }))), 'tight');
   assert.equal(bandFromPressure(poolPressure(signals({ availableLanes: 0 }))), 'stop soon');
   assert.equal(bandFromPressure(poolPressure(signals({ totalLanes: 0, availableLanes: 0 }))), 'stop soon');
+  assert.equal(readHeadroom(signals({ availableLanes: 0 })).signals.find((item) => item.id === 'pool')?.reading, 'No model lane is ready.');
+  assert.equal(readHeadroom(signals({ availableLanes: 1, totalLanes: 5 })).signals.find((item) => item.id === 'pool')?.reading, 'Almost no lanes are ready.');
 });
 
 test('fleet occupancy uses live work, review, attention, and desk runs', () => {
@@ -109,13 +111,15 @@ test('desk chrome has one headroom instrument and keeps numbers off the default 
   ]);
 
   assert.match(webview, /class="headroom-instrument/u);
-  assert.match(webview, /<summary class="headroom-face"/u);
+  assert.match(webview, /class="headroom-face"/u);
+  assert.match(webview, /data-action="toggle-headroom"/u);
   assert.match(webview, /class="headroom-details"/u);
   assert.match(webview, /Room to keep going/u);
   assert.match(webview, /Headroom is getting short/u);
   assert.match(webview, /Stop soon/u);
   assert.match(webview, /This session is still light/u);
   assert.match(webview, /The installed lanes are ready/u);
+  assert.match(webview, /Almost no lanes are ready/u);
   assert.match(webview, /The fleet has room/u);
   assert.doesNotMatch(webview, /meter-chip/u);
   assert.doesNotMatch(webview, /function renderLaneMeter/u);
@@ -126,6 +130,6 @@ test('desk chrome has one headroom instrument and keeps numbers off the default 
   assert.match(css, /\.headroom-dial \{/u);
   assert.match(css, /\.headroom-needle \{/u);
   assert.match(css, /transition:/u);
-  assert.match(css, /\.headroom-instrument:not\(\[open\]\):hover \.headroom-details/u);
-  assert.match(css, /\.headroom-instrument\[open\] \.headroom-details/u);
+  assert.match(css, /\.headroom-instrument:hover \.headroom-details/u);
+  assert.match(css, /\.headroom-instrument\.open \.headroom-details/u);
 });

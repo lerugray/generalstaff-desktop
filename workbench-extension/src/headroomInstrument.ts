@@ -117,8 +117,11 @@ function sessionCopy(signals: HeadroomSignals, band: HeadroomBand): { reading: s
 function poolCopy(signals: HeadroomSignals, band: HeadroomBand): { reading: string; detail: string } {
   const lanes = `${Math.max(0, signals.availableLanes)} of ${Math.max(0, signals.totalLanes)} lanes ready`;
   const helpers = `${Math.max(0, signals.availableHelpers)} of ${Math.max(0, signals.totalHelpers)} private tools`;
-  if (band === 'stop soon') {
+  if (signals.availableLanes <= 0) {
     return { reading: 'No model lane is ready.', detail: `${lanes}. ${helpers}.` };
+  }
+  if (band === 'stop soon') {
+    return { reading: 'Almost no lanes are ready.', detail: `${lanes}. ${helpers}.` };
   }
   if (band === 'tight') {
     return { reading: 'Some lanes are down.', detail: `${lanes}. ${helpers}.` };

@@ -791,14 +791,6 @@ select:focus-visible {
   min-width: 9.5rem;
 }
 
-.headroom-instrument > summary {
-  list-style: none;
-}
-
-.headroom-instrument > summary::-webkit-details-marker {
-  display: none;
-}
-
 .headroom-face {
   display: flex;
   align-items: center;
@@ -809,11 +801,13 @@ select:focus-visible {
   background: rgb(var(--text-rgb) / 0.015);
   color: var(--paper-muted);
   cursor: pointer;
+  text-align: left;
   transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .headroom-instrument:hover .headroom-face,
-.headroom-instrument[open] .headroom-face {
+.headroom-instrument.open .headroom-face,
+.headroom-instrument:focus-within .headroom-face {
   border-color: var(--line-strong);
   color: var(--paper);
 }
@@ -840,11 +834,21 @@ select:focus-visible {
   background: var(--ink-2);
 }
 
+.headroom-dial::after {
+  position: absolute;
+  z-index: 2;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--paper);
+  content: "";
+}
+
 .headroom-needle {
   position: relative;
   z-index: 1;
-  width: 1.5px;
-  height: 9px;
+  width: 2px;
+  height: 10px;
   border-radius: 1px;
   background: var(--paper);
   transform-origin: 50% 100%;
@@ -900,13 +904,9 @@ select:focus-visible {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.headroom-instrument:not([open]) > .headroom-details {
-  display: grid;
-}
-
-.headroom-instrument[open] .headroom-details,
-.headroom-instrument:not([open]):hover .headroom-details,
-.headroom-instrument:not([open]):focus-within .headroom-details {
+.headroom-instrument.open .headroom-details,
+.headroom-instrument:hover .headroom-details,
+.headroom-instrument:focus-within .headroom-details {
   opacity: 1;
   pointer-events: auto;
   transform: none;

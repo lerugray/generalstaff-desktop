@@ -164,11 +164,13 @@
     const poolBand = bandFromPressure(poolPressure);
     const lanes = `${Math.max(0, signals.availableLanes)} of ${Math.max(0, signals.totalLanes)} lanes ready`;
     const helpers = `${Math.max(0, signals.availableHelpers)} of ${Math.max(0, signals.totalHelpers)} private tools`;
-    const poolReading = poolBand === 'stop soon'
+    const poolReading = signals.availableLanes <= 0
       ? 'No model lane is ready.'
-      : poolBand === 'tight'
-        ? 'Some lanes are down.'
-        : 'The installed lanes are ready.';
+      : poolBand === 'stop soon'
+        ? 'Almost no lanes are ready.'
+        : poolBand === 'tight'
+          ? 'Some lanes are down.'
+          : 'The installed lanes are ready.';
     const occupancyBand = bandFromPressure(occupancyPressure);
     const occupancyReading = occupancyBand === 'stop soon'
       ? 'The fleet is crowded. Finish what is open.'
@@ -468,9 +470,16 @@
   function renderHeadroom() {
     const reading = readHeadroom();
     const needle = Math.round(reading.fill * 180);
+    const bandClass = reading.band === 'stop soon' ? 'stop' : reading.band;
     return `
-      <details class="headroom-instrument ${reading.band === 'stop soon' ? 'stop' : reading.band}" ${state.headroomOpen ? 'open' : ''}>
-        <summary class="headroom-face" title="${escapeHtml(reading.glance)}">
+      <div class="headroom-instrument ${bandClass}${state.headroomOpen ? ' open' : ''}">
+        <button
+          type="button"
+          class="headroom-face"
+          data-action="toggle-headroom"
+          aria-expanded="${state.headroomOpen}"
+          aria-label="Headroom, ${escapeHtml(reading.band)}. ${escapeHtml(reading.glance)}"
+        >
           <span class="headroom-dial" aria-hidden="true">
             <span class="headroom-arc"></span>
             <span class="headroom-needle" style="--needle:${needle}"></span>
@@ -479,7 +488,7 @@
             <strong>Headroom</strong>
             <small>${escapeHtml(reading.band)}</small>
           </span>
-        </summary>
+        </button>
         <div class="headroom-details">
           <p>${escapeHtml(reading.glance)}</p>
           ${reading.signals
@@ -493,7 +502,7 @@
             )
             .join('')}
         </div>
-      </details>`;
+      </div>`;
   }
 
   function renderSeatBank() {
@@ -938,13 +947,6 @@
     const content = state.snapshot.rootPath ? renderConversation() : renderSetup();
     app.innerHTML = `<div class="workbench${deskArrived ? '' : ' arriving'}">${renderRail()}${content}${renderNotice()}</div>`;
     deskArrived = true;
-    const gauge = document.querySelector('.headroom-instrument');
-    if (gauge) {
-      gauge.addEventListener('toggle', () => {
-        state.headroomOpen = gauge.open;
-        remember();
-      });
-    }
     if (state.activeConversationId) {
       requestAnimationFrame(() => {
         const stream = document.querySelector('.message-stream');
@@ -1122,6 +1124,10 @@
       vscode.postMessage({ type: 'pick-context', target: currentConversation()?.target || currentTarget() });
     } else if (action === 'choose-root') {
       vscode.postMessage({ type: 'choose-root' });
+    } else if (action === 'toggle-headroom') {
+      state.headroomOpen = !state.headroomOpen;
+      remember();
+      render();
     } else if (action === 'toggle-workshop') {
       vscode.postMessage({ type: 'toggle-workshop' });
     } else if (action === 'enter-room') {

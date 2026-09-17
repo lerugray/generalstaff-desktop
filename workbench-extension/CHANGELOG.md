@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8 — 2026-09-16
+
+- Show tool and run evidence as craft receipts: what happened, where, and status in plain words.
+- Give a failed pass the same card as a finished one, instead of leading with an exit code or a stack.
+
 ## 0.4.7 — 2026-09-16
 
 - Treat edit consent as entering a room: one key-turn confirm that names the real project or General Staff.

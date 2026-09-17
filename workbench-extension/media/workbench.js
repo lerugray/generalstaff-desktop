@@ -35,6 +35,7 @@
     pendingContext: [],
     creatingConversation: false,
     runStatus: {},
+    runCards: {},
     pendingActionConversationId: null,
     notice: null,
     workshopOpen: false,
@@ -151,6 +152,47 @@
 
   function consentEnteredAt(conversation) {
     return conversation?.writeConsent?.at || conversation?.updatedAt;
+  }
+
+  function fallbackRunReceipt(receipt, roomName) {
+    const place = roomName || 'this room';
+    const where = roomName ? `in ${roomName}` : 'place not recorded';
+    if (receipt.stopped) {
+      return { title: 'Work stopped', what: `This pass was stopped in ${place}.`, where, status: 'Stopped', tone: 'stopped' };
+    }
+    if (receipt.exitCode !== 0) {
+      return { title: 'Work did not finish', what: `This pass could not finish in ${place}.`, where, status: 'Did not finish', tone: 'failed' };
+    }
+    return {
+      title: 'Work finished',
+      what: receipt.permission === 'write' ? `Changed files in ${place}.` : `Looked through ${place}.`,
+      where,
+      status: 'Finished',
+      tone: 'done',
+    };
+  }
+
+  function receiptMark(tone) {
+    if (tone === 'failed' || tone === 'stopped') return '!';
+    if (tone === 'working') return '·';
+    return '✓';
+  }
+
+  function renderCraftCard(card, extraClass = '') {
+    return `
+      <article class="craft-receipt ${escapeHtml(card.tone)} ${extraClass}" role="status">
+        <span class="receipt-mark">${receiptMark(card.tone)}</span>
+        <div class="receipt-copy">
+          <strong>${escapeHtml(card.title)}</strong>
+          <span class="receipt-what">${escapeHtml(card.what)}</span>
+          <small><span class="receipt-where">${escapeHtml(card.where)}</span><span class="receipt-status">${escapeHtml(card.status)}</span></small>
+        </div>
+      </article>`;
+  }
+
+  function conversationCards(conversation) {
+    if (state.runStatus[conversation.id]) return state.runCards[conversation.id] || [];
+    return conversation.receipt?.cards || [];
   }
 
   function selectOrchestratorSession(clearDraft = false) {
@@ -589,26 +631,43 @@
       </main>`;
   }
 
+  function renderToolCards(conversation) {
+    const cards = conversationCards(conversation);
+    if (!cards.length) return '';
+    return `<div class="craft-receipt-stack">${cards.map((card) => renderCraftCard(card, 'tool')).join('')}</div>`;
+  }
+
   function renderReceipt(conversation) {
     const receipt = conversation.receipt;
-    if (!receipt) return '';
+    if (!receipt || state.runStatus[conversation.id]) return '';
+    const roomName = currentRoomName({ target: receipt.target });
+    const summary = receipt.summary || fallbackRunReceipt(receipt, roomName);
     const seconds = Math.max(1, Math.round((receipt.finishedAt - receipt.startedAt) / 1000));
-    const healthy = receipt.exitCode === 0 && !receipt.stopped;
     const continuity = receipt.continuity === 'native'
-      ? 'native session resumed'
+      ? 'Continued the same session'
       : receipt.continuity === 'transcript'
-        ? 'transcript handoff'
-        : 'new provider session';
+        ? 'Continued from the written record'
+        : 'Started a new session';
+    const tone = summary.tone === 'done' ? 'healthy' : 'failed';
     return `
-      <div class="receipt ${healthy ? 'healthy' : 'failed'}">
-        <span class="receipt-mark">${healthy ? '✓' : '!'}</span>
+      <div class="craft-receipt receipt ${tone} ${escapeHtml(summary.tone)}">
+        <span class="receipt-mark">${receiptMark(summary.tone)}</span>
         <div class="receipt-copy">
-          <strong>${healthy ? 'Lane completed' : receipt.stopped ? 'Run stopped' : 'Lane needs attention'}</strong>
-          <small>${escapeHtml(receipt.modelLabel)} · ${seconds}s · exit ${receipt.exitCode ?? '—'} · ${receipt.permission === 'write' ? `inside ${escapeHtml(currentRoomName({ target: receipt.target }))}` : 'looking only'} · ${continuity}${receipt.skillId ? ` · /${escapeHtml(receipt.skillId)}` : ''}${receipt.capabilities?.length ? ` · ${escapeHtml(receipt.capabilities.join(' + '))}` : ''}</small>
+          <strong>${escapeHtml(summary.title)}</strong>
+          <span class="receipt-what">${escapeHtml(summary.what)}</span>
+          <small><span class="receipt-where">${escapeHtml(summary.where)}</span><span class="receipt-status">${escapeHtml(summary.status)}</span></small>
           <details>
-            <summary>Run evidence</summary>
-            <dl><dt>Working directory</dt><dd>${escapeHtml(receipt.workingDirectory || 'not recorded')}</dd><dt>Continuity</dt><dd>${escapeHtml(continuity)}</dd><dt>Room</dt><dd>${receipt.permission === 'write' ? `Entered ${formatWhen(receipt.consentedAt)}` : 'Looking only'}</dd></dl>
-            <pre>${escapeHtml((receipt.evidence || []).join('\n') || 'No raw lane envelope was captured.')}</pre>
+            <summary>Details</summary>
+            <dl>
+              <dt>Folder</dt><dd>${escapeHtml(receipt.workingDirectory || 'not recorded')}</dd>
+              <dt>Session</dt><dd>${escapeHtml(continuity)}</dd>
+              <dt>Seat</dt><dd>${escapeHtml(receipt.modelLabel)}</dd>
+              <dt>Time</dt><dd>About ${seconds} ${seconds === 1 ? 'second' : 'seconds'}</dd>
+              <dt>Room</dt><dd>${receipt.permission === 'write' ? `Entered ${formatWhen(receipt.consentedAt)}` : 'Looking only'}</dd>
+              ${receipt.skillId ? `<dt>Skill</dt><dd>/${escapeHtml(receipt.skillId)}</dd>` : ''}
+              ${receipt.capabilities?.length ? `<dt>Helpers</dt><dd>${escapeHtml(receipt.capabilities.join(', '))}</dd>` : ''}
+            </dl>
+            <pre>${escapeHtml((receipt.evidence || []).join('\n') || 'No extra notes were kept.')}</pre>
           </details>
         </div>
       </div>`;
@@ -697,6 +756,7 @@
                   ${renderDecisions(conversation, message.id, Boolean(run))}`,
               )
               .join('') || `<div class="conversation-welcome"><span class="assistant-mark large">GS</span><h2>${orchestrator ? 'The orchestrator seat is ready.' : 'What project outcome are we ordering?'}</h2><p>${orchestrator ? 'Catch up, make rulings, follow up, or dispatch work. Every message continues this same session from the private GeneralStaff root.' : 'This project order runs from the selected repository with its own bounded conversation.'}</p></div>`}
+            ${renderToolCards(conversation)}
             ${renderReceipt(conversation)}
             ${renderRecovery(conversation, Boolean(run))}
           </section>
@@ -757,6 +817,8 @@
     if (conversation) {
       if (state.runStatus[conversation.id] || state.pendingSend) return;
       state.pendingSend = { conversationId: conversation.id, text };
+      state.runCards[conversation.id] = [];
+      state.runStatus[conversation.id] = 'Taking the seat…';
       vscode.postMessage({ type: 'send-prompt', conversationId: conversation.id, text });
       render();
       return;
@@ -868,6 +930,7 @@
       const id = currentConversation()?.id;
       if (id && !state.runStatus[id]) {
         state.pendingActionConversationId = id;
+        state.runCards[id] = [];
         state.runStatus[id] = action === 'retry-run' ? 'Preparing a safe retry…' : 'Preparing transcript recovery…';
         vscode.postMessage({
           type: 'retry-run',
@@ -1061,12 +1124,27 @@
       }
       if (message.status !== 'streaming') {
         delete state.runStatus[message.conversationId];
+        delete state.runCards[message.conversationId];
         if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
       }
       patchConversationDelta(message);
     } else if (message.type === 'run-event') {
       if (state.pendingActionConversationId === message.conversationId) state.pendingActionConversationId = null;
-      state.runStatus[message.conversationId] = message.event.text;
+      const card = message.card;
+      if (card?.title && card.what && card.where && card.status && card.tone) {
+        const existing = state.runCards[message.conversationId] || [];
+        const last = existing[existing.length - 1];
+        const same = last
+          && last.title === card.title
+          && last.what === card.what
+          && last.where === card.where
+          && last.status === card.status
+          && last.tone === card.tone;
+        state.runCards[message.conversationId] = same ? existing : [...existing, card].slice(-24);
+        state.runStatus[message.conversationId] = card.status;
+      } else {
+        state.runStatus[message.conversationId] = message.event?.text || 'In progress';
+      }
       render();
     } else if (message.type === 'notice') {
       if (message.tone === 'error') state.creatingConversation = false;

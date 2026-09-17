@@ -122,7 +122,7 @@ test('product defaults arrive at the desk instead of a programmer attic', async 
   assert.match(webview, /Open workshop/);
   assert.match(webview, /Return to desk/);
   assert.match(webview, /id="target-select"/);
-  assert.match(webview, /meter-chip/);
+  assert.match(webview, /headroom-instrument/);
   assert.match(webview, /class="seat-bank"/);
   assert.match(webview, /class="seat-instrument/);
   assert.match(webview, /Fast assist/);

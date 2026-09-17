@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9 — 2026-09-17
+
+- Replace the scattered lane meter, rail counts, and hero tallies with one headroom instrument.
+- Read it at a glance as comfortable, tight, or stop soon. Session, lane pool, and fleet numbers stay behind hover or expand.
+
 ## 0.4.8 — 2026-09-16
 
 - Show tool and run evidence as craft receipts: what happened, where, and status in plain words.
